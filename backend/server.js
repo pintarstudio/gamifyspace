@@ -1,20 +1,20 @@
+import dotenv from "dotenv";
+dotenv.config();
+
 import express from "express";
 import session from "express-session";
 import pgSession from "connect-pg-simple";
 import cors from "cors";
-import dotenv from "dotenv";
 import {pool} from "./db/index.js";
 import http from "http";
 import {Server} from "socket.io";
 import {logUserAction} from "./utils/logger.js";
-
 import authRoutes from "./routes/authRoutes.js";
 import courseRoutes from "./routes/courseRoutes.js";
 import sessionRoutes from "./routes/sessionRoutes.js";
 import userRoutes from "./routes/userRoutes.js";
 import avatarRoutes from "./routes/avatarRoutes.js";
 
-dotenv.config();
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
