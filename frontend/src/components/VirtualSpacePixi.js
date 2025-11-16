@@ -80,6 +80,21 @@ const VirtualSpacePixi = ({user}) => {
             // Avatars
             initAvatars(app, worldContainer, checkCollision, TILE_SIZE, mapWidth, mapHeight, user, zoomFactor, localUserRef);
 
+            // Smooth ticker updates for avatar movement
+            PIXI.Ticker.shared.add(() => {
+                if (!window.__avatars) return;
+                for (const id in window.__avatars) {
+                    const a = window.__avatars[id];
+                    if (!a?.sprite) continue;
+                    a.sprite.x += (a.targetX - a.sprite.x) * 0.15;
+                    a.sprite.y += (a.targetY - a.sprite.y) * 0.15;
+                    if (a.nameText) {
+                        a.nameText.x = a.sprite.x;
+                        a.nameText.y = a.sprite.y - a.sprite.height * 0.6;
+                    }
+                }
+            });
+
             // Objects
             console.log("🧭 Calling initObjects...");
             initObjects(app, worldContainer, roomData, user, localUserRef, zoomFactor, handleRoomChange);
