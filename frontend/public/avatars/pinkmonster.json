@@ -1,0 +1,63 @@
+{"frames": {
+
+"pinkmonster-0.png":
+{
+	"frame": {"x":1,"y":1,"w":32,"h":32},
+	"rotated": false,
+	"trimmed": false,
+	"spriteSourceSize": {"x":0,"y":0,"w":32,"h":32},
+	"sourceSize": {"w":32,"h":32}
+},
+"pinkmonster-1.png":
+{
+	"frame": {"x":35,"y":1,"w":32,"h":32},
+	"rotated": false,
+	"trimmed": false,
+	"spriteSourceSize": {"x":0,"y":0,"w":32,"h":32},
+	"sourceSize": {"w":32,"h":32}
+},
+"pinkmonster-2.png":
+{
+	"frame": {"x":69,"y":1,"w":32,"h":32},
+	"rotated": false,
+	"trimmed": false,
+	"spriteSourceSize": {"x":0,"y":0,"w":32,"h":32},
+	"sourceSize": {"w":32,"h":32}
+},
+"pinkmonster-3.png":
+{
+	"frame": {"x":103,"y":1,"w":32,"h":32},
+	"rotated": false,
+	"trimmed": false,
+	"spriteSourceSize": {"x":0,"y":0,"w":32,"h":32},
+	"sourceSize": {"w":32,"h":32}
+},
+"pinkmonster-4.png":
+{
+	"frame": {"x":137,"y":1,"w":32,"h":32},
+	"rotated": false,
+	"trimmed": false,
+	"spriteSourceSize": {"x":0,"y":0,"w":32,"h":32},
+	"sourceSize": {"w":32,"h":32}
+},
+"pinkmonster-5.png":
+{
+	"frame": {"x":171,"y":1,"w":32,"h":32},
+	"rotated": false,
+	"trimmed": false,
+	"spriteSourceSize": {"x":0,"y":0,"w":32,"h":32},
+	"sourceSize": {"w":32,"h":32}
+}},
+"animations": {
+	"pinkmonster": ["pinkmonster-0.png","pinkmonster-1.png","pinkmonster-2.png","pinkmonster-3.png","pinkmonster-4.png","pinkmonster-5.png"]
+},
+"meta": {
+	"app": "https://www.codeandweb.com/texturepacker",
+	"version": "1.1",
+	"image": "pinkmonster.png",
+	"format": "RGBA8888",
+	"size": {"w":204,"h":34},
+	"scale": "1",
+	"smartupdate": "$TexturePacker:SmartUpdate:efb9cf6d5a95fe398969accc333f2406:13286cb361efb87c65a8ba35d63dc823:8edaa621768ed58c955ac9ac3a4cdadc$"
+}
+}

@@ -1,0 +1,63 @@
+{"frames": {
+
+"owlet-0.png":
+{
+	"frame": {"x":0,"y":0,"w":30,"h":30},
+	"rotated": false,
+	"trimmed": false,
+	"spriteSourceSize": {"x":0,"y":0,"w":30,"h":30},
+	"sourceSize": {"w":30,"h":30}
+},
+"owlet-1.png":
+{
+	"frame": {"x":30,"y":0,"w":30,"h":30},
+	"rotated": false,
+	"trimmed": false,
+	"spriteSourceSize": {"x":0,"y":0,"w":30,"h":30},
+	"sourceSize": {"w":30,"h":30}
+},
+"owlet-2.png":
+{
+	"frame": {"x":60,"y":0,"w":30,"h":30},
+	"rotated": false,
+	"trimmed": false,
+	"spriteSourceSize": {"x":0,"y":0,"w":30,"h":30},
+	"sourceSize": {"w":30,"h":30}
+},
+"owlet-3.png":
+{
+	"frame": {"x":90,"y":0,"w":30,"h":30},
+	"rotated": false,
+	"trimmed": false,
+	"spriteSourceSize": {"x":0,"y":0,"w":30,"h":30},
+	"sourceSize": {"w":30,"h":30}
+},
+"owlet-4.png":
+{
+	"frame": {"x":120,"y":0,"w":30,"h":30},
+	"rotated": false,
+	"trimmed": false,
+	"spriteSourceSize": {"x":0,"y":0,"w":30,"h":30},
+	"sourceSize": {"w":30,"h":30}
+},
+"owlet-5.png":
+{
+	"frame": {"x":150,"y":0,"w":30,"h":30},
+	"rotated": false,
+	"trimmed": false,
+	"spriteSourceSize": {"x":0,"y":0,"w":30,"h":30},
+	"sourceSize": {"w":30,"h":30}
+}},
+"animations": {
+	"owlet": ["owlet-0.png","owlet-1.png","owlet-2.png","owlet-3.png","owlet-4.png","owlet-5.png"]
+},
+"meta": {
+	"app": "https://www.codeandweb.com/texturepacker",
+	"version": "1.1",
+	"image": "owlet.png",
+	"format": "RGBA8888",
+	"size": {"w":180,"h":30},
+	"scale": "1",
+	"smartupdate": "$TexturePacker:SmartUpdate:abbf85a97f9437a79e7addd55bf22c25:0a17fe3eaf3545d2f43c2e198f3a15b5:4f06ae53dd8a0fa429ccadb922503265$"
+}
+}

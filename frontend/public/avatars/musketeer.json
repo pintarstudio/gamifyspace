@@ -1,0 +1,79 @@
+{"frames": {
+
+"musketeer-0.png":
+{
+	"frame": {"x":0,"y":0,"w":79,"h":79},
+	"rotated": false,
+	"trimmed": false,
+	"spriteSourceSize": {"x":0,"y":0,"w":79,"h":79},
+	"sourceSize": {"w":79,"h":79}
+},
+"musketeer-1.png":
+{
+	"frame": {"x":79,"y":0,"w":79,"h":79},
+	"rotated": false,
+	"trimmed": false,
+	"spriteSourceSize": {"x":0,"y":0,"w":79,"h":79},
+	"sourceSize": {"w":79,"h":79}
+},
+"musketeer-2.png":
+{
+	"frame": {"x":158,"y":0,"w":79,"h":79},
+	"rotated": false,
+	"trimmed": false,
+	"spriteSourceSize": {"x":0,"y":0,"w":79,"h":79},
+	"sourceSize": {"w":79,"h":79}
+},
+"musketeer-3.png":
+{
+	"frame": {"x":237,"y":0,"w":79,"h":79},
+	"rotated": false,
+	"trimmed": false,
+	"spriteSourceSize": {"x":0,"y":0,"w":79,"h":79},
+	"sourceSize": {"w":79,"h":79}
+},
+"musketeer-4.png":
+{
+	"frame": {"x":316,"y":0,"w":79,"h":79},
+	"rotated": false,
+	"trimmed": false,
+	"spriteSourceSize": {"x":0,"y":0,"w":79,"h":79},
+	"sourceSize": {"w":79,"h":79}
+},
+"musketeer-5.png":
+{
+	"frame": {"x":395,"y":0,"w":79,"h":79},
+	"rotated": false,
+	"trimmed": false,
+	"spriteSourceSize": {"x":0,"y":0,"w":79,"h":79},
+	"sourceSize": {"w":79,"h":79}
+},
+"musketeer-6.png":
+{
+	"frame": {"x":474,"y":0,"w":79,"h":79},
+	"rotated": false,
+	"trimmed": false,
+	"spriteSourceSize": {"x":0,"y":0,"w":79,"h":79},
+	"sourceSize": {"w":79,"h":79}
+},
+"musketeer-7.png":
+{
+	"frame": {"x":553,"y":0,"w":79,"h":79},
+	"rotated": false,
+	"trimmed": false,
+	"spriteSourceSize": {"x":0,"y":0,"w":79,"h":79},
+	"sourceSize": {"w":79,"h":79}
+}},
+"animations": {
+	"musketeer": ["musketeer-0.png","musketeer-1.png","musketeer-2.png","musketeer-3.png","musketeer-4.png","musketeer-5.png","musketeer-6.png","musketeer-7.png"]
+},
+"meta": {
+	"app": "https://www.codeandweb.com/texturepacker",
+	"version": "1.1",
+	"image": "musketeer.png",
+	"format": "RGBA8888",
+	"size": {"w":632,"h":79},
+	"scale": "1",
+	"smartupdate": "$TexturePacker:SmartUpdate:7e3685f9f73771d34411c5e60500af79:5c20ba26b6c36f436c2fc7954df0b69d:029607df143847fd618a6ce9300f0d87$"
+}
+}

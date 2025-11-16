@@ -1,0 +1,38 @@
+.virtual-space {
+    position: relative;
+    width: 800px;
+    height: 600px;
+    margin: 50px auto;
+    border: 3px solid #333;
+    border-radius: 12px;
+    background: repeating-linear-gradient(
+            45deg,
+            #d0e0f0,
+            #d0e0f0 20px,
+            #c0d0e0 20px,
+            #c0d0e0 40px
+    );
+    overflow: hidden;
+}
+
+.avatar {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    text-align: center;
+}
+
+.avatar-img {
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    border: 2px solid #333;
+    background: white;
+}
+
+.avatar-name {
+    margin-top: 4px;
+    font-size: 12px;
+    font-weight: bold;
+    color: #222;
+    text-shadow: 1px 1px 2px #fff;
+}

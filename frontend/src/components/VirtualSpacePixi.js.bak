@@ -1,0 +1,420 @@
+import React, {useEffect, useRef, useState} from "react";
+import * as PIXI from "pixi.js";
+import socket from "../utils/socketClient";
+
+const VirtualSpacePixi = ({user}) => {
+    const pixiContainer = useRef(null);
+    const [roomData, setRoomData] = useState(null);
+    const [users, setUsers] = useState({});
+    const localUserRef = useRef(null);
+
+    useEffect(() => {
+        // Fetch room JSON from public folder
+        fetch("/maps/room1.json")
+            .then((response) => response.json())
+            .then((data) => {
+                setRoomData(data);
+            })
+            .catch((error) => {
+                console.error("Failed to load room data:", error);
+            });
+    }, []);
+
+    useEffect(() => {
+        if (!roomData) return; // Do not run if roomData not loaded yet
+
+        // 1️⃣ Ambil ukuran map dari JSON
+        const TILE_SIZE = roomData.tilewidth;
+        const mapWidth = roomData.width * TILE_SIZE;
+        const mapHeight = roomData.height * TILE_SIZE;
+
+        // ✅ Find collision layer if available
+        const collisionLayer = roomData.layers.find(
+            (layer) =>
+                layer.name === "collision" ||
+                layer.properties?.some((p) => p.name === "collision" && p.value === true)
+        );
+
+        // Store collision tiles in a set for quick lookup
+        const collisionMap = new Set();
+        if (collisionLayer) {
+            collisionLayer.data.forEach((gid, index) => {
+                if (gid !== 0) collisionMap.add(index);
+            });
+        }
+
+        // Function to check collision at pixel coordinate
+        const checkCollision = (x, y) => {
+            const col = Math.floor(x / TILE_SIZE);
+            const row = Math.floor(y / TILE_SIZE);
+            const index = row * roomData.width + col;
+            return collisionMap.has(index);
+        };
+
+        (async () => {
+            const app = new PIXI.Application();
+            await app.init({
+                width: mapWidth,
+                height: mapHeight,
+                backgroundColor: 0xf0f0f0,
+                antialias: true,
+            });
+            // ✅ Resize renderer to fill the full screen properly and keep aspect ratio
+            app.renderer.resize(window.innerWidth, window.innerHeight);
+
+            const container = pixiContainer.current;
+            if (!container) return;
+            container.innerHTML = "";
+            container.appendChild(app.canvas);
+            app.canvas.style.display = "block";
+            app.canvas.style.margin = "0";
+            // app.canvas.style.width = "100vw";
+            // app.canvas.style.height = "100vh";
+
+            // 4️⃣ Load tileset image
+            PIXI.Assets.load("/tiles/TopDownHouse_FloorsAndWalls.png").then((texture) => {
+                const source = texture.source; // ✅ bukan baseTexture
+                const tileset = roomData.tilesets[0];
+                const firstGid = tileset.firstgid || 1;
+                const tilesPerRow = Math.floor(tileset.imagewidth / tileset.tilewidth);
+                const margin = tileset.margin || 0;
+                const spacing = tileset.spacing || 0;
+
+                const groundLayer = new PIXI.Container();
+
+                roomData.layers
+                    .filter((layer) => layer.type === "tilelayer")
+                    .forEach((layer) => {
+                        const offsetX = layer.offsetx || 0;
+                        const offsetY = layer.offsety || 0;
+
+                        layer.data.forEach((gid, i) => {
+                            if (gid === 0) return;
+
+                            const localIndex = gid - firstGid;
+                            if (localIndex < 0) return;
+
+                            const col = i % roomData.width;
+                            const row = Math.floor(i / roomData.width);
+
+                            const x = margin + (localIndex % tilesPerRow) * (TILE_SIZE + spacing);
+                            const y = margin + Math.floor(localIndex / tilesPerRow) * (TILE_SIZE + spacing);
+
+                            // ✅ V8 version (no deprecated baseTexture)
+                            const tileTexture = new PIXI.Texture({
+                                source,
+                                frame: new PIXI.Rectangle(x, y, TILE_SIZE, TILE_SIZE)
+                            });
+                            const sprite = new PIXI.Sprite({texture: tileTexture});
+                            sprite.x = col * TILE_SIZE + offsetX;
+                            sprite.y = row * TILE_SIZE + offsetY;
+                            groundLayer.addChild(sprite);
+                        });
+                    });
+
+                // Create a world container and add groundLayer to it
+                const worldContainer = new PIXI.Container();
+                app.stage.addChild(worldContainer);
+                worldContainer.addChild(groundLayer);
+
+                // ✅ Load interactable objects layer
+                const objectLayer = roomData.layers.find(
+                    (l) => l.type === "objectgroup" && l.name === "interactables"
+                );
+
+                // Zoom factor is needed for sizing interactables
+                const zoomFactor = 1.5;
+
+                if (objectLayer && objectLayer.objects) {
+                    objectLayer.objects.forEach((obj) => {
+                        const nameProp = obj.properties?.find((p) => p.name === "name")?.value;
+                        const imageProp = obj.properties?.find((p) => p.name === "image")?.value;
+                        const actionProp = obj.properties?.find((p) => p.name === "action")?.value;
+                        const urlProp = obj.properties?.find((p) => p.name === "url")?.value;
+
+                        if (imageProp) {
+                            PIXI.Assets.load(`/${imageProp}`).then((texture) => {
+                                // --- Sprite sheet/tile crop rendering fix ---
+                                const source = texture.source;
+                                const tileWidth = obj.width;
+                                const tileHeight = obj.height;
+                                // Ensure consistent scaling and correct framing
+                                const tileFrame = new PIXI.Rectangle(0, 0, tileWidth, tileHeight);
+                                const tileTexture = new PIXI.Texture({source, frame: tileFrame});
+                                const sprite = new PIXI.Sprite({texture: tileTexture});
+                                // Position and scale correctly
+                                sprite.x = obj.x;
+                                sprite.y = obj.y - obj.height;
+                                sprite.scale.set(zoomFactor);
+                                sprite.zIndex = 500;
+                                sprite.interactive = true;
+                                sprite.buttonMode = true;
+
+                                // --- Proximity detection and keyboard interaction ---
+                                // Proximity radius in pixels
+                                const proximityRadius = 40;
+                                // Show "Press O to interact" overlay
+                                const hintText = new PIXI.Text({
+                                    text: "Press O to interact",
+                                    style: {
+                                        fontSize: 12,
+                                        fill: "#ffffff",
+                                        fontWeight: "bold",
+                                        backgroundColor: "#000000",
+                                    },
+                                });
+                                hintText.visible = false;
+                                hintText.x = sprite.x;
+                                hintText.y = sprite.y - 20;
+                                worldContainer.addChild(hintText);
+
+                                // Keyboard listener for O key (per object, so closure captures props)
+                                const keydownHandler = (e) => {
+                                    if (e.key.toLowerCase() === "o" && hintText.visible) {
+                                        if (actionProp === "openurl" && urlProp) {
+                                            const queryParams = new URLSearchParams({
+                                                user_id: user.user_id || user.id,
+                                                name: user.name || "Guest",
+                                                email: user.email || "",
+                                            }).toString();
+
+                                            const finalUrl = urlProp.includes("?")
+                                                ? `${urlProp}&${queryParams}`
+                                                : `${urlProp}?${queryParams}`;
+
+                                            const popup = window.open(
+                                                finalUrl,
+                                                "popupWindow",
+                                                "popup=yes,width=800,height=600,top=100,left=100,resizable=yes,scrollbars=yes,status=no"
+                                            );
+                                            if (popup) popup.focus();
+                                            // Always emit for logging when O is pressed near the object
+                                            const currentObj = obj; // capture current object context
+                                            console.log("Emit interact_obj:", {
+                                                user_id: user.user_id,
+                                                object_name: currentObj.name || nameProp || "unknown_object",
+                                                url: finalUrl,
+                                            });
+
+                                            socket.emit("interact_obj", {
+                                                user_id: user.user_id || user.id || null,
+                                                object_name: currentObj.name || nameProp || "unknown_object",
+                                                url: finalUrl,
+                                            });
+                                        }
+                                    }
+                                };
+                                window.addEventListener("keydown", keydownHandler);
+
+                                // Update loop to show/hide hint text based on proximity to avatar
+                                app.ticker.add(() => {
+                                    const localUser = localUserRef.current;
+                                    if (!localUser) return;
+
+                                    // Center of object sprite
+                                    const objCenterX = sprite.x + sprite.width / 2;
+                                    const objCenterY = sprite.y + sprite.height / 2;
+                                    const dx = localUser.x - objCenterX;
+                                    const dy = localUser.y - objCenterY;
+                                    const distance = Math.sqrt(dx * dx + dy * dy);
+                                    if (distance < proximityRadius) {
+                                        hintText.visible = true;
+                                    } else {
+                                        hintText.visible = false;
+                                    }
+                                });
+
+                                // Clean up listeners when destroying app
+                                if (!sprite._destroyedCleanup) {
+                                    sprite._destroyedCleanup = () => {
+                                        window.removeEventListener("keydown", keydownHandler);
+                                    };
+                                }
+                                // Add to world
+                                worldContainer.addChild(sprite);
+                            });
+                        }
+                    });
+                }
+
+                // app.stage.addChild(groundLayer); // removed as per instruction
+
+                // ✅ Zoom the entire stage for better visibility
+                worldContainer.scale.set(zoomFactor);
+
+                // Center the stage in the renderer view
+                worldContainer.x = (app.renderer.width - mapWidth * zoomFactor) / 2;
+                worldContainer.y = (app.renderer.height - mapHeight * zoomFactor) / 2;
+
+                // 5️⃣ Tambahkan avatar user di atas tile map
+                // Buat objek untuk menyimpan sprite avatar user lain
+                const avatars = {};
+
+                // Fungsi untuk render semua avatar user (asynchronous)
+                const renderUsers = async (usersData) => {
+                    // Hapus avatar yang sudah tidak ada di usersData
+                    Object.keys(avatars).forEach((id) => {
+                        if (!usersData[id]) {
+                            worldContainer.removeChild(avatars[id].sprite);
+                            worldContainer.removeChild(avatars[id].nameText);
+                            delete avatars[id];
+                        }
+                    });
+
+                    for (const [id, u] of Object.entries(usersData)) {
+                        const avatarUrl = u.avatar && u.avatar.trim() !== "" ? u.avatar : "/avatar/default.png";
+                        if (!avatars[id]) {
+                            const texture = await PIXI.Assets.load(avatarUrl);
+                            const sprite = new PIXI.Sprite(texture);
+                            sprite.anchor.set(0.5);
+                            //Ukuran Avatar
+                            sprite.width = TILE_SIZE * 3;
+                            sprite.height = TILE_SIZE * 3;
+                            sprite.zIndex = 1000; // pastikan di atas layer lain
+                            worldContainer.addChild(sprite);
+
+                            const nameText = new PIXI.Text({
+                                text: u.name || "User",
+                                style: {
+                                    fontSize: 12,
+                                    fill: "#000",
+                                    fontWeight: "bold",
+                                    align: "center",
+                                },
+                            });
+                            nameText.anchor.set(0.5);
+                            nameText.x = u.x;
+                            nameText.y = u.y - sprite.height * 0.6;
+                            worldContainer.addChild(nameText);
+
+                            avatars[id] = {sprite, nameText};
+                        }
+                        avatars[id].sprite.x = u.x;
+                        avatars[id].sprite.y = u.y;
+                        avatars[id].nameText.x = u.x;
+                        avatars[id].nameText.y = u.y - avatars[id].sprite.height * 0.6;
+                    }
+
+                    worldContainer.sortableChildren = true;
+                };
+
+                // Inisialisasi localUser dengan user_id agar server mengenali dengan benar
+                const localUser = {
+                    user_id: user.user_id || user.id,
+                    avatar: user.avatar && user.avatar.trim() !== "" ? user.avatar : "/avatar/default.png",
+                    x: 400,
+                    y: 300,
+                    name: user.name || "User",
+                };
+                localUserRef.current = localUser;
+
+                // Kirim event join ke server
+                socket.emit("join", localUser);
+
+                // Update users state saat menerima update dari server
+                socket.on("update_users", async (usersData) => {
+                    setUsers(usersData);
+                    if (usersData[localUser.id]) {
+                        localUser.x = usersData[localUser.id].x;
+                        localUser.y = usersData[localUser.id].y;
+                        localUserRef.current = localUser;
+                    }
+                    await renderUsers(usersData);
+                });
+
+                // 6️⃣ Gerakan avatar dengan arrow keys
+                const step = 3;
+                const keys = {};
+
+                window.addEventListener("keydown", (e) => (keys[e.key] = true));
+                window.addEventListener("keyup", (e) => (keys[e.key] = false));
+
+                app.ticker.add(() => {
+                    let moved = false;
+                    if (keys["ArrowUp"]) {
+                        moved = true;
+                    }
+                    if (keys["ArrowDown"]) {
+                        moved = true;
+                    }
+                    if (keys["ArrowLeft"]) {
+                        moved = true;
+                    }
+                    if (keys["ArrowRight"]) {
+                        moved = true;
+                    }
+                    if (moved) {
+                        let newX = localUser.x;
+                        let newY = localUser.y;
+
+                        if (keys["ArrowUp"]) newY -= step;
+                        if (keys["ArrowDown"]) newY += step;
+                        if (keys["ArrowLeft"]) newX -= step;
+                        if (keys["ArrowRight"]) newX += step;
+
+                        // ✅ Prevent movement into collision tiles
+                        if (!checkCollision(newX, newY)) {
+                            localUser.x = newX;
+                            localUser.y = newY;
+                        }
+
+                        // Clamp to map boundaries
+                        const margin = TILE_SIZE * 2;
+                        localUser.x = Math.max(margin, Math.min(localUser.x, mapWidth - margin));
+                        localUser.y = Math.max(margin, Math.min(localUser.y, mapHeight - margin));
+
+                        // Update avatar position visually
+                        if (avatars[localUser.id]) {
+                            avatars[localUser.id].sprite.x = localUser.x;
+                            avatars[localUser.id].sprite.y = localUser.y;
+                            avatars[localUser.id].nameText.x = localUser.x;
+                            avatars[localUser.id].nameText.y =
+                                localUser.y - avatars[localUser.id].sprite.height * 0.6;
+                        }
+
+                        socket.emit("move", {id: localUser.id, x: localUser.x, y: localUser.y});
+                    }
+
+                    // 🎥 Kamera mengikuti avatar (camera follow)
+                    const viewWidth = app.renderer.width;
+                    const viewHeight = app.renderer.height;
+                    const targetX = -localUser.x * zoomFactor + viewWidth / 2;
+                    const targetY = -localUser.y * zoomFactor + viewHeight / 2;
+
+                    // Batasi kamera agar tidak keluar batas map
+                    const maxX = 0;
+                    const maxY = 0;
+                    const minX = -mapWidth * zoomFactor + viewWidth;
+                    const minY = -mapHeight * zoomFactor + viewHeight;
+
+                    worldContainer.x = Math.min(maxX, Math.max(minX, targetX));
+                    worldContainer.y = Math.min(maxY, Math.max(minY, targetY));
+                });
+
+                // Cleanup
+                return () => {
+                    socket.off("update_users");
+                    app.destroy(true, true);
+                };
+            });
+        })();
+    }, [roomData, user]);
+
+    if (!roomData) {
+        return null; // or loading indicator if desired
+    }
+
+    return (
+        <div
+            ref={pixiContainer}
+            style={{
+                width: "100vw",
+                height: "100vh",
+                background: "#dcdcdc",
+                overflow: "hidden",
+            }}
+        />
+    );
+};
+
+export default VirtualSpacePixi;
