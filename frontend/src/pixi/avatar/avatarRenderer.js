@@ -118,8 +118,8 @@ export async function renderUsers(worldContainer, avatars, usersData, localKeyRe
                     sprite,
                     nameText,
                     // target posisi (untuk di-lerp di ticker)
-                    targetX: u.x,
-                    targetY: u.y,
+                    // targetX: u.x,
+                    // targetY: u.y,
                     // simpan arah
                     lastDirection: u.direction || "right",
                 };
@@ -128,14 +128,19 @@ export async function renderUsers(worldContainer, avatars, usersData, localKeyRe
                 continue;
             }
         } else {
-            // Avatar sudah ada → update target posisi & arah
+            // Avatar sudah ada → update posisi & arah
             const avatar = avatars[id];
 
-            // HANYA UPDATE TARGET, JANGAN GERAKKAN SPRITE DI SINI
-            avatar.targetX = u.x;
-            avatar.targetY = u.y;
+            // 1) UPDATE POSISI LANGSUNG DARI DATA SERVER
+            avatar.sprite.x = u.x;
+            avatar.sprite.y = u.y;
 
-            // Update arah sprite berdasarkan direction user
+            if (avatar.nameText) {
+                avatar.nameText.x = avatar.sprite.x;
+                avatar.nameText.y = avatar.sprite.y - avatar.sprite.height * 0.6;
+            }
+
+            // 2) UPDATE ARAH SPRITE BERDASARKAN direction USER
             let dir = u.direction;
             if (!dir && avatar.lastDirection) {
                 dir = avatar.lastDirection;
@@ -159,9 +164,6 @@ export async function renderUsers(worldContainer, avatars, usersData, localKeyRe
             }
 
             avatar.lastDirection = dir;
-
-            // Name text POSISI- nya akan diikuti di ticker nanti
-            // di sini tidak usah set x/y lagi
         }
     }
 
