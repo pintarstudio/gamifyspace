@@ -18,7 +18,7 @@ import avatarRoutes from "./routes/avatarRoutes.js";
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
-    cors: {origin: ["http://192.168.100.21:3000", "http://localhost:3000"], methods: ["GET", "POST"]},
+    cors: {origin: ["http://192.168.100.21:3000", "http://localhost:3000", "https://space.gamifyit.id"], methods: ["GET", "POST"]},
 });
 const PORT = process.env.PORT || 4000;
 const PgSession = pgSession(session);
@@ -26,7 +26,7 @@ const PgSession = pgSession(session);
 // ====== MIDDLEWARE & ROUTES ======
 app.use(
     cors({
-        origin: ["http://192.168.100.21:3000", "http://localhost:3000"],
+        origin: ["http://192.168.100.21:3000", "http://localhost:3000", "https://space.gamifyit.id"],
         credentials: true,
     })
 );
