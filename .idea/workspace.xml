@@ -94,11 +94,11 @@
 }]]></component>
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
+      <recent name="$PROJECT_DIR$/frontend/src/components" />
       <recent name="$PROJECT_DIR$/backend/models" />
       <recent name="$PROJECT_DIR$/backend/controllers" />
       <recent name="$PROJECT_DIR$/backend/routes" />
       <recent name="$PROJECT_DIR$/frontend/public/avatars/dudemonster" />
-      <recent name="$PROJECT_DIR$/frontend/public/avatars/owlet" />
     </key>
     <key name="MoveFile.RECENT_KEYS">
       <recent name="$PROJECT_DIR$/frontend/public/avatars/owlet" />
@@ -132,7 +132,7 @@
       <workItem from="1763267341310" duration="10246000" />
       <workItem from="1763296390262" duration="646000" />
       <workItem from="1763297317565" duration="1357000" />
-      <workItem from="1763528045341" duration="9070000" />
+      <workItem from="1763528045341" duration="11220000" />
     </task>
     <servers />
   </component>
