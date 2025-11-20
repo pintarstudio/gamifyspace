@@ -390,7 +390,7 @@ export async function renderUsers(worldContainer, avatars, usersData, localKeyRe
 }
 
 export function initAvatarMovement(app, worldContainer, avatars, localUserRef, localKeyRef, checkCollision, TILE_SIZE, mapWidth, mapHeight, zoomFactor) {
-    const step = 2.5;
+    const step = 1.4;
     let lastDirection = localUserRef.current?.direction || "right";
     const keys = {};
 
