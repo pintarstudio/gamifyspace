@@ -390,7 +390,7 @@ export async function renderUsers(worldContainer, avatars, usersData, localKeyRe
 }
 
 export function initAvatarMovement(app, worldContainer, avatars, localUserRef, localKeyRef, checkCollision, TILE_SIZE, mapWidth, mapHeight, zoomFactor) {
-    const step = 1.4;
+    const step = 2;
     let lastDirection = localUserRef.current?.direction || "right";
     const keys = {};
 
@@ -431,8 +431,10 @@ export function initAvatarMovement(app, worldContainer, avatars, localUserRef, l
             let direction = lastDirection || "right";
 
             // Frame-rate independent movement
+            // Clamp dt to avoid stutter on slower devices
             const dt = app.ticker.deltaMS / 16.67;   // Normalize to 60fps
-            const scaledStep = step * dt;
+            const clampedDt = Math.min(dt, 1.2);
+            const scaledStep = step * clampedDt;
 
             if (keys["ArrowUp"]) newY -= scaledStep;
             if (keys["ArrowDown"]) newY += scaledStep;
