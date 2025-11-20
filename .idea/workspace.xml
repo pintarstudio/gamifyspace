@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="e5beada2-3c77-4f72-a1ea-0c37fd4dba8b" name="Changes" comment="">
+      <change afterPath="$PROJECT_DIR$/frontend/.env" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/default.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/dudemonster/dudemonster.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/dudemonster/thumbnail.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/dudemonster/walk.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/enchantress.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/enchantress.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/knights.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/knights.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/musketeer.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/musketeer.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/owlet/owlet.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/owlet/thumbnail.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/owlet/walk.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/pinkmonster.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/pinkmonster.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/maps/room1.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/maps/room1_backup.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/maps/room1_base.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/maps/room2.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/objects/chest.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/objects/door.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/tiles/TopDownHouse_FloorsAndWalls.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/src/api/apiClient.js" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/src/components/LoginForm.js" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/src/components/UserHUD.js" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/src/components/VirtualSpace.css" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/src/components/VirtualSpace.js" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/src/components/VirtualSpacePixi.js" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/src/components/VirtualSpacePixi.js.bak" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/src/pages/LoginPage.js" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/src/pages/VirtualSpacePage.js" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/src/pixi/avatar/avatarMovement.js" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/src/pixi/avatar/avatarRenderer.js" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/src/pixi/avatarHandler.js" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/src/pixi/mapRenderer.js" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/src/pixi/objectHandler.js" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/src/utils/socketClient.js" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/src/utils/validate.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/server.js" beforeDir="false" afterPath="$PROJECT_DIR$/backend/server.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/package-lock.json" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/package-lock.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/package.json" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/package.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/App.js" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/App.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/index.css" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/index.css" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/index.js" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/index.js" afterDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="FileTemplateManagerImpl">
+    <option name="RECENT_TEMPLATES">
+      <list>
+        <option value="CSS File" />
+        <option value="JavaScript File" />
+      </list>
+    </option>
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$/frontend" />
+  </component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 6
+}</component>
+  <component name="ProjectId" id="34Kg13V0cfsE3veoUYa4ZIUNC8G" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "git-widget-placeholder": "main",
+    "last_opened_file_path": "/Users/ozzisuria/Documents/react/gamifyspace/frontend/src/components",
+    "list.type.of.created.stylesheet": "CSS",
+    "node.js.detected.package.eslint": "true",
+    "node.js.detected.package.tslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
+    "node.js.selected.package.tslint": "(autodetect)",
+    "nodejs_package_manager_path": "npm",
+    "ts.external.directory.path": "/Users/ozzisuria/Applications/WebStorm.app/Contents/plugins/javascript-plugin/jsLanguageServicesImpl/external",
+    "vue.rearranger.settings.migration": "true"
+  }
+}]]></component>
+  <component name="RecentsManager">
+    <key name="CopyFile.RECENT_KEYS">
+      <recent name="$PROJECT_DIR$/backend/models" />
+      <recent name="$PROJECT_DIR$/backend/controllers" />
+      <recent name="$PROJECT_DIR$/backend/routes" />
+      <recent name="$PROJECT_DIR$/frontend/public/avatars/dudemonster" />
+      <recent name="$PROJECT_DIR$/frontend/public/avatars/owlet" />
+    </key>
+    <key name="MoveFile.RECENT_KEYS">
+      <recent name="$PROJECT_DIR$/frontend/public/avatars/owlet" />
+      <recent name="$PROJECT_DIR$/frontend/public/avatars/" />
+      <recent name="$PROJECT_DIR$/frontend/public/avatars/dudemonster" />
+      <recent name="$PROJECT_DIR$/frontend/public/avatar" />
+      <recent name="$PROJECT_DIR$/frontend/public/maps" />
+    </key>
+  </component>
+  <component name="SharedIndexes">
+    <attachedChunks>
+      <set>
+        <option value="bundled-js-predefined-d6986cc7102b-3aa1da707db6-JavaScript-WS-252.26830.93" />
+      </set>
+    </attachedChunks>
+  </component>
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="e5beada2-3c77-4f72-a1ea-0c37fd4dba8b" name="Changes" comment="" />
+      <created>1760967459547</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1760967459547</updated>
+      <workItem from="1760967461350" duration="8029000" />
+      <workItem from="1761346653427" duration="7953000" />
+      <workItem from="1761359707272" duration="13517000" />
+      <workItem from="1761393283577" duration="451000" />
+      <workItem from="1761409944420" duration="46666000" />
+      <workItem from="1762431594829" duration="22048000" />
+      <workItem from="1763247798230" duration="5566000" />
+      <workItem from="1763267341310" duration="10246000" />
+      <workItem from="1763296390262" duration="646000" />
+      <workItem from="1763297317565" duration="1357000" />
+      <workItem from="1763528045341" duration="9070000" />
+    </task>
+    <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
+  </component>
+</project>
