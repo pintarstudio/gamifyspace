@@ -290,7 +290,12 @@ export async function renderUsers(worldContainer, avatars, usersData, localKeyRe
                         if (frames.length > 0) {
                             sprite = new PIXI.AnimatedSprite(frames);
                             sprite.animationSpeed = 0.13;
-                            sprite.play();
+
+                            // Save idle frame (first frame of animation)
+                            sprite.idleTexture = frames[0];
+
+                            // Do NOT play yet — default idle
+                            sprite.gotoAndStop(0);
                         } else {
                             const texture = await PIXI.Assets.load("/avatars/default.png");
                             sprite = new PIXI.Sprite(texture);
@@ -381,6 +386,20 @@ export async function renderUsers(worldContainer, avatars, usersData, localKeyRe
             }
 
             avatar.lastDirection = dir;
+
+            // Remote avatars: play walk animation only if moving
+            if (id !== localKeyRef.current) {
+                const isMoving = u.vx !== 0 || u.vy !== 0; // server may not send velocity
+                const deltaX = Math.abs(avatar.targetX - avatar.sprite.x);
+                const deltaY = Math.abs(avatar.targetY - avatar.sprite.y);
+                const moving = deltaX > 0.5 || deltaY > 0.5;
+
+                if (moving) {
+                    if (avatar.sprite.play) avatar.sprite.play();
+                } else {
+                    if (avatar.sprite.gotoAndStop) avatar.sprite.gotoAndStop(0);
+                }
+            }
         }
     }
 
@@ -472,6 +491,15 @@ export function initAvatarMovement(app, worldContainer, avatars, localUserRef, l
                 } else if (direction === "right") {
                     avatars[myKey].sprite.scale.x = avatars[myKey].sprite.baseScaleX;
                 }
+
+            const isMovingNow =
+                keys["ArrowUp"] || keys["ArrowDown"] || keys["ArrowLeft"] || keys["ArrowRight"];
+
+            if (isMovingNow) {
+                if (avatars[myKey].sprite.play) avatars[myKey].sprite.play();
+            } else {
+                if (avatars[myKey].sprite.gotoAndStop) avatars[myKey].sprite.gotoAndStop(0);
+            }
             }
             // Simpan arah terakhir di memori dan localStorage untuk persistensi antar-room
             localUser.direction = direction;
@@ -484,6 +512,15 @@ export function initAvatarMovement(app, worldContainer, avatars, localUserRef, l
                 y: localUser.y,
                 direction,
             });
+        }
+        else {
+            // No movement → force idle animation for local avatar
+            const myKey = localKeyRef.current;
+            if (myKey && avatars[myKey]?.sprite) {
+                if (avatars[myKey].sprite.gotoAndStop) {
+                    avatars[myKey].sprite.gotoAndStop(0);
+                }
+            }
         }
 
         // Kamera mengikuti avatar (camera follow)
