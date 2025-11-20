@@ -96,8 +96,7 @@ const VirtualSpacePixi = ({user}) => {
             if (myKey) {
                 localKeyRef.current = myKey;
                 if (filteredUsers[myKey]) {
-                    localUser.x = filteredUsers[myKey].x;
-                    localUser.y = filteredUsers[myKey].y;
+                    // Do NOT overwrite local x/y — only update room
                     localUser.room = filteredUsers[myKey].room || currentRoom;
                     localUserRef.current = localUser;
                 }
