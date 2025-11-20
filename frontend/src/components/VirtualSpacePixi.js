@@ -185,8 +185,8 @@ const VirtualSpacePixi = ({user}) => {
                             a.sprite.y += a.vy * 0.5;
                         }
                         // Soft correction toward the target
-                        a.sprite.x += (a.targetX - a.sprite.x) * 0.15;
-                        a.sprite.y += (a.targetY - a.sprite.y) * 0.15;
+                        a.sprite.x += (a.targetX - a.sprite.x) * 0.05;
+                        a.sprite.y += (a.targetY - a.sprite.y) * 0.05;
                     }
 
                     if (a.nameText) {
@@ -347,8 +347,6 @@ export async function renderUsers(worldContainer, avatars, usersData, localKeyRe
                     // Only remote avatars get targetX/targetY for smoothing
                     ...(isLocal ? {} : { targetX: u.x, targetY: u.y }),
                     lastDirection: u.direction || "right",
-                    lastServerX: u.x,
-                    lastServerY: u.y,
                 };
             } catch (err) {
                 console.error("Failed to load avatar:", avatarUrl, err);
@@ -357,16 +355,6 @@ export async function renderUsers(worldContainer, avatars, usersData, localKeyRe
         } else {
             // Avatar sudah ada → update posisi & arah
             const avatar = avatars[id];
-
-            // Detect movement based on server-reported position changes
-            const prevServerX = avatar.lastServerX;
-            const prevServerY = avatar.lastServerY;
-            const movedOnServer =
-                (typeof prevServerX === "number" && typeof prevServerY === "number") &&
-                (Math.abs(u.x - prevServerX) > 0.1 || Math.abs(u.y - prevServerY) > 0.1);
-            // Update last known server position
-            avatar.lastServerX = u.x;
-            avatar.lastServerY = u.y;
 
             // 1) UPDATE targetX/targetY untuk diinterpolasi di ticker (remote only)
             if (id !== localKeyRef.current) {
@@ -399,18 +387,17 @@ export async function renderUsers(worldContainer, avatars, usersData, localKeyRe
 
             avatar.lastDirection = dir;
 
-            // Remote avatars: play walk animation only if server reports movement
+            // Remote avatars: play walk animation only if moving
             if (id !== localKeyRef.current) {
-                const moving = movedOnServer;
+                const isMoving = u.vx !== 0 || u.vy !== 0; // server may not send velocity
+                const deltaX = Math.abs(avatar.targetX - avatar.sprite.x);
+                const deltaY = Math.abs(avatar.targetY - avatar.sprite.y);
+                const moving = deltaX > 0.5 || deltaY > 0.5;
 
                 if (moving) {
-                    if (avatar.sprite.play && !avatar.sprite.playing) {
-                        avatar.sprite.play();
-                    }
+                    if (avatar.sprite.play) avatar.sprite.play();
                 } else {
-                    if (avatar.sprite.gotoAndStop) {
-                        avatar.sprite.gotoAndStop(0);
-                    }
+                    if (avatar.sprite.gotoAndStop) avatar.sprite.gotoAndStop(0);
                 }
             }
         }
