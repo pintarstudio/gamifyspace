@@ -1,0 +1,111 @@
+{"frames": {
+
+"brownwraith-0.png":
+{
+	"frame": {"x":0,"y":0,"w":79,"h":79},
+	"rotated": false,
+	"trimmed": false,
+	"spriteSourceSize": {"x":0,"y":0,"w":79,"h":79},
+	"sourceSize": {"w":79,"h":79}
+},
+"brownwraith-1.png":
+{
+	"frame": {"x":79,"y":0,"w":79,"h":79},
+	"rotated": false,
+	"trimmed": false,
+	"spriteSourceSize": {"x":0,"y":0,"w":79,"h":79},
+	"sourceSize": {"w":79,"h":79}
+},
+"brownwraith-2.png":
+{
+	"frame": {"x":158,"y":0,"w":79,"h":79},
+	"rotated": false,
+	"trimmed": false,
+	"spriteSourceSize": {"x":0,"y":0,"w":79,"h":79},
+	"sourceSize": {"w":79,"h":79}
+},
+"brownwraith-3.png":
+{
+	"frame": {"x":237,"y":0,"w":79,"h":79},
+	"rotated": false,
+	"trimmed": false,
+	"spriteSourceSize": {"x":0,"y":0,"w":79,"h":79},
+	"sourceSize": {"w":79,"h":79}
+},
+"brownwraith-4.png":
+{
+	"frame": {"x":316,"y":0,"w":79,"h":79},
+	"rotated": false,
+	"trimmed": false,
+	"spriteSourceSize": {"x":0,"y":0,"w":79,"h":79},
+	"sourceSize": {"w":79,"h":79}
+},
+"brownwraith-5.png":
+{
+	"frame": {"x":395,"y":0,"w":79,"h":79},
+	"rotated": false,
+	"trimmed": false,
+	"spriteSourceSize": {"x":0,"y":0,"w":79,"h":79},
+	"sourceSize": {"w":79,"h":79}
+},
+"brownwraith-6.png":
+{
+	"frame": {"x":474,"y":0,"w":79,"h":79},
+	"rotated": false,
+	"trimmed": false,
+	"spriteSourceSize": {"x":0,"y":0,"w":79,"h":79},
+	"sourceSize": {"w":79,"h":79}
+},
+"brownwraith-7.png":
+{
+	"frame": {"x":553,"y":0,"w":79,"h":79},
+	"rotated": false,
+	"trimmed": false,
+	"spriteSourceSize": {"x":0,"y":0,"w":79,"h":79},
+	"sourceSize": {"w":79,"h":79}
+},
+"brownwraith-8.png":
+{
+	"frame": {"x":632,"y":0,"w":79,"h":79},
+	"rotated": false,
+	"trimmed": false,
+	"spriteSourceSize": {"x":0,"y":0,"w":79,"h":79},
+	"sourceSize": {"w":79,"h":79}
+},
+"brownwraith-9.png":
+{
+	"frame": {"x":711,"y":0,"w":79,"h":79},
+	"rotated": false,
+	"trimmed": false,
+	"spriteSourceSize": {"x":0,"y":0,"w":79,"h":79},
+	"sourceSize": {"w":79,"h":79}
+},
+"brownwraith-10.png":
+{
+	"frame": {"x":790,"y":0,"w":79,"h":79},
+	"rotated": false,
+	"trimmed": false,
+	"spriteSourceSize": {"x":0,"y":0,"w":79,"h":79},
+	"sourceSize": {"w":79,"h":79}
+},
+"brownwraith-11.png":
+{
+	"frame": {"x":869,"y":0,"w":79,"h":79},
+	"rotated": false,
+	"trimmed": false,
+	"spriteSourceSize": {"x":0,"y":0,"w":79,"h":79},
+	"sourceSize": {"w":79,"h":79}
+}},
+"animations": {
+	"brownwraith": ["brownwraith-0.png","brownwraith-1.png","brownwraith-2.png","brownwraith-3.png","brownwraith-4.png","brownwraith-5.png","brownwraith-6.png","brownwraith-7.png","brownwraith-8.png","brownwraith-9.png","brownwraith-10.png","brownwraith-11.png"]
+},
+"meta": {
+	"app": "https://www.codeandweb.com/texturepacker",
+	"version": "1.1",
+	"image": "brownwraith.png",
+	"format": "RGBA8888",
+	"size": {"w":948,"h":79},
+	"scale": "1",
+	"smartupdate": "$TexturePacker:SmartUpdate:99856367ac8a743d96aa22c3b4cc1658:c5a234372c0dd9d4a9aacc750f9511f2:f9c96688eb537978811892de1a308d2b$"
+}
+}

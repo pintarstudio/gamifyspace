@@ -1,6 +1,6 @@
 {"frames": {
 
-"dudemonster-0.png":
+"bluemonster-0.png":
 {
 	"frame": {"x":0,"y":0,"w":32,"h":32},
 	"rotated": false,
@@ -8,7 +8,7 @@
 	"spriteSourceSize": {"x":0,"y":0,"w":32,"h":32},
 	"sourceSize": {"w":32,"h":32}
 },
-"dudemonster-1.png":
+"bluemonster-1.png":
 {
 	"frame": {"x":32,"y":0,"w":32,"h":32},
 	"rotated": false,
@@ -16,7 +16,7 @@
 	"spriteSourceSize": {"x":0,"y":0,"w":32,"h":32},
 	"sourceSize": {"w":32,"h":32}
 },
-"dudemonster-2.png":
+"bluemonster-2.png":
 {
 	"frame": {"x":64,"y":0,"w":32,"h":32},
 	"rotated": false,
@@ -24,7 +24,7 @@
 	"spriteSourceSize": {"x":0,"y":0,"w":32,"h":32},
 	"sourceSize": {"w":32,"h":32}
 },
-"dudemonster-3.png":
+"bluemonster-3.png":
 {
 	"frame": {"x":96,"y":0,"w":32,"h":32},
 	"rotated": false,
@@ -32,7 +32,7 @@
 	"spriteSourceSize": {"x":0,"y":0,"w":32,"h":32},
 	"sourceSize": {"w":32,"h":32}
 },
-"dudemonster-4.png":
+"bluemonster-4.png":
 {
 	"frame": {"x":128,"y":0,"w":32,"h":32},
 	"rotated": false,
@@ -40,7 +40,7 @@
 	"spriteSourceSize": {"x":0,"y":0,"w":32,"h":32},
 	"sourceSize": {"w":32,"h":32}
 },
-"dudemonster-5.png":
+"bluemonster-5.png":
 {
 	"frame": {"x":160,"y":0,"w":32,"h":32},
 	"rotated": false,
@@ -49,15 +49,15 @@
 	"sourceSize": {"w":32,"h":32}
 }},
 "animations": {
-	"dudemonster": ["dudemonster-0.png","dudemonster-1.png","dudemonster-2.png","dudemonster-3.png","dudemonster-4.png","dudemonster-5.png"]
+	"bluemonster": ["bluemonster-0.png","bluemonster-1.png","bluemonster-2.png","bluemonster-3.png","bluemonster-4.png","bluemonster-5.png"]
 },
 "meta": {
 	"app": "https://www.codeandweb.com/texturepacker",
 	"version": "1.1",
-	"image": "dudemonster.png",
+	"image": "bluemonster.png",
 	"format": "RGBA8888",
 	"size": {"w":192,"h":32},
 	"scale": "1",
-	"smartupdate": "$TexturePacker:SmartUpdate:7a4f586b98dc1580036685ef16bf98db:8d667d05683883a6fac8f8f2e4a9f13e:c857c59a9ddd8df68fb62953e7f0c5c5$"
+	"smartupdate": "$TexturePacker:SmartUpdate:9c253f1d6be123b086d2cac7ad722f79:8d667d05683883a6fac8f8f2e4a9f13e:3a432062f5a4ee8761ea2caa41d82847$"
 }
 }
