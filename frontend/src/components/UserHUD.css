@@ -36,6 +36,13 @@
   white-space: nowrap;
 }
 
+.user-hud__xp-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
 .user-hud__xp {
   background: #eef4f1;
   border: 1px solid #cfe2d8;
@@ -43,7 +50,6 @@
   color: #2d6a4f;
   display: inline-flex;
   gap: 8px;
-  margin-top: 8px;
   padding: 5px 8px;
 }
 
@@ -54,6 +60,80 @@
 
 .user-hud__xp strong {
   font-size: 12px;
+}
+
+.user-hud__level {
+  background: #f8fbfe;
+  background: color-mix(in srgb, var(--level-color) 10%, #ffffff);
+  border: 1px solid #d8e7f5;
+  border-color: color-mix(in srgb, var(--level-color) 38%, #ffffff);
+  border-radius: 8px;
+  margin-top: 8px;
+  padding: 8px;
+}
+
+.user-hud__level-title {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.user-hud__level-title span {
+  color: var(--level-color);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.user-hud__level-title strong {
+  color: var(--level-color);
+  font-size: 13px;
+}
+
+.user-hud__level-xp {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid color-mix(in srgb, var(--level-color) 24%, #ffffff);
+  border-radius: 7px;
+  color: #303842;
+  display: flex;
+  justify-content: space-between;
+  margin-top: 7px;
+  padding: 6px 8px;
+}
+
+.user-hud__level-xp span {
+  color: #5f6975;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.user-hud__level-xp strong {
+  color: var(--level-color);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.user-hud__level-bar {
+  background: rgba(31, 37, 43, 0.12);
+  border-radius: 999px;
+  height: 7px;
+  margin: 7px 0 5px;
+  overflow: hidden;
+}
+
+.user-hud__level-bar div {
+  background: var(--level-color);
+  border-radius: inherit;
+  height: 100%;
+  transition: width 0.25s ease;
+}
+
+.user-hud__level small {
+  color: #5f6975;
+  display: block;
+  font-size: 11px;
+  font-weight: 800;
 }
 
 .user-hud__logout {

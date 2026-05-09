@@ -5,8 +5,8 @@ let gamificationReadyPromise = null;
 
 function clampXp(value) {
     const parsed = Number.parseInt(value, 10);
-    if (!Number.isFinite(parsed)) return 10;
-    return Math.max(10, Math.min(100, parsed));
+    if (!Number.isFinite(parsed)) return 0;
+    return Math.max(0, Math.min(100, parsed));
 }
 
 async function runSchemaQuery(query) {
@@ -20,6 +20,38 @@ async function runSchemaQuery(query) {
 
 async function createGamificationTables() {
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS gamification_enabled BOOLEAN NOT NULL DEFAULT TRUE`);
+
+    await runSchemaQuery(`
+        CREATE TABLE IF NOT EXISTS gamification_levels (
+            level_id INTEGER PRIMARY KEY,
+            level_name TEXT NOT NULL,
+            min_xp INTEGER NOT NULL,
+            max_xp INTEGER,
+            color_hex TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            CHECK (level_id BETWEEN 1 AND 5),
+            CHECK (min_xp >= 0),
+            CHECK (max_xp IS NULL OR max_xp >= min_xp)
+        )
+    `);
+
+    await pool.query(
+        `INSERT INTO gamification_levels (level_id, level_name, min_xp, max_xp, color_hex)
+         VALUES
+             (1, 'Rookie', 0, 99, '#6B7280'),
+             (2, 'Explorer', 100, 249, '#2F7197'),
+             (3, 'Achiever', 250, 499, '#2D6A4F'),
+             (4, 'Strategist', 500, 899, '#8A4F08'),
+             (5, 'Mastermind', 900, NULL, '#A03C53')
+         ON CONFLICT (level_id)
+         DO UPDATE SET
+             level_name = EXCLUDED.level_name,
+             min_xp = EXCLUDED.min_xp,
+             max_xp = EXCLUDED.max_xp,
+             color_hex = EXCLUDED.color_hex,
+             updated_at = NOW()`
+    );
 
     await runSchemaQuery(`
         CREATE TABLE IF NOT EXISTS gamification_group_scores (
@@ -83,8 +115,8 @@ export function normalizeXpAwards(xpAwards, answers) {
         if (!awardMap.has(studentId)) {
             awardMap.set(studentId, {
                 student_id: studentId,
-                xp: 10,
-                reason: "Minimum XP awarded for a submitted answer.",
+                xp: 0,
+                reason: "No XP awarded because the answer was not evaluated.",
             });
         }
     }

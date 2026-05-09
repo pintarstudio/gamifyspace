@@ -1,6 +1,8 @@
 import {findSession} from "../models/sessionModel.js";
 import {pool} from "../db/index.js";
 import {ensureGamificationTables} from "../models/gamificationModel.js";
+import {ensureQuizActivityTables} from "../models/quizActivityModel.js";
+import {ensureIndividualActivityTables} from "../models/individualActivityModel.js";
 
 async function getAuthenticatedUser(req, res) {
     const sessionId = req.session?.session_id;
@@ -22,13 +24,32 @@ function avatarPath(path) {
     return path || null;
 }
 
+function labelIndividualActivity(activityType, questionKind) {
+    if (activityType === "pre_test") return "Pre-test";
+    if (activityType === "post_test") return "Post-test";
+    return questionKind === "case_study" ? "Individual Case Study" : "Individual Exercise";
+}
+
 export async function getVirtualSpaceDashboard(req, res) {
     try {
         await ensureGamificationTables();
+        await ensureQuizActivityTables();
+        await ensureIndividualActivityTables();
         const user = await getAuthenticatedUser(req, res);
         if (!user) return;
 
-        const [summaryResult, leaderboardResult, activitiesResult] = await Promise.all([
+        const [
+            summaryResult,
+            quizSummaryResult,
+            individualSummaryResult,
+            individualXpResult,
+            individualLevelResult,
+            leaderboardResult,
+            quizLeaderboardResult,
+            activitiesResult,
+            quizActivitiesResult,
+            individualActivitiesResult,
+        ] = await Promise.all([
             pool.query(
                 `SELECT
                      COALESCE(SUM(ggs.xp_total), 0)::int AS total_group_xp,
@@ -49,6 +70,56 @@ export async function getVirtualSpaceDashboard(req, res) {
                 [user.user_id]
             ),
             pool.query(
+                `SELECT COUNT(DISTINCT qs.quiz_session_id)::int AS completed_quizzes
+                 FROM quiz_sessions qs
+                 JOIN quiz_members qm
+                   ON qm.quiz_session_id = qs.quiz_session_id
+                  AND qm.user_id = $1
+                 WHERE qs.status = 'saved'`,
+                [user.user_id]
+            ),
+            pool.query(
+                `SELECT COUNT(*)::int AS completed_individual_activities
+                 FROM individual_activity_sessions
+                 WHERE user_id = $1
+                   AND status = 'completed'`,
+                [user.user_id]
+            ),
+            pool.query(
+                `SELECT COALESCE(SUM(xp_earned), 0)::int AS total_individual_exercise_xp
+                 FROM gamification_user_scores
+                 WHERE activity_type = 'individual_exercise'
+                   AND user_id = $1
+                   AND course_id = $2`,
+                [user.user_id, user.course_id]
+            ),
+            pool.query(
+                `WITH total AS (
+                     SELECT COALESCE(SUM(xp_earned), 0)::int AS total_xp
+                     FROM gamification_user_scores
+                     WHERE activity_type = 'individual_exercise'
+                       AND user_id = $1
+                       AND course_id = $2
+                 )
+                 SELECT
+                     gl.level_id,
+                     gl.level_name,
+                     gl.min_xp,
+                     gl.max_xp,
+                     gl.color_hex,
+                     total.total_xp,
+                     next_level.min_xp AS next_level_xp
+                 FROM total
+                 JOIN gamification_levels gl
+                   ON total.total_xp >= gl.min_xp
+                  AND (gl.max_xp IS NULL OR total.total_xp <= gl.max_xp)
+                 LEFT JOIN gamification_levels next_level
+                   ON next_level.level_id = gl.level_id + 1
+                 ORDER BY gl.level_id DESC
+                 LIMIT 1`,
+                [user.user_id, user.course_id]
+            ),
+            pool.query(
                 `SELECT
                      u.user_id,
                      u.name,
@@ -67,6 +138,7 @@ export async function getVirtualSpaceDashboard(req, res) {
                  LEFT JOIN gamification_user_scores gus
                    ON gus.user_id = u.user_id
                   AND gus.course_id = $1
+                  AND gus.activity_type = 'table_case_study'
                  WHERE u.course_id = $1
                    AND u.deleted_at IS NULL
                  GROUP BY u.user_id, u.name, a.avatar_public_path
@@ -76,7 +148,49 @@ export async function getVirtualSpaceDashboard(req, res) {
             ),
             pool.query(
                 `SELECT
+                     u.user_id,
+                     u.name,
+                     a.avatar_public_path,
+                     COALESCE(quiz_scores.total_quiz_score, 0)::int AS total_quiz_score,
+                     COALESCE(quiz_scores.quizzes_count, 0)::int AS quizzes_count
+                 FROM users u
+                 LEFT JOIN sessions latest_session
+                   ON latest_session.user_id = u.user_id
+                  AND latest_session.id = (
+                      SELECT MAX(s2.id)
+                      FROM sessions s2
+                      WHERE s2.user_id = u.user_id
+                  )
+                 LEFT JOIN avatars a ON a.avatar_id = latest_session.avatar_id
+                 LEFT JOIN LATERAL (
+                     SELECT
+                         COALESCE(SUM((score.value->>'total_score')::int), 0)::int AS total_quiz_score,
+                         COUNT(DISTINCT qs.quiz_session_id)::int AS quizzes_count
+                     FROM quiz_session_results qsr
+                     JOIN quiz_sessions qs
+                       ON qs.quiz_session_id = qsr.quiz_session_id
+                     CROSS JOIN LATERAL jsonb_array_elements(
+                         CASE
+                             WHEN jsonb_typeof(qsr.results_json->'scoreboard') = 'array'
+                             THEN qsr.results_json->'scoreboard'
+                             ELSE '[]'::jsonb
+                         END
+                     ) AS score(value)
+                     WHERE qs.course_id = $1
+                       AND qs.status = 'saved'
+                       AND (score.value->>'user_id')::int = u.user_id
+                 ) quiz_scores ON TRUE
+                 WHERE u.course_id = $1
+                   AND u.deleted_at IS NULL
+                 ORDER BY total_quiz_score DESC, quizzes_count DESC, u.name ASC
+                 LIMIT 10`,
+                [user.course_id]
+            ),
+            pool.query(
+                `SELECT
                      s.session_id,
+                     CONCAT('table-', s.session_id) AS activity_key,
+                     'table_case_study' AS activity_type,
                      s.group_id,
                      s.topic_id,
                      t.topic_name,
@@ -115,10 +229,132 @@ export async function getVirtualSpaceDashboard(req, res) {
                      ggs.xp_total,
                      gus.xp_earned
                  ORDER BY s.submitted_at DESC
+                LIMIT 12`,
+                [user.user_id]
+            ),
+            pool.query(
+                `SELECT
+                     qs.quiz_session_id AS session_id,
+                     CONCAT('quiz-', qs.quiz_session_id) AS activity_key,
+                     'quiz' AS activity_type,
+                     qs.group_id,
+                     qs.topic_id,
+                     t.topic_name,
+                     CONCAT('Quiz: ', COALESCE(t.topic_name, 'Topic')) AS case_title,
+                     qs.saved_at AS submitted_at,
+                     'ready' AS feedback_status,
+                     0::int AS group_xp,
+                     0::int AS my_xp,
+                     ARRAY_REMOVE(ARRAY_AGG(DISTINCT u.name), NULL) AS member_names
+                 FROM quiz_sessions qs
+                 JOIN quiz_members qm_self
+                   ON qm_self.quiz_session_id = qs.quiz_session_id
+                  AND qm_self.user_id = $1
+                 LEFT JOIN quiz_members qm_all ON qm_all.quiz_session_id = qs.quiz_session_id
+                 LEFT JOIN users u ON u.user_id = qm_all.user_id
+                 LEFT JOIN topics t ON t.topic_id = qs.topic_id
+                 WHERE qs.status = 'saved'
+                 GROUP BY
+                     qs.quiz_session_id,
+                     qs.group_id,
+                     qs.topic_id,
+                     t.topic_name,
+                     qs.saved_at
+                 ORDER BY qs.saved_at DESC
                  LIMIT 12`,
                 [user.user_id]
             ),
+            pool.query(
+                `SELECT
+                     ias.session_id,
+                     CONCAT('individual-', ias.session_id) AS activity_key,
+                     'individual' AS activity_type,
+                     ias.activity_type AS individual_activity_type,
+                     ias.question_kind,
+                     ias.object_id,
+                     ias.topic_id,
+                     t.topic_name,
+                     CASE
+                         WHEN ias.activity_type = 'pre_test' THEN 'Pre-test'
+                         WHEN ias.activity_type = 'post_test' THEN 'Post-test'
+                         WHEN ias.question_kind = 'case_study' THEN 'Individual Case Study'
+                         ELSE 'Individual Exercise'
+                     END AS activity_name,
+                     CASE
+                         WHEN ias.activity_type = 'pre_test' THEN CONCAT('Pre-test: ', COALESCE(t.topic_name, 'Topic'))
+                         WHEN ias.activity_type = 'post_test' THEN CONCAT('Post-test: ', COALESCE(t.topic_name, 'Topic'))
+                         WHEN ias.question_kind = 'case_study' THEN CONCAT('Case Study: ', COALESCE(t.topic_name, 'Topic'))
+                         ELSE CONCAT('Exercise: ', COALESCE(t.topic_name, 'Topic'))
+                     END AS case_title,
+                     ias.completed_at AS submitted_at,
+                     'ready' AS feedback_status,
+                     0::int AS group_xp,
+                     COALESCE(gus.xp_earned, ias.xp_total, 0)::int AS my_xp,
+                     ias.correct_count,
+                     ias.score_total,
+                     ias.xp_total
+                 FROM individual_activity_sessions ias
+                 LEFT JOIN topics t ON t.topic_id = ias.topic_id
+                 LEFT JOIN gamification_user_scores gus
+                   ON gus.activity_type = 'individual_exercise'
+                  AND gus.activity_id = ias.session_id
+                  AND gus.user_id = ias.user_id
+                 WHERE ias.user_id = $1
+                   AND ias.course_id = $2
+                   AND ias.status = 'completed'
+                 ORDER BY ias.completed_at DESC
+                 LIMIT 12`,
+                [user.user_id, user.course_id]
+            ),
         ]);
+
+        const groupActivities = [
+            ...activitiesResult.rows.map((activity) => ({
+                ...activity,
+                activity_name: `Group ${activity.group_id} Activity`,
+            })),
+            ...quizActivitiesResult.rows.map((activity) => ({
+                ...activity,
+                activity_name: "Big Table Quiz",
+            })),
+        ].sort((a, b) => new Date(b.submitted_at || 0) - new Date(a.submitted_at || 0)).slice(0, 12);
+        const individualActivities = individualActivitiesResult.rows;
+
+        const hud = summaryResult.rows[0] || {
+            total_group_xp: 0,
+            total_individual_xp: 0,
+            completed_activities: 0,
+        };
+        hud.completed_activities += quizSummaryResult.rows[0]?.completed_quizzes || 0;
+        hud.completed_activities += individualSummaryResult.rows[0]?.completed_individual_activities || 0;
+        hud.total_individual_exercise_xp = individualXpResult.rows[0]?.total_individual_exercise_xp || 0;
+        const level = individualLevelResult.rows[0] || {
+            level_id: 1,
+            level_name: "Rookie",
+            min_xp: 0,
+            max_xp: 99,
+            color_hex: "#6B7280",
+            total_xp: 0,
+            next_level_xp: 100,
+        };
+        const nextLevelXp = level.next_level_xp === null || level.next_level_xp === undefined
+            ? null
+            : Number(level.next_level_xp);
+        const levelMinXp = Number(level.min_xp || 0);
+        const levelTotalXp = Number(level.total_xp || hud.total_individual_exercise_xp || 0);
+        const progressToNext = nextLevelXp === null
+            ? 100
+            : Math.max(0, Math.min(100, Math.round(((levelTotalXp - levelMinXp) / (nextLevelXp - levelMinXp)) * 100)));
+        hud.individual_level = {
+            level: Number(level.level_id),
+            name: level.level_name,
+            color: level.color_hex,
+            min_xp: levelMinXp,
+            max_xp: level.max_xp,
+            total_xp: levelTotalXp,
+            next_level_xp: nextLevelXp,
+            progress_to_next_level: progressToNext,
+        };
 
         res.json({
             user: {
@@ -127,16 +363,14 @@ export async function getVirtualSpaceDashboard(req, res) {
                 avatar_public_path: avatarPath(user.avatar_public_path),
                 gamification_enabled: !!user.gamification_enabled,
             },
-            hud: summaryResult.rows[0] || {
-                total_group_xp: 0,
-                total_individual_xp: 0,
-                completed_activities: 0,
-            },
+            hud,
             leaderboard: leaderboardResult.rows,
-            activities: activitiesResult.rows.map((activity) => ({
-                ...activity,
-                activity_name: `Group ${activity.group_id} Activity`,
-            })),
+            quiz_leaderboard: quizLeaderboardResult.rows,
+            activities: [...individualActivities, ...groupActivities]
+                .sort((a, b) => new Date(b.submitted_at || 0) - new Date(a.submitted_at || 0))
+                .slice(0, 12),
+            individual_activities: individualActivities,
+            group_activities: groupActivities,
         });
     } catch (error) {
         console.error("Virtual space dashboard error:", error);
@@ -147,12 +381,179 @@ export async function getVirtualSpaceDashboard(req, res) {
 export async function getVirtualSpaceActivityDetail(req, res) {
     try {
         await ensureGamificationTables();
+        await ensureQuizActivityTables();
+        await ensureIndividualActivityTables();
         const user = await getAuthenticatedUser(req, res);
         if (!user) return;
 
-        const sessionId = Number.parseInt(req.params.sessionId, 10);
+        const rawSessionId = String(req.params.sessionId || "");
+        const isQuizActivity = rawSessionId.startsWith("quiz-");
+        const isIndividualActivity = rawSessionId.startsWith("individual-");
+        const sessionId = Number.parseInt(rawSessionId.replace(/^individual-/, "").replace(/^quiz-/, "").replace(/^table-/, ""), 10);
         if (!Number.isFinite(sessionId)) {
             return res.status(400).json({message: "Activity tidak valid"});
+        }
+
+        if (isIndividualActivity) {
+            const [sessionResult, questionsResult, answersResult] = await Promise.all([
+                pool.query(
+                    `SELECT
+                         ias.*,
+                         t.topic_name
+                     FROM individual_activity_sessions ias
+                     LEFT JOIN topics t ON t.topic_id = ias.topic_id
+                     WHERE ias.session_id = $1
+                       AND ias.user_id = $2
+                       AND ias.course_id = $3
+                       AND ias.status = 'completed'
+                     LIMIT 1`,
+                    [sessionId, user.user_id, user.course_id]
+                ),
+                pool.query(
+                    `SELECT *
+                     FROM individual_questions
+                     WHERE question_id = ANY(
+                         COALESCE(
+                             (SELECT question_ids FROM individual_activity_sessions WHERE session_id = $1),
+                             '{}'::int[]
+                         )
+                     )`,
+                    [sessionId]
+                ),
+                pool.query(
+                    `SELECT
+                         a.*,
+                         q.question_text,
+                         q.choices,
+                         q.correct_answer_index,
+                         q.explanation,
+                         q.case_title,
+                         q.case_prompt
+                     FROM individual_activity_answers a
+                     JOIN individual_questions q ON q.question_id = a.question_id
+                     WHERE a.session_id = $1
+                     ORDER BY a.answered_at ASC`,
+                    [sessionId]
+                ),
+            ]);
+
+            const session = sessionResult.rows[0];
+            if (!session) return res.status(404).json({message: "Activity tidak ditemukan"});
+            const orderMap = new Map((session.question_ids || []).map((questionId, index) => [Number(questionId), index]));
+            const questions = questionsResult.rows.sort((a, b) =>
+                orderMap.get(Number(a.question_id)) - orderMap.get(Number(b.question_id))
+            );
+            const primaryQuestion = questions[0] || {};
+
+            return res.json({
+                activity: {
+                    session_id: `individual-${session.session_id}`,
+                    activity_type: "individual",
+                    individual_activity_type: session.activity_type,
+                    question_kind: session.question_kind,
+                    activity_name: labelIndividualActivity(session.activity_type, session.question_kind),
+                    group_id: null,
+                    topic_name: session.topic_name,
+                    case_title: session.question_kind === "case_study"
+                        ? (primaryQuestion.case_title || `Case Study: ${session.topic_name || "Topic"}`)
+                        : `${labelIndividualActivity(session.activity_type, session.question_kind)}: ${session.topic_name || "Topic"}`,
+                    case_prompt: session.question_kind === "case_study"
+                        ? (primaryQuestion.case_prompt || "")
+                        : "Saved individual multiple-choice activity.",
+                    submitted_at: session.completed_at,
+                    created_at: session.started_at,
+                    group_xp: 0,
+                    group_xp_reason: "",
+                    members: [{
+                        user_id: user.user_id,
+                        name: user.name,
+                        avatar_public_path: avatarPath(user.avatar_public_path),
+                        xp_earned: session.xp_total || 0,
+                        xp_reason: session.result_json?.case_feedback?.xp_reason || "",
+                    }],
+                    questions,
+                    answers: answersResult.rows,
+                    results: session.result_json || null,
+                    feedback: session.feedback_json || null,
+                    feedback_model: session.feedback_model,
+                    feedback_groups: [],
+                    logs: [],
+                },
+            });
+        }
+
+        if (isQuizActivity) {
+            const accessResult = await pool.query(
+                `SELECT 1
+                 FROM quiz_members
+                 WHERE quiz_session_id = $1
+                   AND user_id = $2
+                 LIMIT 1`,
+                [sessionId, user.user_id]
+            );
+            if (!accessResult.rows[0]) {
+                return res.status(403).json({message: "Activity tidak tersedia untuk user ini"});
+            }
+
+            const [sessionResult, membersResult, resultDataResult] = await Promise.all([
+                pool.query(
+                    `SELECT
+                         qs.*,
+                         t.topic_name
+                     FROM quiz_sessions qs
+                     LEFT JOIN topics t ON t.topic_id = qs.topic_id
+                     WHERE qs.quiz_session_id = $1
+                     LIMIT 1`,
+                    [sessionId]
+                ),
+                pool.query(
+                    `SELECT
+                         qm.user_id,
+                         u.name,
+                         qm.avatar_public_path,
+                         qm.joined_at,
+                         0::int AS xp_earned,
+                         '' AS xp_reason
+                     FROM quiz_members qm
+                     JOIN users u ON u.user_id = qm.user_id
+                     WHERE qm.quiz_session_id = $1
+                     ORDER BY qm.joined_at ASC`,
+                    [sessionId]
+                ),
+                pool.query(
+                    `SELECT questions_json, answers_json, results_json, created_at
+                     FROM quiz_session_results
+                     WHERE quiz_session_id = $1
+                     LIMIT 1`,
+                    [sessionId]
+                ),
+            ]);
+
+            const session = sessionResult.rows[0];
+            if (!session) return res.status(404).json({message: "Activity tidak ditemukan"});
+            const resultData = resultDataResult.rows[0];
+
+            return res.json({
+                activity: {
+                    session_id: `quiz-${session.quiz_session_id}`,
+                    activity_type: "quiz",
+                    activity_name: "Big Table Quiz",
+                    group_id: session.group_id || session.table_id,
+                    topic_name: session.topic_name,
+                    case_title: `Quiz: ${session.topic_name || "Topic"}`,
+                    case_prompt: "Saved big table quiz result.",
+                    submitted_at: session.saved_at,
+                    created_at: session.created_at,
+                    group_xp: 0,
+                    group_xp_reason: "",
+                    members: membersResult.rows,
+                    questions: resultData?.questions_json || [],
+                    answers: resultData?.answers_json || [],
+                    results: resultData?.results_json || null,
+                    feedback_groups: [],
+                    logs: [],
+                },
+            });
         }
 
         const accessResult = await pool.query(
@@ -250,6 +651,19 @@ export async function getVirtualSpaceActivityDetail(req, res) {
             return res.status(404).json({message: "Activity tidak ditemukan"});
         }
 
+        const memberMap = new Map(membersResult.rows.map((member) => [Number(member.user_id), member]));
+        const feedbackGroups = feedbackResult.rows.map((group) => ({
+            ...group,
+            students: (group.student_ids || [])
+                .map((studentId) => memberMap.get(Number(studentId)))
+                .filter(Boolean)
+                .map((member) => ({
+                    user_id: member.user_id,
+                    name: member.name,
+                    avatar_public_path: member.avatar_public_path,
+                })),
+        }));
+
         res.json({
             activity: {
                 session_id: session.session_id,
@@ -266,7 +680,7 @@ export async function getVirtualSpaceActivityDetail(req, res) {
                 group_xp_reason: groupScoreResult.rows[0]?.reason || "",
                 members: membersResult.rows,
                 answers: answersResult.rows,
-                feedback_groups: feedbackResult.rows,
+                feedback_groups: feedbackGroups,
                 logs: logsResult.rows,
             },
         });

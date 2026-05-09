@@ -104,6 +104,7 @@
       <change afterPath="$PROJECT_DIR$/frontend/public/avatars/wizard/walk.json" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/frontend/public/avatars/wizard/wizard.png" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/frontend/public/maps/room1.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/maps/room1_backup.json" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/frontend/public/objects/bigtable.png" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/frontend/public/objects/chest.png" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/frontend/public/objects/computer.png" afterDir="false" />
@@ -144,9 +145,9 @@
       <change afterPath="$PROJECT_DIR$/frontend/src/utils/socketClient.js" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/frontend/src/utils/validate.js" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/controllers/sessionController.js" beforeDir="false" afterPath="$PROJECT_DIR$/backend/controllers/sessionController.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/models/sessionModel.js" beforeDir="false" afterPath="$PROJECT_DIR$/backend/models/sessionModel.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/controllers/virtualSpaceDashboardController.js" beforeDir="false" afterPath="$PROJECT_DIR$/backend/controllers/virtualSpaceDashboardController.js" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/backend/server.js" beforeDir="false" afterPath="$PROJECT_DIR$/backend/server.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/services/openaiFeedbackService.js" beforeDir="false" afterPath="$PROJECT_DIR$/backend/services/openaiFeedbackService.js" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/frontend/package-lock.json" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/package-lock.json" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/frontend/package.json" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/package.json" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/frontend/src/App.js" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/App.js" afterDir="false" />
@@ -242,7 +243,7 @@
       <workItem from="1776915226058" duration="185000" />
       <workItem from="1776915841076" duration="3302000" />
       <workItem from="1777861296650" duration="649000" />
-      <workItem from="1778283557635" duration="10024000" />
+      <workItem from="1778283557635" duration="11962000" />
     </task>
     <servers />
   </component>

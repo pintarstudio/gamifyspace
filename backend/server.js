@@ -15,6 +15,8 @@ import sessionRoutes from "./routes/sessionRoutes.js";
 import userRoutes from "./routes/userRoutes.js";
 import avatarRoutes from "./routes/avatarRoutes.js";
 import tableActivityRoutes from "./routes/tableActivityRoutes.js";
+import quizActivityRoutes from "./routes/quizActivityRoutes.js";
+import individualActivityRoutes from "./routes/individualActivityRoutes.js";
 import virtualSpaceDashboardRoutes from "./routes/virtualSpaceDashboardRoutes.js";
 import {ensureGamificationTables} from "./models/gamificationModel.js";
 
@@ -70,6 +72,8 @@ app.use("/api/session", sessionRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/avatars", avatarRoutes);
 app.use("/api/table", tableActivityRoutes);
+app.use("/api/quiz", quizActivityRoutes);
+app.use("/api/individual", individualActivityRoutes);
 app.use("/api/virtualspace", virtualSpaceDashboardRoutes);
 app.get("/", (req, res) => {
     res.json({status: "ok", message: "GamifySpace backend active"});

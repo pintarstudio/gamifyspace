@@ -12,11 +12,37 @@ const avatarSrc = (path) => {
     return `/avatars${normalized}/thumbnail.png`;
 };
 
+const choiceLabel = (index) => ["A", "B", "C", "D"][index] || String(index + 1);
+
+const quizAnswerFeedback = (activity, answer, question) =>
+    (activity.results?.wrong_answer_feedback || []).find((item) =>
+        String(item.user_id) === String(answer.user_id)
+        && String(item.question_id) === String(question.question_id)
+    );
+
+const quizOutcome = (activity, score) => {
+    const winner = activity.results?.winner;
+    if (!winner) return "";
+    if (winner.is_tie) return "Tie";
+    return String(winner.user_id) === String(score.user_id) ? "Winner" : "Lose";
+};
+
+const individualActivityLabel = (activity) => {
+    if (activity.individual_activity_type === "pre_test") return "Pre-test";
+    if (activity.individual_activity_type === "post_test") return "Post-test";
+    return activity.question_kind === "case_study" ? "Individual Case Study" : "Individual Exercise";
+};
+
+const individualAnswerFeedback = (activity, answer) =>
+    (activity.results?.wrong_answer_feedback || activity.feedback?.wrong_answer_feedback || [])
+        .find((item) => String(item.question_id) === String(answer.question_id));
+
 const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
     const [currentUser, setCurrentUser] = useState(user);
     const [dashboard, setDashboard] = useState(null);
     const [selectedActivity, setSelectedActivity] = useState(null);
     const [detailLoading, setDetailLoading] = useState(false);
+    const [activeDashboardTab, setActiveDashboardTab] = useState(null);
     const navigate = useNavigate();
 
     useEffect(() => {
@@ -105,11 +131,104 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
 
     const openActivity = async (activity) => {
         setDetailLoading(true);
-        const data = await apiGet(`/virtualspace/activities/${activity.session_id}`);
+        const data = await apiGet(`/virtualspace/activities/${activity.activity_key || activity.session_id}`);
         setSelectedActivity(data.activity || null);
         setDetailLoading(false);
     };
     const showGameLayer = !!currentUser.gamification_enabled;
+    const groupLeaderboard = dashboard?.leaderboard || [];
+    const quizLeaderboard = dashboard?.quiz_leaderboard || [];
+    const individualActivities = dashboard?.individual_activities || [];
+    const groupActivities = dashboard?.group_activities || [];
+    const visibleTabs = [
+        ...(showGameLayer ? [{id: "leaderboard", label: "Leaderboard"}] : []),
+        {id: "individual", label: "Individual Activity"},
+        {id: "group", label: "Group Activity"},
+    ];
+    const currentDashboardTab = activeDashboardTab && visibleTabs.some((tab) => tab.id === activeDashboardTab)
+        ? activeDashboardTab
+        : (showGameLayer ? "leaderboard" : "individual");
+
+    const renderActivityList = (activities, emptyText) => (
+        <div className="activity-list">
+            {activities.length > 0 ? (
+                activities.map((activity) => (
+                    <button
+                        className="activity-card"
+                        key={activity.activity_key || activity.session_id}
+                        onClick={() => openActivity(activity)}
+                        type="button"
+                    >
+                        <strong>{activity.activity_name}</strong>
+                        <span>{activity.topic_name || "Topic"} · {activity.case_title}</span>
+                        {showGameLayer && (
+                            <small>
+                                {activity.activity_type === "individual"
+                                    ? (activity.individual_activity_type === "exercise"
+                                        ? `${activity.my_xp || activity.xp_total || 0} individual XP`
+                                        : `${activity.score_total || 0}/100 score`)
+                                    : `${activity.group_xp || 0} group XP`}
+                            </small>
+                        )}
+                    </button>
+                ))
+            ) : (
+                <p className="panel-empty">{emptyText}</p>
+            )}
+        </div>
+    );
+
+    const renderLeaderboards = () => (
+        <div className="leaderboard-stack">
+            <div className="leaderboard-block">
+                <div className="leaderboard-block__title">
+                    <h3>Group Activity Leaderboard</h3>
+                    <span>XP</span>
+                </div>
+                <div className="course-leaderboard course-leaderboard--compact">
+                    {groupLeaderboard.length > 0 ? (
+                        groupLeaderboard.map((item, index) => (
+                            <article className="course-leaderboard__row" key={item.user_id}>
+                                <div className="course-leaderboard__rank">{index + 1}</div>
+                                <img src={avatarSrc(item.avatar_public_path)} alt={item.name} />
+                                <div>
+                                    <strong>{item.name}</strong>
+                                    <span>{item.activities_count} activities</span>
+                                </div>
+                                <b>{item.total_xp} XP</b>
+                            </article>
+                        ))
+                    ) : (
+                        <p className="panel-empty">No XP records yet.</p>
+                    )}
+                </div>
+            </div>
+
+            <div className="leaderboard-block">
+                <div className="leaderboard-block__title">
+                    <h3>Quiz Score Leaderboard</h3>
+                    <span>Points</span>
+                </div>
+                <div className="course-leaderboard course-leaderboard--compact">
+                    {quizLeaderboard.length > 0 ? (
+                        quizLeaderboard.map((item, index) => (
+                            <article className="course-leaderboard__row" key={item.user_id}>
+                                <div className="course-leaderboard__rank">{index + 1}</div>
+                                <img src={avatarSrc(item.avatar_public_path)} alt={item.name} />
+                                <div>
+                                    <strong>{item.name}</strong>
+                                    <span>{item.quizzes_count} quizzes</span>
+                                </div>
+                                <b>{item.total_quiz_score} pts</b>
+                            </article>
+                        ))
+                    ) : (
+                        <p className="panel-empty">No quiz scores yet.</p>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
 
     return (
         <div className="virtual-shell">
@@ -124,63 +243,52 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
                     summary={dashboard?.hud}
                 />
 
-                <section className="side-panel">
-                    <div className="side-panel__title">
-                        <h2>Activity History</h2>
-                        <span>{dashboard?.activities?.length || 0}</span>
+                <section className="side-panel dashboard-tabs-panel">
+                    <div className="dashboard-tabs" role="tablist" aria-label="Dashboard sections">
+                        {visibleTabs.map((tab) => (
+                            <button
+                                key={tab.id}
+                                className={currentDashboardTab === tab.id ? "is-active" : ""}
+                                type="button"
+                                role="tab"
+                                aria-selected={currentDashboardTab === tab.id}
+                                onClick={() => setActiveDashboardTab(tab.id)}
+                            >
+                                {tab.label}
+                            </button>
+                        ))}
                     </div>
 
-                    <div className="activity-list">
-                        {dashboard?.activities?.length > 0 ? (
-                            dashboard.activities.map((activity) => (
-                                <button
-                                    className="activity-card"
-                                    key={activity.session_id}
-                                    onClick={() => openActivity(activity)}
-                                    type="button"
-                                >
-                                    <strong>{activity.activity_name}</strong>
-                                    <span>{activity.topic_name || "Topic"} · {activity.case_title}</span>
-                                    {showGameLayer && (
-                                        <small>
-                                            {activity.group_xp || 0} group XP
-                                            {activity.my_xp ? ` · ${activity.my_xp} my XP` : ""}
-                                        </small>
-                                    )}
-                                </button>
-                            ))
-                        ) : (
-                            <p className="panel-empty">No submitted table activities yet.</p>
-                        )}
-                    </div>
+                    {currentDashboardTab === "leaderboard" && showGameLayer && (
+                        <div className="dashboard-tab-panel leaderboard-panel">
+                            <div className="side-panel__title">
+                                <h2>Leaderboards</h2>
+                                <span>Course</span>
+                            </div>
+                            {renderLeaderboards()}
+                        </div>
+                    )}
+
+                    {currentDashboardTab === "individual" && (
+                        <div className="dashboard-tab-panel">
+                            <div className="side-panel__title">
+                                <h2>Individual Activity</h2>
+                                <span>{individualActivities.length}</span>
+                            </div>
+                            {renderActivityList(individualActivities, "No individual activities yet.")}
+                        </div>
+                    )}
+
+                    {currentDashboardTab === "group" && (
+                        <div className="dashboard-tab-panel">
+                            <div className="side-panel__title">
+                                <h2>Group Activity</h2>
+                                <span>{groupActivities.length}</span>
+                            </div>
+                            {renderActivityList(groupActivities, "No group activities yet.")}
+                        </div>
+                    )}
                 </section>
-
-                {showGameLayer && (
-                    <section className="side-panel">
-                        <div className="side-panel__title">
-                            <h2>Leaderboard</h2>
-                            <span>Course</span>
-                        </div>
-
-                        <div className="course-leaderboard">
-                            {dashboard?.leaderboard?.length > 0 ? (
-                                dashboard.leaderboard.map((item, index) => (
-                                    <article className="course-leaderboard__row" key={item.user_id}>
-                                        <div className="course-leaderboard__rank">{index + 1}</div>
-                                        <img src={avatarSrc(item.avatar_public_path)} alt={item.name} />
-                                        <div>
-                                            <strong>{item.name}</strong>
-                                            <span>{item.activities_count} activities</span>
-                                        </div>
-                                        <b>{item.total_xp} XP</b>
-                                    </article>
-                                ))
-                            ) : (
-                                <p className="panel-empty">No XP records yet.</p>
-                            )}
-                        </div>
-                    </section>
-                )}
             </aside>
 
             {(selectedActivity || detailLoading) && (
@@ -209,19 +317,25 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
 
                                 <div className="activity-detail-grid">
                                     <section>
-                                        <h2>Case</h2>
+                                        <h2>
+                                            {selectedActivity.activity_type === "individual"
+                                                ? "Activity"
+                                                : selectedActivity.activity_type === "quiz" ? "Quiz" : "Case"}
+                                        </h2>
                                         <p>{selectedActivity.case_prompt}</p>
                                     </section>
 
                                     <section>
-                                        <h2>Group</h2>
+                                        <h2>{selectedActivity.activity_type === "individual" ? "Student" : "Group"}</h2>
                                         <div className="activity-member-list">
                                             {selectedActivity.members.map((member) => (
                                                 <article key={member.user_id}>
                                                     <img src={avatarSrc(member.avatar_public_path)} alt={member.name} />
                                                     <div>
                                                         <strong>{member.name}</strong>
-                                                        {showGameLayer && <span>{member.xp_earned || 0} XP</span>}
+                                                        {showGameLayer
+                                                            && (selectedActivity.activity_type !== "individual" || selectedActivity.individual_activity_type === "exercise")
+                                                            && <span>{member.xp_earned || 0} XP</span>}
                                                     </div>
                                                 </article>
                                             ))}
@@ -229,28 +343,187 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
                                     </section>
                                 </div>
 
-                                <section className="activity-detail-section">
-                                    <h2>Answers</h2>
-                                    <div className="history-answer-list">
-                                        {selectedActivity.answers.map((answer) => (
-                                            <article key={answer.user_id}>
-                                                <strong>{answer.name}</strong>
-                                                <p>{answer.answer_text}</p>
-                                            </article>
-                                        ))}
-                                    </div>
-                                </section>
+                                {selectedActivity.activity_type === "individual" ? (
+                                    <>
+                                        <section className="activity-detail-section individual-history-result">
+                                            <span className="quiz-history-result__label">{individualActivityLabel(selectedActivity)}</span>
+                                            <h2>
+                                                {selectedActivity.individual_activity_type === "pre_test" || selectedActivity.individual_activity_type === "post_test"
+                                                    ? `${selectedActivity.results?.score_total || 0}/100`
+                                                    : selectedActivity.question_kind === "case_study"
+                                                        ? "Case study completed"
+                                                        : `${selectedActivity.results?.correct_count || 0}/${selectedActivity.results?.question_count || 0} correct`}
+                                            </h2>
+                                            {showGameLayer && selectedActivity.individual_activity_type === "exercise" && (
+                                                <p>{selectedActivity.results?.xp_total || 0} individual XP earned.</p>
+                                            )}
+                                        </section>
+
+                                        {selectedActivity.question_kind === "case_study" ? (
+                                            <section className="activity-detail-section">
+                                                <h2>AI Feedback</h2>
+                                                <div className="history-feedback-grid">
+                                                    <article>
+                                                        <strong className="history-feedback-label history-feedback-label--www">What Went Well</strong>
+                                                        <p>{selectedActivity.feedback?.www || "Feedback unavailable."}</p>
+                                                    </article>
+                                                    <article>
+                                                        <strong className="history-feedback-label history-feedback-label--ebi">Even Better If</strong>
+                                                        <p>{selectedActivity.feedback?.ebi || "Feedback unavailable."}</p>
+                                                    </article>
+                                                </div>
+                                                {showGameLayer && selectedActivity.feedback?.xp_reason && (
+                                                    <p className="individual-history-xp-reason">{selectedActivity.feedback.xp_reason}</p>
+                                                )}
+                                            </section>
+                                        ) : (
+                                            <section className="activity-detail-section">
+                                                <h2>Review</h2>
+                                                <div className="individual-history-review">
+                                                    {(selectedActivity.questions || []).map((question, index) => {
+                                                        const answer = (selectedActivity.answers || [])
+                                                            .find((item) => String(item.question_id) === String(question.question_id));
+                                                        const feedback = answer ? individualAnswerFeedback(selectedActivity, answer) : null;
+                                                        const showIndividualXp = showGameLayer && selectedActivity.individual_activity_type === "exercise";
+                                                        const showAssessmentScore = selectedActivity.individual_activity_type === "pre_test"
+                                                            || selectedActivity.individual_activity_type === "post_test";
+                                                        return (
+                                                            <article key={question.question_id}>
+                                                                <div className="quiz-history-question">
+                                                                    <span>Question {index + 1}</span>
+                                                                    <strong>{question.question_text}</strong>
+                                                                    <p>Correct: {choiceLabel(question.correct_answer_index)}. {question.choices?.[question.correct_answer_index]}</p>
+                                                                </div>
+                                                                <div className="individual-history-answer">
+                                                                    <b className={answer?.is_correct ? "is-correct" : "is-wrong"}>
+                                                                        {answer?.is_correct ? "Correct" : "Wrong"}
+                                                                    </b>
+                                                                    <span>
+                                                                        Your answer: {answer?.answer_index === null || answer?.answer_index === undefined
+                                                                            ? "No answer"
+                                                                            : `${choiceLabel(answer.answer_index)}. ${question.choices?.[answer.answer_index] || ""}`}
+                                                                    </span>
+                                                                    {showIndividualXp && <em>{answer?.xp_earned || 0} XP</em>}
+                                                                    {showAssessmentScore && <em>{answer?.score || 0} pts</em>}
+                                                                </div>
+                                                                {feedback && (
+                                                                    <div className="quiz-history-ai individual-history-ai">
+                                                                        <strong>AI Feedback</strong>
+                                                                        <p>{feedback.feedback}</p>
+                                                                    </div>
+                                                                )}
+                                                            </article>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </section>
+                                        )}
+                                    </>
+                                ) : selectedActivity.activity_type === "quiz" ? (
+                                    <>
+                                        <section className="activity-detail-section quiz-history-result">
+                                            <span className="quiz-history-result__label">Outcome</span>
+                                            <h2>
+                                                {selectedActivity.results?.winner?.is_tie
+                                                    ? `Tie: ${(selectedActivity.results?.winner?.names || []).join(", ")}`
+                                                    : `${selectedActivity.results?.winner?.name || "Winner"} wins`}
+                                            </h2>
+                                            <p>
+                                                {showGameLayer
+                                                    ? "Final score is based on correct answers only."
+                                                    : "Winner is based on correct answers only."}
+                                            </p>
+                                        </section>
+
+                                        {showGameLayer && (
+                                            <section className="activity-detail-section">
+                                                <h2>Scoreboard</h2>
+                                                <div className="quiz-history-scoreboard">
+                                                    {(selectedActivity.results?.scoreboard || []).map((item, index) => (
+                                                        <article key={item.user_id}>
+                                                            <div className="quiz-history-rank">{index + 1}</div>
+                                                            <img src={avatarSrc(item.avatar_public_path)} alt={item.name} />
+                                                            <div>
+                                                                <strong>{item.name}</strong>
+                                                                <span>{item.correct_count}/{item.question_count} correct</span>
+                                                            </div>
+                                                            <b className={item.total_score > 0 ? "is-correct" : "is-wrong"}>{item.total_score} pts</b>
+                                                            <em>{quizOutcome(selectedActivity, item)}</em>
+                                                        </article>
+                                                    ))}
+                                                </div>
+                                            </section>
+                                        )}
+
+                                        <section className="activity-detail-section">
+                                            <h2>Quiz Review</h2>
+                                            <div className="quiz-history-review">
+                                                {(selectedActivity.questions || []).map((question, index) => (
+                                                    <article key={question.question_id}>
+                                                        <div className="quiz-history-question">
+                                                            <span>Question {index + 1}</span>
+                                                            <strong>{question.question_text}</strong>
+                                                            <p>Correct: {choiceLabel(question.correct_answer_index)}. {question.choices?.[question.correct_answer_index]}</p>
+                                                        </div>
+                                                        {(selectedActivity.answers || [])
+                                                            .filter((answer) => String(answer.question_id) === String(question.question_id))
+                                                            .map((answer) => (
+                                                                <div
+                                                                    className={`quiz-history-answer${showGameLayer ? "" : " quiz-history-answer--no-score"}`}
+                                                                    key={answer.answer_id}
+                                                                >
+                                                                    <img src={avatarSrc(answer.avatar_public_path)} alt={answer.name} />
+                                                                    <div>
+                                                                        <strong>{answer.name}</strong>
+                                                                        <span>
+                                                                            {answer.answer_index === null
+                                                                                ? "No answer"
+                                                                            : `${choiceLabel(answer.answer_index)}. ${question.choices?.[answer.answer_index]}`}
+                                                                        </span>
+                                                                    </div>
+                                                                    {showGameLayer && (
+                                                                        <b className={answer.is_correct ? "is-correct" : "is-wrong"}>{answer.score} pts</b>
+                                                                    )}
+                                                                    {quizAnswerFeedback(selectedActivity, answer, question) && (
+                                                                        <div className="quiz-history-ai">
+                                                                            <strong>AI Feedback</strong>
+                                                                            <p>{quizAnswerFeedback(selectedActivity, answer, question).feedback}</p>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            ))}
+                                                    </article>
+                                                ))}
+                                            </div>
+                                        </section>
+                                    </>
+                                ) : (
+                                    <section className="activity-detail-section">
+                                        <h2>Answers</h2>
+                                        <div className="history-answer-list">
+                                            {selectedActivity.answers.map((answer) => (
+                                                <article key={answer.user_id}>
+                                                    <div className="history-answer-author">
+                                                        <img src={avatarSrc(answer.avatar_public_path)} alt={answer.name} />
+                                                        <strong>{answer.name}</strong>
+                                                    </div>
+                                                    <p>{answer.answer_text}</p>
+                                                </article>
+                                            ))}
+                                        </div>
+                                    </section>
+                                )}
 
                                 {selectedActivity.combined_feedback && (
                                     <section className="activity-detail-section">
-                                        <h2>Group Feedback</h2>
+                                        <h2>AI Feedback for Group</h2>
                                         <div className="history-feedback-grid">
                                             <article>
-                                                <strong>WWW</strong>
+                                                <strong className="history-feedback-label history-feedback-label--www">What Went Well</strong>
                                                 <p>{selectedActivity.combined_feedback.www}</p>
                                             </article>
                                             <article>
-                                                <strong>EBI</strong>
+                                                <strong className="history-feedback-label history-feedback-label--ebi">Even Better If</strong>
                                                 <p>{selectedActivity.combined_feedback.ebi}</p>
                                             </article>
                                         </div>
@@ -259,20 +532,30 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
 
                                 {selectedActivity.feedback_groups?.length > 0 && (
                                     <section className="activity-detail-section">
-                                        <h2>Student Feedback</h2>
+                                        <h2>AI Feedback for Student</h2>
                                         <div className="history-student-feedback">
                                             {selectedActivity.feedback_groups.map((feedbackGroup) => (
                                                 <article key={feedbackGroup.feedback_group_id}>
-                                                    <div className="history-student-feedback__names">
-                                                        {(feedbackGroup.student_names || []).join(", ")}
+                                                    <div className="history-student-feedback__students">
+                                                        {(feedbackGroup.students?.length > 0
+                                                            ? feedbackGroup.students
+                                                            : (feedbackGroup.student_names || []).map((name) => ({name}))
+                                                        ).map((student, index) => (
+                                                            <span key={`${student.user_id || student.name}-${index}`}>
+                                                                {student.avatar_public_path && (
+                                                                    <img src={avatarSrc(student.avatar_public_path)} alt={student.name} />
+                                                                )}
+                                                                <strong>{student.name}</strong>
+                                                            </span>
+                                                        ))}
                                                     </div>
                                                     <div className="history-feedback-grid">
                                                         <div>
-                                                            <strong>WWW</strong>
+                                                            <strong className="history-feedback-label history-feedback-label--www">What Went Well</strong>
                                                             <p>{feedbackGroup.www}</p>
                                                         </div>
                                                         <div>
-                                                            <strong>EBI</strong>
+                                                            <strong className="history-feedback-label history-feedback-label--ebi">Even Better If</strong>
                                                             <p>{feedbackGroup.ebi}</p>
                                                         </div>
                                                     </div>

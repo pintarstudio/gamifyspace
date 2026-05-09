@@ -64,6 +64,39 @@ const feedbackSchema = {
     },
 };
 
+const quizWrongAnswerFeedbackSchema = {
+    type: "object",
+    additionalProperties: false,
+    required: ["items"],
+    properties: {
+        items: {
+            type: "array",
+            items: {
+                type: "object",
+                additionalProperties: false,
+                required: ["user_id", "question_id", "feedback"],
+                properties: {
+                    user_id: {type: "integer"},
+                    question_id: {type: "integer"},
+                    feedback: {type: "string"},
+                },
+            },
+        },
+    },
+};
+
+const individualCaseFeedbackSchema = {
+    type: "object",
+    additionalProperties: false,
+    required: ["www", "ebi", "xp", "xp_reason"],
+    properties: {
+        www: {type: "string"},
+        ebi: {type: "string"},
+        xp: {type: "integer"},
+        xp_reason: {type: "string"},
+    },
+};
+
 function wordLimit(text, maxWords) {
     const words = String(text || "").trim().split(/\s+/).filter(Boolean);
     if (words.length <= maxWords) return words.join(" ");
@@ -122,7 +155,7 @@ function normalizeFeedback(feedback, answers) {
         if (!answerMap.has(studentId)) continue;
         xpAwardMap.set(studentId, {
             student_id: studentId,
-            xp: Math.max(10, Math.min(100, Number.parseInt(award.xp, 10) || 10)),
+            xp: Math.max(0, Math.min(100, Number.parseInt(award.xp, 10) || 0)),
             reason: wordLimit(award.reason, 40),
         });
     }
@@ -131,8 +164,8 @@ function normalizeFeedback(feedback, answers) {
         if (!xpAwardMap.has(studentId)) {
             xpAwardMap.set(studentId, {
                 student_id: studentId,
-                xp: 10,
-                reason: "Minimum XP for submitting an active answer.",
+                xp: 0,
+                reason: "No XP awarded because the answer was not evaluated.",
             });
         }
     }
@@ -144,7 +177,7 @@ function normalizeFeedback(feedback, answers) {
         },
         student_feedback_groups: studentFeedbackGroups,
         xp_awards: {
-            group_xp: Math.max(10, Math.min(100, Number.parseInt(feedback.xp_awards?.group_xp, 10) || 10)),
+            group_xp: Math.max(0, Math.min(100, Number.parseInt(feedback.xp_awards?.group_xp, 10) || 0)),
             group_xp_reason: wordLimit(feedback.xp_awards?.group_xp_reason, 40),
             student_xp_awards: [...xpAwardMap.values()],
         },
@@ -190,9 +223,9 @@ export async function generateCognitiveFeedback({caseTitle, casePrompt, answers}
                         "Return only JSON that matches the schema.",
                         "Evaluate reasoning, problem identification, use of evidence, conceptual understanding, and quality of recommendations.",
                         "Group students with substantially similar answers into the same student_feedback_groups item to reduce repeated feedback.",
-                        "Award group_xp from 10 to 100 based on the overall quality of the combined submitted answers.",
-                        "Award each submitted student one individual xp from 10 to 100 based on that student's answer quality.",
-                        "Use 10 for minimal effort or weak relevance, around 50 for partially correct reasoning, and 100 for excellent case-grounded reasoning.",
+                        "Award group_xp from 0 to 100 based on the overall quality of the combined submitted answers.",
+                        "Award each submitted student one individual xp from 0 to 100 based on that student's answer quality.",
+                        "Use 0 for answers with no relation to the case, around 10 for minimal but relevant effort, around 50 for partially correct reasoning, and 100 for excellent case-grounded reasoning.",
                         "For combined_feedback, keep WWW within 150 words and EBI within 150 words.",
                         "For each student feedback group, keep WWW plus EBI within 150 words total.",
                         "Keep XP reasons concise and explain why that score was earned.",
@@ -242,6 +275,185 @@ export async function generateCognitiveFeedback({caseTitle, casePrompt, answers}
 
     return {
         feedback: normalizeFeedback(parsed, answers),
+        model,
+    };
+}
+
+export async function generateQuizWrongAnswerFeedback({items}) {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+        const error = new Error("OPENAI_API_KEY is not configured");
+        error.code = "OPENAI_API_KEY_MISSING";
+        throw error;
+    }
+
+    const safeItems = (items || []).map((item) => ({
+        user_id: Number(item.user_id),
+        student_name: item.student_name,
+        question_id: Number(item.question_id),
+        question_text: item.question_text,
+        chosen_answer: item.chosen_answer,
+        correct_answer: item.correct_answer,
+    }));
+
+    if (safeItems.length === 0) {
+        return {feedback: [], model: getOpenAiFeedbackModel()};
+    }
+
+    const model = getOpenAiFeedbackModel();
+    const response = await fetch(OPENAI_RESPONSES_URL, {
+        method: "POST",
+        headers: {
+            "Authorization": `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+            model,
+            input: [
+                {
+                    role: "system",
+                    content: [
+                        "You are a concise quiz tutor.",
+                        "Return only JSON that matches the schema.",
+                        "For each item, explain why the chosen answer is wrong and why the correct answer fits the question context.",
+                        "Do not mention scoring, timing, or unrelated alternatives.",
+                        "Keep each feedback under 100 words.",
+                        "Return exactly one feedback item for each input item, preserving user_id and question_id.",
+                    ].join(" "),
+                },
+                {
+                    role: "user",
+                    content: `Generate wrong-answer feedback for this JSON input:\n${JSON.stringify({items: safeItems})}`,
+                },
+            ],
+            text: {
+                format: {
+                    type: "json_schema",
+                    name: "quiz_wrong_answer_feedback",
+                    schema: quizWrongAnswerFeedbackSchema,
+                    strict: true,
+                },
+            },
+            max_output_tokens: Math.min(2000, 180 + safeItems.length * 130),
+        }),
+    });
+
+    const responseBody = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        const error = new Error(responseBody?.error?.message || "OpenAI feedback request failed");
+        error.code = "OPENAI_FEEDBACK_FAILED";
+        error.status = response.status;
+        throw error;
+    }
+
+    const outputText = extractResponseText(responseBody);
+    if (!outputText) {
+        const error = new Error("OpenAI feedback response did not include output text");
+        error.code = "OPENAI_FEEDBACK_EMPTY";
+        throw error;
+    }
+
+    let parsed;
+    try {
+        parsed = JSON.parse(outputText);
+    } catch (error) {
+        error.code = "OPENAI_FEEDBACK_PARSE_FAILED";
+        throw error;
+    }
+
+    const expectedKeys = new Set(safeItems.map((item) => `${item.user_id}:${item.question_id}`));
+    const feedback = (parsed.items || [])
+        .map((item) => ({
+            user_id: Number(item.user_id),
+            question_id: Number(item.question_id),
+            feedback: wordLimit(item.feedback, 100),
+        }))
+        .filter((item) => expectedKeys.has(`${item.user_id}:${item.question_id}`));
+
+    return {feedback, model};
+}
+
+export async function generateIndividualCaseFeedback({caseTitle, casePrompt, answerText}) {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+        const error = new Error("OPENAI_API_KEY is not configured");
+        error.code = "OPENAI_API_KEY_MISSING";
+        throw error;
+    }
+
+    const model = getOpenAiFeedbackModel();
+    const response = await fetch(OPENAI_RESPONSES_URL, {
+        method: "POST",
+        headers: {
+            "Authorization": `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+            model,
+            input: [
+                {
+                    role: "system",
+                    content: [
+                        "You are an educational evaluator for an individual case-study answer.",
+                        "Return only JSON that matches the schema.",
+                        "Evaluate conceptual understanding, case relevance, reasoning quality, and practicality of the recommendation.",
+                        "WWW explains what the student did well.",
+                        "EBI explains how the answer can be improved.",
+                        "Award XP from 0 to 100. Use 0 for answers with no relation to the case, around 10 for minimal but relevant effort, around 50 for partially correct reasoning, and 100 for excellent case-grounded reasoning.",
+                        "Keep WWW under 100 words, EBI under 100 words, and xp_reason under 40 words.",
+                    ].join(" "),
+                },
+                {
+                    role: "user",
+                    content: `Evaluate this individual case-study response:\n${JSON.stringify({
+                        case_title: caseTitle,
+                        case_prompt: casePrompt,
+                        answer_text: answerText,
+                    })}`,
+                },
+            ],
+            text: {
+                format: {
+                    type: "json_schema",
+                    name: "individual_case_feedback",
+                    schema: individualCaseFeedbackSchema,
+                    strict: true,
+                },
+            },
+            max_output_tokens: 700,
+        }),
+    });
+
+    const responseBody = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        const error = new Error(responseBody?.error?.message || "OpenAI feedback request failed");
+        error.code = "OPENAI_FEEDBACK_FAILED";
+        error.status = response.status;
+        throw error;
+    }
+
+    const outputText = extractResponseText(responseBody);
+    if (!outputText) {
+        const error = new Error("OpenAI feedback response did not include output text");
+        error.code = "OPENAI_FEEDBACK_EMPTY";
+        throw error;
+    }
+
+    let parsed;
+    try {
+        parsed = JSON.parse(outputText);
+    } catch (error) {
+        error.code = "OPENAI_FEEDBACK_PARSE_FAILED";
+        throw error;
+    }
+
+    return {
+        feedback: {
+            www: wordLimit(parsed.www, 100),
+            ebi: wordLimit(parsed.ebi, 100),
+            xp: Math.max(0, Math.min(100, Number.parseInt(parsed.xp, 10) || 0)),
+            xp_reason: wordLimit(parsed.xp_reason, 40),
+        },
         model,
     };
 }

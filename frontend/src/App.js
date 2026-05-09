@@ -3,6 +3,8 @@ import {BrowserRouter, Routes, Route, Navigate} from "react-router-dom";
 import LoginPage from "./pages/LoginPage";
 import VirtualSpacePage from "./pages/VirtualSpacePage";
 import TableActivityPage from "./pages/TableActivityPage";
+import QuizActivityPage from "./pages/QuizActivityPage";
+import IndividualActivityPage from "./pages/IndividualActivityPage";
 import {apiGet} from "./api/apiClient";
 
 function App() {
@@ -55,6 +57,26 @@ function App() {
                     element={
                         loggedIn ? (
                             <TableActivityPage/>
+                        ) : (
+                            <Navigate to="/"/>
+                        )
+                    }
+                />
+                <Route
+                    path="/quiz"
+                    element={
+                        loggedIn ? (
+                            <QuizActivityPage/>
+                        ) : (
+                            <Navigate to="/"/>
+                        )
+                    }
+                />
+                <Route
+                    path="/individual"
+                    element={
+                        loggedIn ? (
+                            <IndividualActivityPage/>
                         ) : (
                             <Navigate to="/"/>
                         )

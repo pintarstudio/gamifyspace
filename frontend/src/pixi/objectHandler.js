@@ -138,12 +138,18 @@ export function initObjects(app, worldContainer, roomData, user, localUserRef, z
         const userId = user.user_id || user.id || null;
         const objectName = activeObject.nameProp || activeObject.obj.name || "unknown_object";
         const objectId = hasValue(activeObject.idProp) ? activeObject.idProp : activeObject.obj.id || null;
-        const groupId = String(objectName).toLowerCase() === "table" ? activeObject.groupProp : null;
+        const objectKind = String(objectName).toLowerCase();
+        const bigTablePairId = Number.isFinite(Number(objectId))
+            ? `bigtable-${Math.ceil(Number(objectId) / 2)}`
+            : objectId;
+        const tableId = objectKind === "bigtable" ? (activeObject.groupProp || bigTablePairId) : null;
+        const groupId = objectKind === "table" ? activeObject.groupProp : tableId;
         const finalUrl = buildInteractionUrl(activeObject.urlProp, {
             user_id: userId,
             object_name: objectName,
             object_id: objectId,
             group_id: groupId,
+            table_id: tableId,
         });
 
         if (!finalUrl) return;
@@ -161,6 +167,7 @@ export function initObjects(app, worldContainer, roomData, user, localUserRef, z
             object_name: objectName,
             object_id: objectId,
             group_id: groupId,
+            table_id: tableId,
             action: "openurl",
             url: finalUrl,
         });
