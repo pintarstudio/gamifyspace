@@ -3,13 +3,30 @@ import * as PIXI from "pixi.js";
 import socket from "../utils/socketClient";
 import {initMap} from "../pixi/mapRenderer";
 import {initObjects} from "../pixi/objectHandler";
+// Controls how high the name label sits above the avatar.
+// Increase these values to add more space.
+const NAME_OFFSET_MULT = 1.15;   // multiplier of sprite height
+const NAME_OFFSET_PX = 1;        // extra pixels
 // import { initAvatars } from "../pixi/avatarHandler";
+
+const destroyPixiApp = (app) => {
+    if (!app) return;
+    try {
+        app.ticker?.stop();
+        app.destroy(true, {
+            children: true,
+            texture: false,
+            textureSource: false,
+        });
+    } catch (error) {
+        console.warn("Pixi cleanup skipped:", error);
+    }
+};
 
 const VirtualSpacePixi = ({user}) => {
     const pixiContainer = useRef(null);
     const [currentRoom, setCurrentRoom] = useState("room1.json");
     const [roomData, setRoomData] = useState(null);
-    const [users, setUsers] = useState({});
     const localUserRef = useRef(null);
     // console.log("User", user);
 
@@ -31,7 +48,7 @@ const VirtualSpacePixi = ({user}) => {
             room: newRoom,
         });
     };
-    const initAvatars=(app, worldContainer, checkCollision, TILE_SIZE, mapWidth, mapHeight, user, zoomFactor, localUserRef)=> {
+    const initAvatars = (app, worldContainer, checkCollision, TILE_SIZE, mapWidth, mapHeight, user, zoomFactor, localUserRef) => {
         const localKeyRef = {current: null};
         const avatars = {};
         window.__avatars = avatars;
@@ -54,7 +71,7 @@ const VirtualSpacePixi = ({user}) => {
         // Setelah localUserRef.current = localUser;
         setTimeout(() => {
             const activeRoom = localUserRef.current.room || "room1";
-            socket.emit("join_room", { user: localUserRef.current, room: activeRoom });
+            socket.emit("join_room", {user: localUserRef.current, room: activeRoom});
             //console.log("➡️ Joining room (delayed):", activeRoom);
         }, 200);
 
@@ -115,9 +132,9 @@ const VirtualSpacePixi = ({user}) => {
         });
 
         // Pindahkan logika movement dan camera follow ke modul terpisah
-        initAvatarMovement(app, worldContainer, avatars, localUserRef, localKeyRef, checkCollision, TILE_SIZE, mapWidth, mapHeight, zoomFactor);
+        const cleanupMovement = initAvatarMovement(app, worldContainer, avatars, localUserRef, localKeyRef, checkCollision, TILE_SIZE, mapWidth, mapHeight, zoomFactor);
 
-        return {localUserRef, localKeyRef};
+        return {localUserRef, localKeyRef, cleanupMovement};
     }
     // Fetch current room data
     useEffect(() => {
@@ -135,7 +152,12 @@ const VirtualSpacePixi = ({user}) => {
     useEffect(() => {
         if (!roomData) return; // Do not run if roomData not loaded yet
 
+        let cleanupPixi = null;
+        let cancelled = false;
+
         (async () => {
+            // Pixel-art friendly rendering: avoid texture bleeding / seams when zooming
+            //PIXI.TextureStyle.defaultOptions.scaleMode = 'nearest'; // untuk zoom 1.5 tapi kualitas render kurang baik
             const app = new PIXI.Application();
             // We'll get mapWidth, mapHeight, TILE_SIZE from initMap
             // But we need to set the app size initially to something reasonable (will be resized below)
@@ -143,12 +165,15 @@ const VirtualSpacePixi = ({user}) => {
                 width: 1280,
                 height: 720,
                 backgroundColor: 0xf0f0f0,
-                antialias: true,
+                antialias: false,
             });
-            app.renderer.resize(window.innerWidth, window.innerHeight);
-
+            // Round rendering to whole pixels to prevent grey seams between tiles at non-integer zoom
             const container = pixiContainer.current;
             if (!container) return;
+            if (cancelled) {
+                destroyPixiApp(app);
+                return;
+            }
             container.innerHTML = "";
             container.appendChild(app.canvas);
             app.canvas.style.display = "block";
@@ -159,23 +184,33 @@ const VirtualSpacePixi = ({user}) => {
             app.stage.addChild(worldContainer);
 
             // Zoom factor
-            const zoomFactor = 1.5;
+            const zoomFactor = 1;
             worldContainer.scale.set(zoomFactor);
-            worldContainer.x = (app.renderer.width - mapWidth * zoomFactor) / 2;
-            worldContainer.y = (app.renderer.height - mapHeight * zoomFactor) / 2;
+
+            const resizeToContainer = () => {
+                const width = Math.max(320, container.clientWidth || window.innerWidth);
+                const height = Math.max(320, container.clientHeight || window.innerHeight);
+                app.renderer.resize(width, height);
+                // IMPORTANT: keep container aligned to whole pixels to avoid tile seams at zoom 1.5
+                worldContainer.x = Math.round((app.renderer.width - mapWidth * zoomFactor) / 2);
+                worldContainer.y = Math.round((app.renderer.height - mapHeight * zoomFactor) / 2);
+            };
+            resizeToContainer();
+            window.addEventListener("resize", resizeToContainer);
             //================================================================================================================================================
 
             // Avatars
-            initAvatars(app, worldContainer, checkCollision, TILE_SIZE, mapWidth, mapHeight, user, zoomFactor, localUserRef);
+            const avatarRuntime = initAvatars(app, worldContainer, checkCollision, TILE_SIZE, mapWidth, mapHeight, user, zoomFactor, localUserRef);
 
             //============================================================================================================
             // Smooth ticker updates for avatar movement
-            app.ticker.add(() => {
+            const smoothAvatarTicker = () => {
+                if (cancelled || !app.renderer || worldContainer.destroyed) return;
                 if (!window.__avatars) return;
 
                 for (const id in window.__avatars) {
                     const a = window.__avatars[id];
-                    if (!a?.sprite) continue;
+                    if (!a?.sprite || a.sprite.destroyed) continue;
 
                     // Only apply smoothing if targetX/targetY are numeric (remote avatars)
                     if (typeof a.targetX === "number" && typeof a.targetY === "number") {
@@ -189,26 +224,39 @@ const VirtualSpacePixi = ({user}) => {
                         a.sprite.y += (a.targetY - a.sprite.y) * 0.05;
                     }
 
+                    // Keep depth sorting correct for moving avatars (sort by feet Y)
+                    a.sprite.zIndex = a.sprite.y;
+
                     if (a.nameText) {
                         a.nameText.x = a.sprite.x;
-                        a.nameText.y = a.sprite.y - a.sprite.height * 0.6;
+                        a.nameText.y = a.sprite.y - a.sprite.height * NAME_OFFSET_MULT - NAME_OFFSET_PX;
+                        a.nameText.zIndex = a.sprite.zIndex + 1;
                     }
                 }
-            });
+            };
+            app.ticker.add(smoothAvatarTicker);
 
             // Objects
             //console.log("🧭 Calling initObjects...");
             initObjects(app, worldContainer, roomData, user, localUserRef, zoomFactor, handleRoomChange);
-            socket.emit("request_update_users", { room: localUserRef.current?.room || "room1.json" });
+            socket.emit("request_update_users", {room: localUserRef.current?.room || "room1.json"});
 
-            // Cleanup
-            return () => {
+            cleanupPixi = () => {
+                app.ticker.remove(smoothAvatarTicker);
+                avatarRuntime?.cleanupMovement?.();
+                window.removeEventListener("resize", resizeToContainer);
                 socket.off("update_users");
                 socket.off("user_moved");
                 socket.off("user_left");
-                app.destroy(true, true);
+                if (window.__avatars) window.__avatars = null;
+                destroyPixiApp(app);
             };
         })();
+
+        return () => {
+            cancelled = true;
+            if (cleanupPixi) cleanupPixi();
+        };
     }, [roomData, user]);
 
     if (!roomData) {
@@ -219,8 +267,8 @@ const VirtualSpacePixi = ({user}) => {
         <div
             ref={pixiContainer}
             style={{
-                width: "100vw",
-                height: "100vh",
+                width: "100%",
+                height: "100%",
                 background: "#dcdcdc",
                 overflow: "hidden",
             }}
@@ -312,13 +360,21 @@ export async function renderUsers(worldContainer, avatars, usersData, localKeyRe
                 // Ukuran Avatar
                 const scaleFactor = (TILE_SIZE * 3) / sprite.texture.width;
                 sprite.scale.set(scaleFactor);
-                sprite.anchor.set(0.5);
-                sprite.baseScaleX = sprite.scale.x;
-                sprite.zIndex = 1000;
 
-                // SET POSISI AWAL LANGSUNG KE POSISI USER
+// Top-down: x/y represents FEET so the head can go behind walls
+                sprite.anchor.set(0.5, 1);
+
+// Save base scale for left/right flipping (always positive)
+                sprite.baseScaleX = Math.abs(sprite.scale.x);
+
+// zIndex will be set after positioning (sort by feet Y)
+
+                // SET POSISI AWAL LANGSUNG KE POSISI USER (feet position)
                 sprite.x = u.x;
                 sprite.y = u.y;
+
+// Depth sorting by feet Y
+                sprite.zIndex = sprite.y;
 
                 worldContainer.addChild(sprite);
 
@@ -333,10 +389,10 @@ export async function renderUsers(worldContainer, avatars, usersData, localKeyRe
                     },
                 });
 
-                nameText.zIndex = 1000;
+                nameText.zIndex = sprite.zIndex + 1;
                 nameText.anchor.set(0.5);
                 nameText.x = sprite.x;
-                nameText.y = sprite.y - sprite.height * 0.6;
+                nameText.y = sprite.y - sprite.height * NAME_OFFSET_MULT - NAME_OFFSET_PX;
                 worldContainer.addChild(nameText);
 
                 // Simpan avatar + state tambahan
@@ -345,7 +401,7 @@ export async function renderUsers(worldContainer, avatars, usersData, localKeyRe
                     sprite,
                     nameText,
                     // Only remote avatars get targetX/targetY for smoothing
-                    ...(isLocal ? {} : { targetX: u.x, targetY: u.y }),
+                    ...(isLocal ? {} : {targetX: u.x, targetY: u.y}),
                     lastDirection: u.direction || "right",
                 };
             } catch (err) {
@@ -389,7 +445,6 @@ export async function renderUsers(worldContainer, avatars, usersData, localKeyRe
 
             // Remote avatars: play walk animation only if moving
             if (id !== localKeyRef.current) {
-                const isMoving = u.vx !== 0 || u.vy !== 0; // server may not send velocity
                 const deltaX = Math.abs(avatar.targetX - avatar.sprite.x);
                 const deltaY = Math.abs(avatar.targetY - avatar.sprite.y);
                 const moving = deltaX > 0.5 || deltaY > 0.5;
@@ -410,23 +465,25 @@ export async function renderUsers(worldContainer, avatars, usersData, localKeyRe
 export function initAvatarMovement(app, worldContainer, avatars, localUserRef, localKeyRef, checkCollision, TILE_SIZE, mapWidth, mapHeight, zoomFactor) {
     const step = 2;
     let lastDirection = localUserRef.current?.direction || "right";
-    const keys = {};
+    if (!window.__gs_keys) window.__gs_keys = {};
+    const keys = window.__gs_keys;
 
     // Hindari multi-attach ketika initAvatarMovement dipanggil berkali-kali
     if (!window.__gs_keysBound) {
         window.addEventListener("keydown", (e) => {
             // Cegah halaman scroll saat pakai Arrow keys
             if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " "].includes(e.key)) e.preventDefault();
-            keys[e.key] = true;
+            window.__gs_keys[e.key] = true;
         }, {passive: false});
         window.addEventListener("keyup", (e) => {
-            keys[e.key] = false;
+            window.__gs_keys[e.key] = false;
         }, {passive: true});
         window.__gs_keysBound = true;
     }
 
-    app.ticker.add(() => {
+    const movementTicker = () => {
         // >>> Perbaikan utama: ambil localUser sebelum dipakai
+        if (!app.renderer || worldContainer.destroyed) return;
         const localUser = localUserRef.current;
         if (!localUser) return;
         let moved = false;
@@ -465,11 +522,37 @@ export function initAvatarMovement(app, worldContainer, avatars, localUserRef, l
                 direction = "right";
             }
 
-            // Prevent movement into collision tiles
-            if (!checkCollision(newX, newY)) {
-                localUser.x = newX;
-                localUser.y = newY;
+            // Prevent movement into collision tiles (feet collider)
+            // Use axis-separated resolution so bumping horizontally doesn't let part of the sprite clip into walls.
+            const rx = TILE_SIZE * 0.9; // horizontal shoe radius (slightly larger than before)
+            const ry = TILE_SIZE * 0.25; // vertical shoe radius
+
+            const isBlockedAt = (x, y) => {
+                // Sample a small set of points around the feet area.
+                // Extra diagonal points prevent left/right "partial" clipping when sliding along a wall.
+                return (
+                    checkCollision(x, y) ||
+                    checkCollision(x - rx, y) ||
+                    checkCollision(x + rx, y) ||
+                    checkCollision(x, y - ry) ||
+                    checkCollision(x - rx, y - ry) ||
+                    checkCollision(x + rx, y - ry)
+                );
+            };
+
+            // Resolve X then Y (allows sliding along walls)
+            let nextX = localUser.x;
+            let nextY = localUser.y;
+
+            if (!isBlockedAt(newX, localUser.y)) {
+                nextX = newX;
             }
+            if (!isBlockedAt(nextX, newY)) {
+                nextY = newY;
+            }
+
+            localUser.x = nextX;
+            localUser.y = nextY;
 
             // Clamp to map boundaries
             const margin = TILE_SIZE * 2;
@@ -478,13 +561,19 @@ export function initAvatarMovement(app, worldContainer, avatars, localUserRef, l
 
             // Update avatar position visually
             const myKey = localKeyRef.current;
-            if (myKey && avatars[myKey]) {
+            if (myKey && avatars[myKey]?.sprite && !avatars[myKey].sprite.destroyed) {
 
                 avatars[myKey].sprite.x = localUser.x;
                 avatars[myKey].sprite.y = localUser.y;
-                avatars[myKey].nameText.x = localUser.x;
-                avatars[myKey].nameText.y =
-                    localUser.y - avatars[myKey].sprite.height * 0.6;
+                // Depth sorting by feet Y
+                avatars[myKey].sprite.zIndex = avatars[myKey].sprite.y;
+
+                if (avatars[myKey].nameText && !avatars[myKey].nameText.destroyed) {
+                    avatars[myKey].nameText.x = localUser.x;
+                    avatars[myKey].nameText.y =
+                        localUser.y - avatars[myKey].sprite.height * NAME_OFFSET_MULT - NAME_OFFSET_PX;
+                    avatars[myKey].nameText.zIndex = avatars[myKey].sprite.zIndex + 1;
+                }
 
                 if (direction === "left") {
                     avatars[myKey].sprite.scale.x = -avatars[myKey].sprite.baseScaleX;
@@ -492,14 +581,14 @@ export function initAvatarMovement(app, worldContainer, avatars, localUserRef, l
                     avatars[myKey].sprite.scale.x = avatars[myKey].sprite.baseScaleX;
                 }
 
-            const isMovingNow =
-                keys["ArrowUp"] || keys["ArrowDown"] || keys["ArrowLeft"] || keys["ArrowRight"];
+                const isMovingNow =
+                    keys["ArrowUp"] || keys["ArrowDown"] || keys["ArrowLeft"] || keys["ArrowRight"];
 
-            if (isMovingNow) {
-                if (avatars[myKey].sprite.play) avatars[myKey].sprite.play();
-            } else {
-                if (avatars[myKey].sprite.gotoAndStop) avatars[myKey].sprite.gotoAndStop(0);
-            }
+                if (isMovingNow) {
+                    if (avatars[myKey].sprite.play) avatars[myKey].sprite.play();
+                } else {
+                    if (avatars[myKey].sprite.gotoAndStop) avatars[myKey].sprite.gotoAndStop(0);
+                }
             }
             // Simpan arah terakhir di memori dan localStorage untuk persistensi antar-room
             localUser.direction = direction;
@@ -512,11 +601,10 @@ export function initAvatarMovement(app, worldContainer, avatars, localUserRef, l
                 y: localUser.y,
                 direction,
             });
-        }
-        else {
+        } else {
             // No movement → force idle animation for local avatar
             const myKey = localKeyRef.current;
-            if (myKey && avatars[myKey]?.sprite) {
+            if (myKey && avatars[myKey]?.sprite && !avatars[myKey].sprite.destroyed) {
                 if (avatars[myKey].sprite.gotoAndStop) {
                     avatars[myKey].sprite.gotoAndStop(0);
                 }
@@ -535,8 +623,11 @@ export function initAvatarMovement(app, worldContainer, avatars, localUserRef, l
         const minX = -mapWidth * zoomFactor + viewWidth;
         const minY = -mapHeight * zoomFactor + viewHeight;
 
-        worldContainer.x = Math.min(maxX, Math.max(minX, targetX));
-        worldContainer.y = Math.min(maxY, Math.max(minY, targetY));
-    });
+        // Keep camera aligned to whole pixels to avoid grey seams between tiles
+        worldContainer.x = Math.round(Math.min(maxX, Math.max(minX, targetX)));
+        worldContainer.y = Math.round(Math.min(maxY, Math.max(minY, targetY)));
+    };
+    app.ticker.add(movementTicker);
+    return () => app.ticker.remove(movementTicker);
 
 }

@@ -1,56 +1,37 @@
 import React from "react";
+import "./UserHUD.css";
 
-const UserHUD = ({ currentUser, handleLogout }) => {
-  if (!currentUser) return null;
-
-  return (
-    <div style={styles.container}>
-      <img
-        src={`/avatars/${currentUser.avatar_public_path}/thumbnail.png`}
-        alt="avatar"
-        style={styles.avatar}
-      />
-      <div style={{ textAlign: "left" }}>
-        <strong>{currentUser.name}</strong>
-        <div style={{ fontSize: "0.9em" }}>Level: 3 | XP: 120 / 200</div>
-      </div>
-      <button onClick={handleLogout} style={styles.logout}>
-        Logout
-      </button>
-    </div>
-  );
+const avatarSrc = (path) => {
+  if (!path) return "/avatars/default.png";
+  const normalized = path.startsWith("/") ? path : `/${path}`;
+  return `/avatars${normalized}/thumbnail.png`;
 };
 
-const styles = {
-  container: {
-    position: "absolute",
-    top: 15,
-    left: 15,
-    background: "rgba(0, 0, 0, 0.6)",
-    color: "#fff",
-    padding: "10px 15px",
-    borderRadius: "10px",
-    display: "flex",
-    alignItems: "center",
-    gap: "10px",
-    zIndex: 1000,
-  },
-  avatar: {
-    width: 50,
-    height: 50,
-    borderRadius: "50%",
-    objectFit: "cover",
-    border: "2px solid #fff",
-  },
-  logout: {
-    background: "#d9534f",
-    color: "#fff",
-    border: "none",
-    padding: "6px 12px",
-    borderRadius: "6px",
-    cursor: "pointer",
-    marginLeft: "auto",
-  },
+const UserHUD = ({ currentUser, handleLogout, summary }) => {
+  if (!currentUser) return null;
+
+  const gamificationEnabled = !!currentUser.gamification_enabled;
+  const groupXp = summary?.total_group_xp || 0;
+
+  return (
+    <section className={`user-hud${gamificationEnabled ? " user-hud--game" : ""}`}>
+      <img src={avatarSrc(currentUser.avatar_public_path)} alt={currentUser.name} className="user-hud__avatar" />
+
+      <div className="user-hud__body">
+        <div className="user-hud__name">{currentUser.name}</div>
+        {gamificationEnabled && (
+          <div className="user-hud__xp">
+            <span>Group XP</span>
+            <strong>{groupXp}</strong>
+          </div>
+        )}
+      </div>
+
+      <button onClick={handleLogout} className="user-hud__logout">
+        Logout
+      </button>
+    </section>
+  );
 };
 
 export default UserHUD;

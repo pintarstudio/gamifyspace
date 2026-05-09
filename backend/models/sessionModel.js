@@ -17,7 +17,7 @@ export async function deactivateSession(session_id) {
 
 export async function findSession(session_id) {
     const result = await pool.query(
-        `SELECT s.*, u.name, u.email, u.gender, u.course_id, a.avatar_name, a.avatar_public_path
+        `SELECT s.*, u.name, u.email, u.gender, u.course_id, u.gamification_enabled, a.avatar_name, a.avatar_public_path
          FROM sessions s
          JOIN users u ON s.user_id = u.user_id
          JOIN avatars a ON a.avatar_id = s.avatar_id        

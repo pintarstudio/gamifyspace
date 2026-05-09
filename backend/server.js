@@ -14,19 +14,33 @@ import courseRoutes from "./routes/courseRoutes.js";
 import sessionRoutes from "./routes/sessionRoutes.js";
 import userRoutes from "./routes/userRoutes.js";
 import avatarRoutes from "./routes/avatarRoutes.js";
+import tableActivityRoutes from "./routes/tableActivityRoutes.js";
+import virtualSpaceDashboardRoutes from "./routes/virtualSpaceDashboardRoutes.js";
+import {ensureGamificationTables} from "./models/gamificationModel.js";
 
 const app = express();
 const server = http.createServer(app);
+const allowedOrigins = [
+    "http://localhost:3000",
+    "http://localhost:3001",
+    "http://localhost:3002",
+    "http://localhost:3003",
+    "https://space.gamifyit.id",
+];
 const io = new Server(server, {
-    cors: {origin: ["http://localhost:3000", "https://space.gamifyit.id"], methods: ["GET", "POST"]},
+    cors: {origin: allowedOrigins, methods: ["GET", "POST"]},
 });
 const PORT = process.env.PORT || 4000;
 const PgSession = pgSession(session);
 
+ensureGamificationTables().catch((error) => {
+    console.error("Failed to initialize gamification tables:", error);
+});
+
 // ====== MIDDLEWARE & ROUTES ======
 app.use(
     cors({
-        origin: ["http://localhost:3000", "https://space.gamifyit.id"],
+        origin: allowedOrigins,
         credentials: true,
     })
 );
@@ -55,6 +69,8 @@ app.use("/api/courses", courseRoutes);
 app.use("/api/session", sessionRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/avatars", avatarRoutes);
+app.use("/api/table", tableActivityRoutes);
+app.use("/api/virtualspace", virtualSpaceDashboardRoutes);
 app.get("/", (req, res) => {
     res.json({status: "ok", message: "GamifySpace backend active"});
 });
@@ -121,8 +137,8 @@ io.on("connection", (socket) => {
 
     socket.on("interact_obj", (data) => {
         if (!data?.user_id) return;
-        const {user_id, object_name, url, action, targetRoom} = data;
-        logUserAction(user_id, "interact_obj", {object_name, url, action, targetRoom});
+        const {user_id, object_name, object_id, group_id, url, action, targetRoom} = data;
+        logUserAction(user_id, "interact_obj", {object_name, object_id, group_id, url, action, targetRoom});
     });
 
     socket.on("logout", () => {

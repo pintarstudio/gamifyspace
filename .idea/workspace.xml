@@ -6,28 +6,127 @@
   <component name="ChangeListManager">
     <list default="true" id="e5beada2-3c77-4f72-a1ea-0c37fd4dba8b" name="Changes" comment="">
       <change afterPath="$PROJECT_DIR$/frontend/.env" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/archer/archer.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/archer/thumbnail.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/archer/walk.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/bluemonster/bluemonster.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/bluemonster/thumbnail.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/bluemonster/walk.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/brownwraith/brownwraith.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/brownwraith/thumbnail.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/brownwraith/walk.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/darkwraith/darkwraith.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/darkwraith/thumbnail.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/darkwraith/walk.json" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/frontend/public/avatars/default.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/dudemonster/dudemonster.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/dudemonster/thumbnail.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/dudemonster/walk.json" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/enchantress.json" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/enchantress.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/knights.json" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/knights.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/musketeer.json" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/musketeer.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/enchantress/enchantress.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/enchantress/thumbnail.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/enchantress/walk.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/greenwraith/greenwraith.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/greenwraith/thumbnail.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/greenwraith/walk.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/knights/knights.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/knights/thumbnail.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/knights/walk.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/musketeer/musketeer.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/musketeer/thumbnail.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/musketeer/walk.json" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/frontend/public/avatars/owlet/owlet.png" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/frontend/public/avatars/owlet/thumbnail.png" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/frontend/public/avatars/owlet/walk.json" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/pinkmonster.json" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/pinkmonster.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/pinkmonster/pinkmonster.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/pinkmonster/thumbnail.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/pinkmonster/walk.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student1/student1.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student1/thumbnail.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student1/walk.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student10/student10.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student10/thumbnail.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student10/walk.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student11/student11.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student11/thumbnail.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student11/walk.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student12/student12.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student12/thumbnail.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student12/walk.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student13/student13.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student13/thumbnail.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student13/walk.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student14/student14.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student14/thumbnail.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student14/walk.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student15/student15.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student15/thumbnail.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student15/walk.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student16/student16.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student16/thumbnail.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student16/walk.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student17/student17.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student17/thumbnail.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student17/walk.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student18/student18.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student18/thumbnail.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student18/walk.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student19/student19.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student19/thumbnail.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student19/walk.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student2/student2.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student2/thumbnail.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student2/walk.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student20/student20.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student20/thumbnail.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student20/walk.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student3/student3.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student3/thumbnail.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student3/walk.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student4/student4.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student4/thumbnail.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student4/walk.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student5/student5.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student5/thumbnail.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student5/walk.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student6/student6.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student6/thumbnail.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student6/walk.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student7/student7.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student7/thumbnail.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student7/walk.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student8/student8.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student8/thumbnail.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student8/walk.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student9/student9.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student9/thumbnail.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/student9/walk.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/swordsman/swordsman.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/swordsman/thumbnail.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/swordsman/walk.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/wizard/thumbnail.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/wizard/walk.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/avatars/wizard/wizard.png" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/frontend/public/maps/room1.json" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/frontend/public/maps/room1_backup.json" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/frontend/public/maps/room1_base.json" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/frontend/public/maps/room2.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/objects/bigtable.png" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/frontend/public/objects/chest.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/objects/computer.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/objects/computer2.png" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/frontend/public/objects/door.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/objects/guide.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/objects/guide_yellow.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/objects/guidetable_l.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/objects/guidetable_r.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/objects/tablebook_l.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/objects/tablebook_r.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/objects/tablenobook_l.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/objects/tablenobook_r.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/objects/tablesingle.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/objects/tablesingle_stationery.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/objects/tablesingle_stationery_book.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/objects/tablesingle_stationery_paper.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/tiles/Room_Builder_3d_walls_16x16.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/tiles/Room_Builder_Floors_16x16.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/tiles/Room_Builder_Walls_16x16.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/tiles/Room_Builder_borders_16x16.png" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/frontend/public/tiles/TopDownHouse_FloorsAndWalls.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/public/tiles/computer.png" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/frontend/src/api/apiClient.js" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/frontend/src/components/LoginForm.js" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/frontend/src/components/UserHUD.js" afterDir="false" />
@@ -44,6 +143,9 @@
       <change afterPath="$PROJECT_DIR$/frontend/src/pixi/objectHandler.js" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/frontend/src/utils/socketClient.js" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/frontend/src/utils/validate.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/controllers/sessionController.js" beforeDir="false" afterPath="$PROJECT_DIR$/backend/controllers/sessionController.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/models/sessionModel.js" beforeDir="false" afterPath="$PROJECT_DIR$/backend/models/sessionModel.js" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/backend/server.js" beforeDir="false" afterPath="$PROJECT_DIR$/backend/server.js" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/frontend/package-lock.json" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/package-lock.json" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/frontend/package.json" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/package.json" afterDir="false" />
@@ -75,30 +177,30 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "ModuleVcsDetector.initialDetectionPerformed": "true",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "git-widget-placeholder": "main",
-    "last_opened_file_path": "/Users/ozzisuria/Documents/react/gamifyspace/frontend/src/components",
-    "list.type.of.created.stylesheet": "CSS",
-    "node.js.detected.package.eslint": "true",
-    "node.js.detected.package.tslint": "true",
-    "node.js.selected.package.eslint": "(autodetect)",
-    "node.js.selected.package.tslint": "(autodetect)",
-    "nodejs_package_manager_path": "npm",
-    "ts.external.directory.path": "/Users/ozzisuria/Applications/WebStorm.app/Contents/plugins/javascript-plugin/jsLanguageServicesImpl/external",
-    "vue.rearranger.settings.migration": "true"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
+    &quot;last_opened_file_path&quot;: &quot;/Users/ozzisuria/Documents/react/gamifyspace/frontend/public/objects&quot;,
+    &quot;list.type.of.created.stylesheet&quot;: &quot;CSS&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;ts.external.directory.path&quot;: &quot;/Users/ozzisuria/Applications/WebStorm.app/Contents/plugins/javascript-plugin/jsLanguageServicesImpl/external&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   }
-}]]></component>
+}</component>
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
-      <recent name="$PROJECT_DIR$/frontend/src/components" />
-      <recent name="$PROJECT_DIR$/backend/models" />
-      <recent name="$PROJECT_DIR$/backend/controllers" />
-      <recent name="$PROJECT_DIR$/backend/routes" />
-      <recent name="$PROJECT_DIR$/frontend/public/avatars/dudemonster" />
+      <recent name="$PROJECT_DIR$/frontend/public/objects" />
+      <recent name="$PROJECT_DIR$/frontend/public/maps" />
+      <recent name="$PROJECT_DIR$/frontend/public/tiles" />
+      <recent name="$PROJECT_DIR$/frontend/public/avatars/student20" />
+      <recent name="$PROJECT_DIR$/frontend/public/avatars/student19" />
     </key>
     <key name="MoveFile.RECENT_KEYS">
       <recent name="$PROJECT_DIR$/frontend/public/avatars/owlet" />
@@ -132,7 +234,15 @@
       <workItem from="1763267341310" duration="10246000" />
       <workItem from="1763296390262" duration="646000" />
       <workItem from="1763297317565" duration="1357000" />
-      <workItem from="1763528045341" duration="11220000" />
+      <workItem from="1763528045341" duration="22391000" />
+      <workItem from="1765962331795" duration="615000" />
+      <workItem from="1767488948139" duration="12836000" />
+      <workItem from="1767837800625" duration="18992000" />
+      <workItem from="1768739538182" duration="1193000" />
+      <workItem from="1776915226058" duration="185000" />
+      <workItem from="1776915841076" duration="3302000" />
+      <workItem from="1777861296650" duration="649000" />
+      <workItem from="1778283557635" duration="10024000" />
     </task>
     <servers />
   </component>

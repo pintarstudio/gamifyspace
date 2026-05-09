@@ -18,6 +18,7 @@ export async function checkSession(req, res) {
                 gender: sessionData.gender,
                 course_id: sessionData.course_id,
                 avatar_public_path: sessionData.avatar_public_path,
+                gamification_enabled: !!sessionData.gamification_enabled,
             },
         });
     } catch (error) {
