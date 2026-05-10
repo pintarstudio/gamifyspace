@@ -1,11 +1,31 @@
 import React, {useEffect, useState} from "react";
-import {BrowserRouter, Routes, Route, Navigate} from "react-router-dom";
+import {BrowserRouter, Routes, Route, Navigate, useLocation} from "react-router-dom";
+import LandingPage from "./pages/LandingPage";
 import LoginPage from "./pages/LoginPage";
 import VirtualSpacePage from "./pages/VirtualSpacePage";
+import NoVirtualSpacePage from "./pages/NoVirtualSpacePage";
 import TableActivityPage from "./pages/TableActivityPage";
 import QuizActivityPage from "./pages/QuizActivityPage";
 import IndividualActivityPage from "./pages/IndividualActivityPage";
+import NotFoundPage from "./pages/NotFoundPage";
+import AdminPage from "./pages/AdminPage";
 import {apiGet} from "./api/apiClient";
+
+const defaultStudentPath = (user) => user?.use_no_virtual_space ? "/novirtualspace" : "/virtualspace";
+
+function HomeRoute({loggedIn, user, setLoggedIn, setUser}) {
+    const location = useLocation();
+    const params = new URLSearchParams(location.search);
+    const isStudentAccess =
+        params.has("coursename") ||
+        params.has("studentname") ||
+        params.has("studentemail") ||
+        params.get("loggedout") === "student";
+
+    if (loggedIn) return <Navigate to={defaultStudentPath(user)}/>;
+    if (isStudentAccess) return <LoginPage setLoggedIn={setLoggedIn} setUser={setUser}/>;
+    return <LandingPage/>;
+}
 
 function App() {
     const [loggedIn, setLoggedIn] = useState(false);
@@ -31,21 +51,41 @@ function App() {
             <Routes>
                 <Route
                     path="/"
+                    element={<HomeRoute loggedIn={loggedIn} user={user} setLoggedIn={setLoggedIn} setUser={setUser}/>}
+                />
+                <Route
+                    path="/demo"
                     element={
-                        loggedIn ? (
-                            <Navigate to="/virtualspace"/>
-                        ) : (
-                            <LoginPage setLoggedIn={setLoggedIn} setUser={setUser}/>
-                        )
+                        loggedIn
+                            ? <Navigate to={defaultStudentPath(user)}/>
+                            : <LoginPage setLoggedIn={setLoggedIn} setUser={setUser}/>
                     }
                 />
                 <Route
                     path="/virtualspace"
                     element={
-                        loggedIn ? (
+                        loggedIn && user?.use_no_virtual_space ? (
+                            <Navigate to="/novirtualspace"/>
+                        ) : loggedIn ? (
                             <VirtualSpacePage user={user}
                                               setLoggedIn={setLoggedIn}   // ✅ dikirim ke VirtualSpacePage
                                               setUser={setUser}           // ✅ dikirim ke VirtualSpacePage
+                            />
+                        ) : (
+                            <Navigate to="/"/>
+                        )
+                    }
+                />
+                <Route
+                    path="/novirtualspace"
+                    element={
+                        loggedIn && !user?.use_no_virtual_space ? (
+                            <Navigate to="/virtualspace"/>
+                        ) : loggedIn ? (
+                            <NoVirtualSpacePage
+                                user={user}
+                                setLoggedIn={setLoggedIn}
+                                setUser={setUser}
                             />
                         ) : (
                             <Navigate to="/"/>
@@ -82,6 +122,17 @@ function App() {
                         )
                     }
                 />
+                <Route path="/gamifyitadmin" element={<AdminPage/>}/>
+                <Route path="/leveladmin" element={<AdminPage/>}/>
+                <Route path="/avataradmin" element={<AdminPage/>}/>
+                <Route path="/courseadmin" element={<AdminPage/>}/>
+                <Route path="/topicadmin" element={<AdminPage/>}/>
+                <Route path="/studentadmin" element={<AdminPage/>}/>
+                <Route path="/questionbankadmin" element={<AdminPage/>}/>
+                <Route path="/quizbankadmin" element={<AdminPage/>}/>
+                <Route path="/individualbankadmin" element={<AdminPage/>}/>
+                <Route path="/groupcasebankadmin" element={<AdminPage/>}/>
+                <Route path="*" element={<NotFoundPage/>}/>
             </Routes>
         </BrowserRouter>
     );

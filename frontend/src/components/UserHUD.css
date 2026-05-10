@@ -14,6 +14,10 @@
   align-items: start;
 }
 
+.user-hud--plain {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
 .user-hud__avatar {
   background: #f0f3f6;
   border: 2px solid #ffffff;

@@ -9,6 +9,64 @@ const NAME_OFFSET_MULT = 1.15;   // multiplier of sprite height
 const NAME_OFFSET_PX = 1;        // extra pixels
 // import { initAvatars } from "../pixi/avatarHandler";
 
+const randomSpawnPosition = () => ({
+    x: Math.floor(Math.random() * (900 - 650 + 1)) + 650,
+    y: Math.floor(Math.random() * (850 - 650 + 1)) + 650,
+});
+
+const createAvatarNameTag = (name) => {
+    const paddingX = 8;
+    const paddingY = 4;
+    const borderSize = 2;
+    const corner = 4;
+    const container = new PIXI.Container();
+    const label = new PIXI.Text({
+        text: name || "User",
+        style: {
+            fontFamily: "monospace",
+            fontSize: 11,
+            fill: "#ffffff",
+            fontWeight: "900",
+            align: "center",
+            stroke: {
+                color: "#111827",
+                width: 2,
+            },
+        },
+        textureStyle: {
+            scaleMode: "nearest",
+        },
+    });
+
+    const width = Math.ceil(label.width + paddingX * 2);
+    const height = Math.ceil(label.height + paddingY * 2);
+    const shadow = new PIXI.Graphics()
+        .rect(corner + 2, 2, width - corner * 2, height)
+        .rect(2, corner + 2, width, height - corner * 2)
+        .fill(0x111827);
+    shadow.alpha = 0.5;
+
+    const background = new PIXI.Graphics()
+        .rect(corner, 0, width - corner * 2, height)
+        .rect(0, corner, width, height - corner * 2)
+        .fill(0x38bdf8)
+        .rect(corner + borderSize, borderSize, width - (corner + borderSize) * 2, height - borderSize * 2)
+        .rect(borderSize, corner + borderSize, width - borderSize * 2, height - (corner + borderSize) * 2)
+        .fill(0x172033);
+
+    const shine = new PIXI.Graphics()
+        .rect(corner + borderSize, borderSize, width - (corner + borderSize) * 2, 1)
+        .fill(0xffffff);
+    shine.alpha = 0.24;
+
+    label.x = width / 2;
+    label.y = height / 2;
+    label.anchor.set(0.5);
+    container.addChild(shadow, background, shine, label);
+    container.pivot.set(width / 2, height);
+    return container;
+};
+
 const destroyPixiApp = (app) => {
     if (!app) return;
     try {
@@ -36,9 +94,10 @@ const VirtualSpacePixi = ({user}) => {
 
         // Update local user room info
         if (localUserRef.current) {
+            const spawnPosition = randomSpawnPosition();
             localUserRef.current.room = newRoom;
-            localUserRef.current.x = 400;
-            localUserRef.current.y = 300;
+            localUserRef.current.x = spawnPosition.x;
+            localUserRef.current.y = spawnPosition.y;
         }
 
         // Update displayed room and notify server
@@ -54,6 +113,7 @@ const VirtualSpacePixi = ({user}) => {
         window.__avatars = avatars;
 
         // Inisialisasi localUser dengan user_id agar server mengenali dengan benar
+        const spawnPosition = randomSpawnPosition();
         const localUser = {
             user_id: user.user_id || user.id,
             avatar: user.avatar_public_path && user.avatar_public_path.trim() !== ""
@@ -61,8 +121,8 @@ const VirtualSpacePixi = ({user}) => {
                 : user.avatar && user.avatar.trim() !== ""
                     ? user.avatar
                     : "/avatars/default.png",
-            x: 400,
-            y: 300,
+            x: spawnPosition.x,
+            y: spawnPosition.y,
             name: user.name || "User",
             room: localUserRef.current?.room || user.room || "room1",
         };
@@ -378,19 +438,9 @@ export async function renderUsers(worldContainer, avatars, usersData, localKeyRe
 
                 worldContainer.addChild(sprite);
 
-                // Name text di atas kepala
-                const nameText = new PIXI.Text(u.name || "User", {
-                    fontSize: 12,
-                    fill: "#000",
-                    fontWeight: "bold",
-                    align: "center",
-                    textureStyle: {
-                        scaleMode: "nearest",
-                    },
-                });
+                const nameText = createAvatarNameTag(u.name || "User");
 
                 nameText.zIndex = sprite.zIndex + 1;
-                nameText.anchor.set(0.5);
                 nameText.x = sprite.x;
                 nameText.y = sprite.y - sprite.height * NAME_OFFSET_MULT - NAME_OFFSET_PX;
                 worldContainer.addChild(nameText);

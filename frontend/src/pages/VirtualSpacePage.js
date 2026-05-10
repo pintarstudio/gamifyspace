@@ -95,6 +95,7 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
         // logout dari API session
         const res = await apiPost("/logout", {});
         if (res.message === "Logout berhasil") {
+            const wasStudentAccess = localStorage.getItem("studentAccessLogin") === "1";
             setLoggedIn(false);
             setUser(null);
             localStorage.clear(); // ✅ clear saved room or session data
@@ -102,7 +103,7 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
             // beri sedikit jeda agar server sempat broadcast event
             setTimeout(() => {
                 if (window.socket) window.socket.disconnect();
-                navigate("/");
+                navigate(wasStudentAccess ? "/?loggedout=student" : "/");
             }, 300);
         } else {
             alert("Gagal logout. Coba lagi.");

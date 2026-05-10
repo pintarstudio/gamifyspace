@@ -17,7 +17,7 @@ function feedbackForAnswer(session, answer) {
         .find((item) => String(item.question_id) === String(answer.question_id));
 }
 
-const IndividualActivityPage = () => {
+const IndividualActivityPage = ({embedded = false, onBack}) => {
     const [searchParams] = useSearchParams();
     const objectId = searchParams.get("object_id") || "computer";
     const showAdminControls = searchParams.get("admin") === "1";
@@ -48,10 +48,13 @@ const IndividualActivityPage = () => {
 
     const loadContext = async () => {
         setLoading(true);
-        const data = await apiGet(`/individual/context?object_id=${encodeURIComponent(objectId)}`);
+        const query = new URLSearchParams({object_id: objectId});
+        if (showAdminControls) query.set("admin", "1");
+        const data = await apiGet(`/individual/context?${query.toString()}`);
         setContext(data);
         setActiveSession(data.active_session || null);
-        if (!selectedTopicId && data.topics?.length > 0) {
+        const hasSelectedTopic = data.topics?.some((topic) => String(topic.topic_id) === String(selectedTopicId));
+        if ((!selectedTopicId || !hasSelectedTopic) && data.topics?.length > 0) {
             setSelectedTopicId(String(data.active_session?.topic_id || data.topics[0].topic_id));
         }
         if (data.active_session) {
@@ -173,7 +176,7 @@ const IndividualActivityPage = () => {
     };
 
     if (loading) {
-        return <main className="individual-app individual-app--center">Memuat aktivitas individual...</main>;
+        return <main className={`individual-app individual-app--center${embedded ? " individual-app--embedded" : ""}`}>Memuat aktivitas individual...</main>;
     }
 
     if (activeSession?.status === "in_progress") {
@@ -184,13 +187,18 @@ const IndividualActivityPage = () => {
             : `${activeSession.current_question_index + 1}/${activeSession.question_count}`;
 
         return (
-            <main className="individual-app individual-workspace">
+            <main className={`individual-app individual-workspace${embedded ? " individual-app--embedded" : ""}`}>
                 <header className="individual-header">
                     <div>
                         <span className="individual-label">{context?.course?.course_name}</span>
                         <h1>{activityTitle(activeSession.activity_type, activeSession.question_kind)}</h1>
                     </div>
                     <div className="individual-header__actions">
+                        {embedded && (
+                            <button className="no-virtual-back" type="button" onClick={onBack}>
+                                Back
+                            </button>
+                        )}
                         <span>{progress}</span>
                         <button className="individual-button individual-button--danger" onClick={handleExit} disabled={busy}>
                             {busy ? "Please Wait" : "Exit"}
@@ -267,7 +275,12 @@ const IndividualActivityPage = () => {
         const isCaseStudy = activeSession.question_kind === "case_study";
 
         return (
-            <main className="individual-app individual-results">
+            <main className={`individual-app individual-results${embedded ? " individual-app--embedded" : ""}`}>
+                {embedded && (
+                    <button className="no-virtual-back" type="button" onClick={onBack}>
+                        Back
+                    </button>
+                )}
                 <section className="individual-panel individual-result-hero">
                     <span className="individual-label">Completed</span>
                     <h1>{activityTitle(activeSession.activity_type, activeSession.question_kind)}</h1>
@@ -362,7 +375,12 @@ const IndividualActivityPage = () => {
     const canStart = !!selectedTopicId && availableActivityTypes.includes(activityType);
 
     return (
-        <main className="individual-app individual-landing">
+        <main className={`individual-app individual-landing${embedded ? " individual-app--embedded" : ""}`}>
+            {embedded && (
+                <button className="no-virtual-back" type="button" onClick={onBack}>
+                    Back
+                </button>
+            )}
             <section className="individual-hero">
                 <span className="individual-label">Computer Individual Activity</span>
                 <h1>{context?.course?.course_name || "Course Activity"}</h1>
@@ -454,6 +472,14 @@ const IndividualActivityPage = () => {
                     {(context?.topics || []).map((topic) => (
                         <article key={topic.topic_id}>
                             <strong>{topic.topic_name}</strong>
+                            <label>
+                                <input
+                                    type="checkbox"
+                                    checked={topic.show_topic !== false}
+                                    onChange={() => handleAdminToggle(topic, "show_topic")}
+                                />
+                                Show topic
+                            </label>
                             <label>
                                 <input
                                     type="checkbox"

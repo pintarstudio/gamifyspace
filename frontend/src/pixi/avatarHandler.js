@@ -4,11 +4,17 @@ import socket from "../utils/socketClient";
 import {renderUsers} from "./avatar/avatarRenderer";
 import {initAvatarMovement} from "./avatar/avatarMovement";
 
+const randomSpawnPosition = () => ({
+    x: Math.floor(Math.random() * (900 - 650 + 1)) + 650,
+    y: Math.floor(Math.random() * (850 - 650 + 1)) + 650,
+});
+
 export function initAvatars(app, worldContainer, checkCollision, TILE_SIZE, mapWidth, mapHeight, user, zoomFactor, localUserRef) {
     const localKeyRef = {current: null};
     const avatars = {};
 
     // Inisialisasi localUser dengan user_id agar server mengenali dengan benar
+    const spawnPosition = randomSpawnPosition();
     const localUser = {
         user_id: user.user_id || user.id,
         avatar: user.avatar_public_path && user.avatar_public_path.trim() !== ""
@@ -16,8 +22,8 @@ export function initAvatars(app, worldContainer, checkCollision, TILE_SIZE, mapW
             : user.avatar && user.avatar.trim() !== ""
                 ? user.avatar
                 : "/avatars/default.png",
-        x: 400,
-        y: 300,
+        x: spawnPosition.x,
+        y: spawnPosition.y,
         name: user.name || "User",
         room: localUserRef.current?.room || user.room || "room1",
     };

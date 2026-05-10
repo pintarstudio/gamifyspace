@@ -19,6 +19,7 @@ export async function checkSession(req, res) {
                 course_id: sessionData.course_id,
                 avatar_public_path: sessionData.avatar_public_path,
                 gamification_enabled: !!sessionData.gamification_enabled,
+                use_no_virtual_space: !!sessionData.use_no_virtual_space,
             },
         });
     } catch (error) {

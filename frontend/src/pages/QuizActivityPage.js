@@ -11,6 +11,11 @@ const avatarSrc = (path) => {
 
 const getMessage = (data, fallback) => data?.message || fallback;
 
+const isNoVirtualCode = (value) => {
+    const parsed = Number.parseInt(value, 10);
+    return String(parsed) === String(value).trim() && parsed >= 101 && parsed <= 150;
+};
+
 function formatChoiceLabel(index) {
     return ["A", "B", "C", "D"][index] || String(index + 1);
 }
@@ -33,10 +38,13 @@ function buildWrongFeedbackMap(session) {
     return grouped;
 }
 
-const QuizActivityPage = () => {
+const QuizActivityPage = ({embedded = false, noVirtual = false, onBack}) => {
     const [searchParams] = useSearchParams();
-    const tableId = searchParams.get("table_id") || searchParams.get("group_id") || searchParams.get("object_id") || "1";
-    const groupId = searchParams.get("group_id") || tableId;
+    const routeTableId = searchParams.get("table_id") || searchParams.get("group_id") || searchParams.get("object_id") || (noVirtual ? "" : "1");
+    const [entryCode, setEntryCode] = useState(noVirtual ? routeTableId : "");
+    const [selectedEntryGroupId, setSelectedEntryGroupId] = useState(noVirtual && isNoVirtualCode(routeTableId) ? routeTableId : "");
+    const tableId = noVirtual ? (selectedEntryGroupId || entryCode || "101") : routeTableId;
+    const groupId = noVirtual ? tableId : (searchParams.get("group_id") || tableId);
     const objectId = searchParams.get("object_id");
 
     const [context, setContext] = useState(null);
@@ -56,22 +64,23 @@ const QuizActivityPage = () => {
     const answerMap = useMemo(() => buildQuestionAnswerMap(activeSession), [activeSession]);
     const wrongFeedbackMap = useMemo(() => buildWrongFeedbackMap(activeSession), [activeSession]);
 
-    const loadContext = async () => {
+    const loadContext = async (nextTableId = tableId, nextGroupId = groupId, useActiveSession = true) => {
         setLoading(true);
-        const query = `/quiz/context?table_id=${encodeURIComponent(tableId)}&group_id=${encodeURIComponent(groupId)}${objectId ? `&object_id=${encodeURIComponent(objectId)}` : ""}`;
+        const query = `/quiz/context?table_id=${encodeURIComponent(nextTableId)}&group_id=${encodeURIComponent(nextGroupId)}${objectId ? `&object_id=${encodeURIComponent(objectId)}` : ""}`;
         const data = await apiGet(query);
         setContext(data);
-        setActiveSession(data.active_session || null);
+        setActiveSession(useActiveSession ? data.active_session || null : null);
         if (!selectedTopicId && data.topics?.length > 0) {
-            setSelectedTopicId(String(data.active_session?.topic_id || data.topics[0].topic_id));
+            setSelectedTopicId(String((useActiveSession ? data.active_session?.topic_id : null) || data.topics[0].topic_id));
         }
         setLoading(false);
     };
 
     useEffect(() => {
-        loadContext();
+        const initialCode = noVirtual && !selectedEntryGroupId ? "101" : tableId;
+        loadContext(initialCode, initialCode, !noVirtual || !!selectedEntryGroupId);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [tableId, objectId]);
+    }, [routeTableId, objectId, noVirtual, selectedEntryGroupId]);
 
     useEffect(() => {
         const timerId = window.setInterval(() => setNow(Date.now()), 500);
@@ -128,6 +137,11 @@ const QuizActivityPage = () => {
     }, [activeSession, localTimeLeft]);
 
     const handleCreateQuiz = async () => {
+        const nextGroupId = noVirtual ? entryCode.trim() : groupId;
+        if (noVirtual && !isNoVirtualCode(nextGroupId)) {
+            setMessage("Masukkan kode unik antara 101-150.");
+            return;
+        }
         if (!selectedTopicId) {
             setMessage("Pilih topic terlebih dahulu.");
             return;
@@ -136,15 +150,17 @@ const QuizActivityPage = () => {
         setBusy(true);
         setMessage("");
         const data = await apiPost("/quiz/sessions", {
-            table_id: tableId,
-            group_id: groupId,
+            table_id: noVirtual ? nextGroupId : tableId,
+            group_id: nextGroupId,
             object_id: objectId,
             topic_id: selectedTopicId,
         });
 
         if (data.session) {
+            if (noVirtual) setSelectedEntryGroupId(nextGroupId);
             setActiveSession(data.session);
         } else if (data.active_session) {
+            if (noVirtual) setSelectedEntryGroupId(nextGroupId);
             setActiveSession(data.active_session);
             setMessage(getMessage(data, "Quiz aktif ditemukan. Silakan join."));
         } else {
@@ -153,18 +169,47 @@ const QuizActivityPage = () => {
         setBusy(false);
     };
 
-    const handleJoinQuiz = async () => {
-        if (!activeSession?.quiz_session_id) return;
+    const joinQuiz = async (session, nextGroupId = groupId) => {
+        if (!session?.quiz_session_id) return;
 
         setBusy(true);
         setMessage("");
-        const data = await apiPost(`/quiz/sessions/${activeSession.quiz_session_id}/join`, {});
+        const data = await apiPost(`/quiz/sessions/${session.quiz_session_id}/join`, {});
         if (data.session) {
+            if (noVirtual) setSelectedEntryGroupId(nextGroupId);
             setActiveSession(data.session);
         } else {
             setMessage(getMessage(data, "Gagal join quiz."));
         }
         setBusy(false);
+    };
+
+    const handleJoinQuiz = async () => joinQuiz(activeSession);
+
+    const handleJoinQuizByCode = async () => {
+        const nextGroupId = entryCode.trim();
+        if (!isNoVirtualCode(nextGroupId)) {
+            setMessage("Masukkan kode unik antara 101-150.");
+            return;
+        }
+
+        setBusy(true);
+        setMessage("");
+        const data = await apiGet(`/quiz/context?table_id=${encodeURIComponent(nextGroupId)}&group_id=${encodeURIComponent(nextGroupId)}`);
+        setContext(data);
+        if (!selectedTopicId && data.topics?.length > 0) {
+            setSelectedTopicId(String(data.active_session?.topic_id || data.topics[0].topic_id));
+        }
+
+        if (!data.active_session) {
+            setActiveSession(null);
+            setMessage(`Tidak ada quiz aktif untuk group ${nextGroupId}.`);
+            setBusy(false);
+            return;
+        }
+
+        setBusy(false);
+        await joinQuiz(data.active_session, nextGroupId);
     };
 
     const handleBeginQuiz = async () => {
@@ -236,7 +281,7 @@ const QuizActivityPage = () => {
     };
 
     if (loading) {
-        return <main className="quiz-app quiz-app--center">Memuat quiz...</main>;
+        return <main className={`quiz-app quiz-app--center${embedded ? " quiz-app--embedded" : ""}`}>Memuat quiz...</main>;
     }
 
     const showGamification = !!context?.gamification_enabled;
@@ -249,7 +294,7 @@ const QuizActivityPage = () => {
             : `${activeSession.question_count} questions`;
 
         return (
-            <main className="quiz-app quiz-workspace">
+            <main className={`quiz-app quiz-workspace${embedded ? " quiz-app--embedded" : ""}`}>
                 <aside className="quiz-members" aria-label="Quiz members">
                     <div className="quiz-members__heading">Group {activeSession.group_id || activeSession.table_id}</div>
                     {activeSession.members.map((member) => (
@@ -267,6 +312,11 @@ const QuizActivityPage = () => {
                             <h1>Live Quiz</h1>
                         </div>
                         <div className="quiz-header__meta">
+                            {embedded && (
+                                <button className="no-virtual-back" type="button" onClick={onBack}>
+                                    Back
+                                </button>
+                            )}
                             <span>{progressText}</span>
                             <span>{activeSession.member_count}/{activeSession.max_members}</span>
                         </div>
@@ -483,12 +533,19 @@ const QuizActivityPage = () => {
     const canJoin = hasActiveSession && !activeSession.is_full && ["lobby", "in_progress"].includes(activeSession.status);
 
     return (
-        <main className="quiz-app quiz-landing">
+        <main className={`quiz-app quiz-landing${embedded ? " quiz-app--embedded" : ""}`}>
+            {embedded && (
+                <button className="no-virtual-back" type="button" onClick={onBack}>
+                    Back
+                </button>
+            )}
             <section className="quiz-hero">
-                <span className="quiz-label">Big Table Quiz</span>
+                <span className="quiz-label">{noVirtual ? "No Map Competition Quiz" : "Big Table Quiz"}</span>
                 <h1>{context?.course?.course_name || "Course Quiz"}</h1>
                 <p>
-                    {showGamification
+                    {noVirtual
+                        ? "Enter a unique code from 101 to 150 to host or join a live competition quiz."
+                        : showGamification
                         ? "Choose a topic, host a two-player live quiz, and compete with correct-answer scores."
                         : "Choose a topic, host a two-player live quiz, and compare the final result."}
                 </p>
@@ -522,9 +579,33 @@ const QuizActivityPage = () => {
 
                 <div className="quiz-panel quiz-table-card">
                     <div className="quiz-section-title">
-                        <h2>Group {groupId}</h2>
+                        <h2>Group {noVirtual ? entryCode || selectedEntryGroupId || "Code" : groupId}</h2>
                         <span>{hasActiveSession ? "Active" : "Ready"}</span>
                     </div>
+
+                    {noVirtual && (
+                        <div className="no-virtual-code-form">
+                            <label>
+                                Group code
+                                <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    pattern="[0-9]*"
+                                    value={entryCode}
+                                    onChange={(event) => {
+                                        const nextCode = event.target.value.replace(/\D/g, "").slice(0, 3);
+                                        setEntryCode(nextCode);
+                                        if (selectedEntryGroupId && nextCode !== selectedEntryGroupId) {
+                                            setSelectedEntryGroupId("");
+                                            setActiveSession(null);
+                                        }
+                                    }}
+                                    placeholder="101-150"
+                                    disabled={!!activeSession?.is_member || busy}
+                                />
+                            </label>
+                        </div>
+                    )}
 
                     {hasActiveSession ? (
                         <>
@@ -545,9 +626,32 @@ const QuizActivityPage = () => {
                                     ? `Host a 5-question quiz for ${selectedTopic.topic_name}.`
                                     : "Select a topic before hosting."}
                             </p>
-                            <button className="quiz-button quiz-button--primary" onClick={handleCreateQuiz} disabled={!canStart || busy}>
-                                Host Quiz
-                            </button>
+                            {noVirtual ? (
+                                <div className="no-virtual-code-actions">
+                                    <button
+                                        className="quiz-button quiz-button--primary"
+                                        onClick={handleCreateQuiz}
+                                        disabled={!canStart || busy || !isNoVirtualCode(entryCode)}
+                                    >
+                                        Host Quiz
+                                    </button>
+                                    <button
+                                        className="quiz-button quiz-button--primary"
+                                        onClick={handleJoinQuizByCode}
+                                        disabled={busy || !isNoVirtualCode(entryCode)}
+                                    >
+                                        Join Quiz
+                                    </button>
+                                </div>
+                            ) : (
+                                <button
+                                    className="quiz-button quiz-button--primary"
+                                    onClick={handleCreateQuiz}
+                                    disabled={!canStart || busy}
+                                >
+                                    Host Quiz
+                                </button>
+                            )}
                         </>
                     )}
 

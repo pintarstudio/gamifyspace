@@ -1,0 +1,39 @@
+.not-found-page {
+    align-items: center;
+    background: #f8fafc;
+    box-sizing: border-box;
+    color: #172033;
+    display: flex;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 24px;
+}
+
+.not-found-card {
+    background: #ffffff;
+    border: 1px solid #dbe4ee;
+    border-radius: 8px;
+    box-shadow: 0 18px 48px rgba(31, 41, 55, 0.12);
+    max-width: 460px;
+    padding: 28px;
+    text-align: center;
+}
+
+.not-found-card span {
+    color: #b23a48;
+    font-size: 13px;
+    font-weight: 900;
+}
+
+.not-found-card h1 {
+    font-size: 30px;
+    margin: 8px 0 10px;
+}
+
+.not-found-card p {
+    color: #5d6775;
+    font-size: 15px;
+    font-weight: 700;
+    line-height: 1.5;
+    margin: 0;
+}

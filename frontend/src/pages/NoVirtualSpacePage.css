@@ -1,0 +1,312 @@
+.no-virtual-shell {
+    background: #eef2f5;
+    box-sizing: border-box;
+    display: grid;
+    gap: 16px;
+    grid-template-columns: minmax(520px, 1fr) clamp(320px, 28vw, 420px);
+    height: 100vh;
+    overflow: hidden;
+    padding: 16px;
+}
+
+.no-virtual-activity-panel {
+    background: #f7f9fb;
+    border: 1px solid #d7dee6;
+    border-radius: 8px;
+    min-width: 0;
+    overflow: auto;
+}
+
+.no-virtual-shell .virtual-sidebar,
+.no-virtual-shell .side-panel,
+.no-virtual-shell .activity-card,
+.no-virtual-shell .course-leaderboard__row {
+    box-sizing: border-box;
+    max-width: 100%;
+    min-width: 0;
+}
+
+.no-virtual-shell .activity-card {
+    width: 100%;
+}
+
+.no-virtual-main {
+    box-sizing: border-box;
+    color: #20242a;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    min-height: 100%;
+    padding: 28px;
+}
+
+.no-virtual-hero {
+    background: #ffffff;
+    border: 1px solid #dde2e8;
+    border-radius: 8px;
+    padding: 24px;
+}
+
+.no-virtual-hero span {
+    color: #24516d;
+    display: block;
+    font-size: 13px;
+    font-weight: 900;
+    letter-spacing: 0;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+}
+
+.no-virtual-hero h1 {
+    font-size: 32px;
+    line-height: 1.15;
+    margin: 0;
+}
+
+.no-virtual-hero p {
+    color: #5f6975;
+    line-height: 1.5;
+    margin: 12px 0 0;
+    max-width: 760px;
+}
+
+.no-virtual-menu {
+    display: grid;
+    gap: 16px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.no-virtual-card {
+    align-content: start;
+    background: #ffffff;
+    border: 1px solid #dde2e8;
+    border-radius: 8px;
+    box-sizing: border-box;
+    box-shadow: 0 10px 28px rgba(31, 42, 55, 0.06);
+    color: #20242a;
+    cursor: pointer;
+    display: grid;
+    gap: 10px;
+    min-height: 210px;
+    min-width: 0;
+    padding: 20px;
+    text-align: left;
+}
+
+.no-virtual-card:hover {
+    border-color: #3a7ca5;
+    transform: translateY(-1px);
+}
+
+.no-virtual-card span {
+    display: block;
+    font-size: 12px;
+    font-weight: 900;
+    justify-self: start;
+    letter-spacing: 0;
+    line-height: 1.2;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    padding: 0;
+    text-transform: uppercase;
+}
+
+.no-virtual-card strong {
+    font-size: 24px;
+    line-height: 1.15;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.no-virtual-card small {
+    color: #5f6975;
+    font-size: 15px;
+    line-height: 1.45;
+}
+
+.no-virtual-card--individual span {
+    color: #24516d;
+}
+
+.no-virtual-card--group span {
+    color: #2d6a4f;
+}
+
+.no-virtual-card--quiz span {
+    color: #8b2e43;
+}
+
+.no-virtual-history-card {
+    cursor: pointer;
+}
+
+.no-virtual-history-card:hover {
+    border-color: #3a7ca5;
+}
+
+.no-virtual-back {
+    background: #ffffff;
+    border: 1px solid #cfd8e3;
+    border-radius: 8px;
+    color: #27313a;
+    cursor: pointer;
+    font-weight: 900;
+    padding: 10px 14px;
+    width: auto;
+}
+
+.no-virtual-code-form {
+    display: grid;
+    gap: 12px;
+    margin-top: 16px;
+}
+
+.no-virtual-code-form label {
+    color: #44515d;
+    display: grid;
+    font-size: 13px;
+    font-weight: 900;
+    gap: 7px;
+}
+
+.no-virtual-code-form input {
+    border: 1px solid #cfd8e3;
+    border-radius: 8px;
+    box-sizing: border-box;
+    color: #20242a;
+    font-size: 18px;
+    font-weight: 900;
+    min-height: 44px;
+    padding: 10px 12px;
+    width: 100%;
+}
+
+.no-virtual-code-form input:focus {
+    border-color: #3a7ca5;
+    box-shadow: 0 0 0 3px rgba(58, 124, 165, 0.14);
+    outline: none;
+}
+
+.no-virtual-code-actions {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: 1fr;
+}
+
+.no-virtual-history-modal {
+    max-width: 920px;
+}
+
+.no-virtual-shell .course-leaderboard--compact .no-virtual-leaderboard-row,
+.no-virtual-shell .no-virtual-leaderboard-row {
+    grid-template-columns: 24px minmax(0, 1fr) auto;
+}
+
+.no-virtual-leaderboard-row > div:nth-child(2) {
+    min-width: 0;
+}
+
+.no-virtual-member-list article {
+    min-width: 0;
+}
+
+.no-virtual-member-list article > div {
+    min-width: 0;
+}
+
+.no-virtual-score-row {
+    grid-template-columns: 34px minmax(0, 1fr) auto;
+}
+
+.no-virtual-result-grid {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.no-virtual-result-grid article {
+    background: #fbfcfd;
+    border: 1px solid #dde2e8;
+    border-radius: 8px;
+    padding: 12px;
+}
+
+.no-virtual-result-grid strong,
+.no-virtual-result-grid span {
+    display: block;
+}
+
+.no-virtual-result-grid strong {
+    color: #5f6975;
+    font-size: 12px;
+    margin-bottom: 5px;
+    text-transform: uppercase;
+}
+
+.no-virtual-result-grid span {
+    color: #24516d;
+    font-size: 20px;
+    font-weight: 900;
+}
+
+.individual-app--embedded,
+.table-app--embedded,
+.quiz-app--embedded {
+    background: transparent;
+    min-height: 100%;
+    padding: 24px;
+}
+
+.individual-app--embedded .individual-layout,
+.table-app--embedded .table-layout,
+.quiz-app--embedded .quiz-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+}
+
+.table-app--embedded.table-workspace,
+.quiz-app--embedded.quiz-workspace {
+    grid-template-columns: 170px minmax(0, 1fr);
+}
+
+.table-app--embedded .table-members,
+.quiz-app--embedded .quiz-members {
+    min-height: calc(100vh - 96px);
+}
+
+@media (max-width: 1080px) {
+    .no-virtual-shell {
+        grid-template-columns: 1fr;
+        height: auto;
+        min-height: 100vh;
+        overflow: auto;
+    }
+
+    .no-virtual-menu {
+        grid-template-columns: 1fr;
+    }
+
+    .virtual-sidebar {
+        overflow: visible;
+    }
+}
+
+@media (max-width: 760px) {
+    .no-virtual-shell {
+        padding: 10px;
+    }
+
+    .no-virtual-main,
+    .individual-app--embedded,
+    .table-app--embedded,
+    .quiz-app--embedded {
+        padding: 16px;
+    }
+
+    .individual-app--embedded .individual-layout,
+    .table-app--embedded .table-layout,
+    .quiz-app--embedded .quiz-layout,
+    .table-app--embedded.table-workspace,
+    .quiz-app--embedded.quiz-workspace {
+        grid-template-columns: 1fr;
+    }
+}

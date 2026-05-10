@@ -1,0 +1,285 @@
+const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
+const DEFAULT_QUESTION_MODEL = "gpt-5.4-nano";
+
+const materialDigestSchema = {
+    type: "object",
+    additionalProperties: false,
+    required: ["summary", "key_concepts", "common_misconceptions", "important_excerpts"],
+    properties: {
+        summary: {type: "string"},
+        key_concepts: {
+            type: "array",
+            items: {type: "string"},
+        },
+        common_misconceptions: {
+            type: "array",
+            items: {type: "string"},
+        },
+        important_excerpts: {
+            type: "array",
+            items: {type: "string"},
+        },
+    },
+};
+
+const questionDraftSchema = {
+    type: "object",
+    additionalProperties: false,
+    required: ["items"],
+    properties: {
+        items: {
+            type: "array",
+            items: {
+                type: "object",
+                additionalProperties: false,
+                required: [
+                    "question_number",
+                    "question_text",
+                    "choices",
+                    "correct_answer_index",
+                    "explanation",
+                    "case_number",
+                    "case_title",
+                    "case_prompt",
+                    "source_excerpt",
+                ],
+                properties: {
+                    question_number: {type: "integer"},
+                    question_text: {type: "string"},
+                    choices: {
+                        type: "array",
+                        items: {type: "string"},
+                    },
+                    correct_answer_index: {type: "integer"},
+                    explanation: {type: "string"},
+                    case_number: {type: "integer"},
+                    case_title: {type: "string"},
+                    case_prompt: {type: "string"},
+                    source_excerpt: {type: "string"},
+                },
+            },
+        },
+    },
+};
+
+function getQuestionModel() {
+    return process.env.OPENAI_QUESTION_MODEL || process.env.OPENAI_FEEDBACK_MODEL || DEFAULT_QUESTION_MODEL;
+}
+
+function extractResponseText(responseBody) {
+    if (responseBody?.output_text) return responseBody.output_text;
+    const output = responseBody?.output || [];
+    return output
+        .flatMap((item) => item.content || [])
+        .map((content) => content.text || "")
+        .filter(Boolean)
+        .join("\n")
+        .trim();
+}
+
+function requireApiKey() {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+        const error = new Error("OPENAI_API_KEY is not configured");
+        error.code = "OPENAI_API_KEY_MISSING";
+        throw error;
+    }
+    return apiKey;
+}
+
+function trimWords(text, maxWords) {
+    const words = String(text || "").trim().split(/\s+/).filter(Boolean);
+    if (words.length <= maxWords) return words.join(" ");
+    return `${words.slice(0, maxWords).join(" ")}...`;
+}
+
+function firstText(...values) {
+    for (const value of values) {
+        const text = String(value || "").trim();
+        if (text) return text;
+    }
+    return "";
+}
+
+function normalizeDigest(digest) {
+    return {
+        summary: trimWords(digest.summary, 450),
+        key_concepts: (digest.key_concepts || []).slice(0, 12).map((item) => trimWords(item, 28)),
+        common_misconceptions: (digest.common_misconceptions || []).slice(0, 8).map((item) => trimWords(item, 28)),
+        important_excerpts: (digest.important_excerpts || []).slice(0, 8).map((item) => trimWords(item, 45)),
+    };
+}
+
+function normalizeDrafts(items, bankType, startNumber) {
+    const isCaseBank = bankType === "topic_cases" || bankType === "individual_case";
+    return (items || []).map((item, index) => {
+        const number = Number.parseInt(item.question_number, 10) || startNumber + index;
+        const choices = (item.choices || []).map((choice) => trimWords(choice, 32)).slice(0, 4);
+        while (choices.length < 4 && !isCaseBank) {
+            choices.push(`Option ${choices.length + 1}`);
+        }
+        let questionText = isCaseBank
+            ? ""
+            : firstText(
+                item.question_text,
+                item.question,
+                item.question_stem,
+                item.prompt,
+                item.title,
+            );
+        if (!isCaseBank && !questionText) {
+            questionText = item.source_excerpt
+                ? `Which statement is best supported by this material: ${trimWords(item.source_excerpt, 18)}?`
+                : "Which statement is best supported by the selected course material?";
+        }
+        return {
+            question_number: number,
+            question_text: trimWords(questionText, 80),
+            choices,
+            correct_answer_index: Math.max(0, Math.min(3, Number.parseInt(item.correct_answer_index, 10) || 0)),
+            explanation: trimWords(item.explanation, 80),
+            case_number: Math.max(1, Math.min(2, Number.parseInt(item.case_number, 10) || index + 1)),
+            case_title: trimWords(item.case_title, 20),
+            case_prompt: trimWords(item.case_prompt, 220),
+            source_excerpt: trimWords(item.source_excerpt, 80),
+        };
+    });
+}
+
+async function postStructuredResponse({name, schema, system, user, maxOutputTokens}) {
+    const response = await fetch(OPENAI_RESPONSES_URL, {
+        method: "POST",
+        headers: {
+            "Authorization": `Bearer ${requireApiKey()}`,
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+            model: getQuestionModel(),
+            input: [
+                {role: "system", content: system},
+                {role: "user", content: user},
+            ],
+            text: {
+                format: {
+                    type: "json_schema",
+                    name,
+                    schema,
+                    strict: true,
+                },
+            },
+            max_output_tokens: maxOutputTokens,
+        }),
+    });
+
+    const responseBody = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        const error = new Error(responseBody?.error?.message || "OpenAI question bank request failed");
+        error.code = "OPENAI_QUESTION_BANK_FAILED";
+        error.status = response.status;
+        throw error;
+    }
+
+    const outputText = extractResponseText(responseBody);
+    if (!outputText) {
+        const error = new Error("OpenAI question bank response did not include output text");
+        error.code = "OPENAI_QUESTION_BANK_EMPTY";
+        throw error;
+    }
+
+    try {
+        return JSON.parse(outputText);
+    } catch (error) {
+        error.code = "OPENAI_QUESTION_BANK_PARSE_FAILED";
+        throw error;
+    }
+}
+
+export async function generateMaterialDigest({topicName, materialTitle, contentText}) {
+    const parsed = await postStructuredResponse({
+        name: "topic_material_digest",
+        schema: materialDigestSchema,
+        system: [
+            "You create compact course-material digests for question generation.",
+            "Use only the supplied material. Do not add outside knowledge.",
+            "Keep the digest concise and grounded in the material.",
+            "Return only JSON matching the schema.",
+        ].join(" "),
+        user: JSON.stringify({
+            topic_name: topicName,
+            material_title: materialTitle,
+            material_text: contentText,
+        }),
+        maxOutputTokens: 1200,
+    });
+
+    return {
+        digest: normalizeDigest(parsed),
+        model: getQuestionModel(),
+    };
+}
+
+function buildSourceFromMaterials(materials) {
+    const materialList = materials || [];
+    const digestMaterials = materialList.filter((material) => material.digest_json);
+    if (digestMaterials.length > 0) {
+        return {
+            materials: digestMaterials.map((material) => ({
+                material_title: material.title,
+                summary: material.digest_json.summary,
+                key_concepts: material.digest_json.key_concepts,
+                common_misconceptions: material.digest_json.common_misconceptions,
+                important_excerpts: material.digest_json.important_excerpts,
+            })),
+            raw_excerpts: materialList
+                .filter((material) => !material.digest_json)
+                .map((material) => ({
+                    material_title: material.title,
+                    raw_excerpt: trimWords(material.content_text, 450),
+                })),
+        };
+    }
+
+    return {
+        raw_excerpts: materialList.map((material) => ({
+            material_title: material.title,
+            raw_excerpt: trimWords(material.content_text, 450),
+        })),
+    };
+}
+
+export async function generateQuestionDrafts({bankType, topicName, materials, material, count, activityType, questionKind, startNumber}) {
+    const isCase = bankType === "topic_cases" || bankType === "individual_case" || questionKind === "case_study";
+    const safeCount = isCase ? Math.max(1, Math.min(2, Number.parseInt(count, 10) || 1)) : Math.max(1, Math.min(10, Number.parseInt(count, 10) || 5));
+    const materialList = materials?.length ? materials : [material].filter(Boolean);
+    const source = buildSourceFromMaterials(materialList);
+
+    const parsed = await postStructuredResponse({
+        name: "question_bank_drafts",
+        schema: questionDraftSchema,
+        system: [
+            "You generate instructor-review drafts for a learning question bank.",
+            "Use only the provided course material or digest. Do not add outside facts.",
+            "Every item must include a source_excerpt copied or closely paraphrased from the provided material.",
+            "For multiple-choice items, question_text is mandatory and must contain the full question stem shown to students. Never leave question_text empty for multiple-choice items.",
+            "Multiple-choice items must have exactly four choices and one correct_answer_index from 0 to 3.",
+            "For case-study items, use case_title, case_prompt, and case_number; leave question_text empty only for case-study items.",
+            "Return only JSON matching the schema.",
+        ].join(" "),
+        user: JSON.stringify({
+            bank_type: bankType,
+            topic_name: topicName,
+            activity_type: activityType,
+            question_kind: questionKind,
+            question_type: isCase ? "case_study" : "multiple_choice",
+            requested_count: safeCount,
+            start_number: startNumber,
+            source,
+        }),
+        maxOutputTokens: isCase ? 1100 : Math.min(2600, 500 + safeCount * 240),
+    });
+
+    return {
+        items: normalizeDrafts(parsed.items, bankType, startNumber).slice(0, safeCount),
+        model: getQuestionModel(),
+    };
+}

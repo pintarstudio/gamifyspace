@@ -7,7 +7,7 @@ const avatarSrc = (path) => {
   return `/avatars${normalized}/thumbnail.png`;
 };
 
-const UserHUD = ({ currentUser, handleLogout, summary }) => {
+const UserHUD = ({ currentUser, handleLogout, summary, hideAvatar = false }) => {
   if (!currentUser) return null;
 
   const gamificationEnabled = !!currentUser.gamification_enabled;
@@ -21,8 +21,10 @@ const UserHUD = ({ currentUser, handleLogout, summary }) => {
   };
 
   return (
-    <section className={`user-hud${gamificationEnabled ? " user-hud--game" : ""}`}>
-      <img src={avatarSrc(currentUser.avatar_public_path)} alt={currentUser.name} className="user-hud__avatar" />
+    <section className={`user-hud${gamificationEnabled ? " user-hud--game" : ""}${hideAvatar ? " user-hud--plain" : ""}`}>
+      {!hideAvatar && (
+        <img src={avatarSrc(currentUser.avatar_public_path)} alt={currentUser.name} className="user-hud__avatar" />
+      )}
 
       <div className="user-hud__body">
         <div className="user-hud__name">{currentUser.name}</div>

@@ -11,10 +11,18 @@ const avatarSrc = (path) => {
 
 const getMessage = (data, fallback) => data?.message || fallback;
 
-const TableActivityPage = () => {
+const isNoVirtualCode = (value) => {
+    const parsed = Number.parseInt(value, 10);
+    return String(parsed) === String(value).trim() && parsed >= 101 && parsed <= 150;
+};
+
+const TableActivityPage = ({embedded = false, noVirtual = false, onBack}) => {
     const [searchParams] = useSearchParams();
-    const groupId = searchParams.get("group_id") || "1";
+    const routeGroupId = searchParams.get("group_id") || (noVirtual ? "" : "1");
     const objectId = searchParams.get("object_id");
+    const [entryCode, setEntryCode] = useState(noVirtual ? routeGroupId : "");
+    const [selectedEntryGroupId, setSelectedEntryGroupId] = useState(noVirtual && isNoVirtualCode(routeGroupId) ? routeGroupId : "");
+    const groupId = noVirtual ? (selectedEntryGroupId || entryCode || "101") : routeGroupId;
 
     const [context, setContext] = useState(null);
     const [selectedTopicId, setSelectedTopicId] = useState("");
@@ -38,22 +46,22 @@ const TableActivityPage = () => {
     const gamification = activeSession?.gamification;
     const showGamification = !!gamification?.enabled;
 
-    const loadContext = async () => {
+    const loadContext = async (nextGroupId = groupId, useActiveSession = true) => {
         setLoading(true);
-        const data = await apiGet(`/table/context?group_id=${groupId}${objectId ? `&object_id=${objectId}` : ""}`);
+        const data = await apiGet(`/table/context?group_id=${nextGroupId}${objectId ? `&object_id=${objectId}` : ""}`);
         setContext(data);
-        setActiveSession(data.active_session || null);
-        setAnswerText(data.active_session?.my_answer?.answer_text || "");
+        setActiveSession(useActiveSession ? data.active_session || null : null);
+        setAnswerText(useActiveSession ? data.active_session?.my_answer?.answer_text || "" : "");
         if (!selectedTopicId && data.topics?.length > 0) {
-            setSelectedTopicId(String(data.active_session?.topic_id || data.topics[0].topic_id));
+            setSelectedTopicId(String((useActiveSession ? data.active_session?.topic_id : null) || data.topics[0].topic_id));
         }
         setLoading(false);
     };
 
     useEffect(() => {
-        loadContext();
+        loadContext(noVirtual && !selectedEntryGroupId ? "101" : groupId, !noVirtual || !!selectedEntryGroupId);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [groupId, objectId]);
+    }, [routeGroupId, objectId, noVirtual, selectedEntryGroupId]);
 
     useEffect(() => {
         if (!activeSession?.session_id || !activeSession?.is_member || isGeneratingFeedback) return undefined;
@@ -111,6 +119,11 @@ const TableActivityPage = () => {
     }, [activeSession?.session_id, activeSession?.is_member]);
 
     const handleStart = async () => {
+        const nextGroupId = noVirtual ? entryCode.trim() : groupId;
+        if (noVirtual && !isNoVirtualCode(nextGroupId)) {
+            setMessage("Masukkan kode unik antara 101-150.");
+            return;
+        }
         if (!selectedTopicId) {
             setMessage("Pilih topic terlebih dahulu.");
             return;
@@ -119,15 +132,17 @@ const TableActivityPage = () => {
         setBusy(true);
         setMessage("");
         const data = await apiPost("/table/sessions", {
-            group_id: groupId,
+            group_id: nextGroupId,
             object_id: objectId,
             topic_id: selectedTopicId,
         });
 
         if (data.session) {
+            if (noVirtual) setSelectedEntryGroupId(nextGroupId);
             setActiveSession(data.session);
             setAnswerText(data.session.my_answer?.answer_text || "");
         } else if (data.active_session) {
+            if (noVirtual) setSelectedEntryGroupId(nextGroupId);
             setActiveSession(data.active_session);
             setAnswerText(data.active_session.my_answer?.answer_text || "");
             setMessage(getMessage(data, "Session aktif ditemukan. Silakan join."));
@@ -137,19 +152,48 @@ const TableActivityPage = () => {
         setBusy(false);
     };
 
-    const handleJoin = async () => {
-        if (!activeSession?.session_id) return;
+    const joinSession = async (session, nextGroupId = groupId) => {
+        if (!session?.session_id) return;
 
         setBusy(true);
         setMessage("");
-        const data = await apiPost(`/table/sessions/${activeSession.session_id}/join`, {});
+        const data = await apiPost(`/table/sessions/${session.session_id}/join`, {});
         if (data.session) {
+            if (noVirtual) setSelectedEntryGroupId(nextGroupId);
             setActiveSession(data.session);
             setAnswerText(data.session.my_answer?.answer_text || "");
         } else {
             setMessage(getMessage(data, "Gagal join group."));
         }
         setBusy(false);
+    };
+
+    const handleJoin = async () => joinSession(activeSession);
+
+    const handleJoinByCode = async () => {
+        const nextGroupId = entryCode.trim();
+        if (!isNoVirtualCode(nextGroupId)) {
+            setMessage("Masukkan kode unik antara 101-150.");
+            return;
+        }
+
+        setBusy(true);
+        setMessage("");
+        const data = await apiGet(`/table/context?group_id=${nextGroupId}`);
+        setContext(data);
+        if (!selectedTopicId && data.topics?.length > 0) {
+            setSelectedTopicId(String(data.active_session?.topic_id || data.topics[0].topic_id));
+        }
+
+        if (!data.active_session) {
+            setActiveSession(null);
+            setMessage(`Tidak ada sesi aktif untuk group ${nextGroupId}.`);
+            setBusy(false);
+            return;
+        }
+
+        setBusy(false);
+        await joinSession(data.active_session, nextGroupId);
     };
 
     const handleExitGroup = async () => {
@@ -220,12 +264,12 @@ const TableActivityPage = () => {
     };
 
     if (loading) {
-        return <main className="table-app table-app--center">Memuat aktivitas meja...</main>;
+        return <main className={`table-app table-app--center${embedded ? " table-app--embedded" : ""}`}>Memuat aktivitas meja...</main>;
     }
 
     if (activeSession?.is_member) {
         return (
-            <main className="table-app table-workspace">
+            <main className={`table-app table-workspace${embedded ? " table-app--embedded" : ""}`}>
                 <aside className="table-members" aria-label="Group members">
                     <div className="table-members__heading">Group {activeSession.group_id}</div>
                     {activeSession.members.map((member) => (
@@ -243,6 +287,11 @@ const TableActivityPage = () => {
                             <h1>{activeSession.case_title}</h1>
                         </div>
                         <div className="table-case__actions">
+                            {embedded && (
+                                <button className="no-virtual-back" type="button" onClick={onBack}>
+                                    Back
+                                </button>
+                            )}
                             <span className="table-count">{activeSession.member_count}/{activeSession.max_members}</span>
                             <button className="table-button table-button--danger" onClick={handleExitGroup} disabled={busy || isGeneratingFeedback}>
                                 {isGeneratingFeedback ? "Please Wait" : "Exit Group"}
@@ -414,11 +463,20 @@ const TableActivityPage = () => {
     const canJoin = hasActiveSession && !groupFull;
 
     return (
-        <main className="table-app table-landing">
+        <main className={`table-app table-landing${embedded ? " table-app--embedded" : ""}`}>
+            {embedded && (
+                <button className="no-virtual-back" type="button" onClick={onBack}>
+                    Back
+                </button>
+            )}
             <section className="table-landing__hero">
-                <span className="table-label">Table Group Activity</span>
+                <span className="table-label">{noVirtual ? "No Map Group Activity" : "Table Group Activity"}</span>
                 <h1>{context?.course?.course_name || "Course Activity"}</h1>
-                <p>Group {groupId} can work together on one active case study session with up to four students.</p>
+                <p>
+                    {noVirtual
+                        ? "Enter a unique code from 101 to 150 to host or join a live case study group."
+                        : `Group ${groupId} can work together on one active case study session with up to four students.`}
+                </p>
             </section>
 
             <section className="table-layout">
@@ -450,9 +508,33 @@ const TableActivityPage = () => {
 
                 <div className="table-status">
                     <div className="table-section-title">
-                        <h2>Group {groupId}</h2>
+                        <h2>Group {noVirtual ? entryCode || selectedEntryGroupId || "Code" : groupId}</h2>
                         <span>{hasActiveSession ? "Active" : "Ready"}</span>
                     </div>
+
+                    {noVirtual && (
+                        <div className="no-virtual-code-form">
+                            <label>
+                                Group code
+                                <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    pattern="[0-9]*"
+                                    value={entryCode}
+                                    onChange={(event) => {
+                                        const nextCode = event.target.value.replace(/\D/g, "").slice(0, 3);
+                                        setEntryCode(nextCode);
+                                        if (selectedEntryGroupId && nextCode !== selectedEntryGroupId) {
+                                            setSelectedEntryGroupId("");
+                                            setActiveSession(null);
+                                        }
+                                    }}
+                                    placeholder="101-150"
+                                    disabled={!!activeSession?.is_member || busy}
+                                />
+                            </label>
+                        </div>
+                    )}
 
                     {hasActiveSession ? (
                         <>
@@ -479,13 +561,32 @@ const TableActivityPage = () => {
                                     ? `Start a case study for ${selectedTopic.topic_name}.`
                                     : "Select a topic before starting the group."}
                             </p>
-                            <button
-                                className="table-button table-button--primary"
-                                onClick={handleStart}
-                                disabled={!canStart || busy}
-                            >
-                                Create/Start Group {groupId}
-                            </button>
+                            {noVirtual ? (
+                                <div className="no-virtual-code-actions">
+                                    <button
+                                        className="table-button table-button--primary"
+                                        onClick={handleStart}
+                                        disabled={!canStart || busy || !isNoVirtualCode(entryCode)}
+                                    >
+                                        Host Group
+                                    </button>
+                                    <button
+                                        className="table-button table-button--primary"
+                                        onClick={handleJoinByCode}
+                                        disabled={busy || !isNoVirtualCode(entryCode)}
+                                    >
+                                        Join Group
+                                    </button>
+                                </div>
+                            ) : (
+                                <button
+                                    className="table-button table-button--primary"
+                                    onClick={handleStart}
+                                    disabled={!canStart || busy}
+                                >
+                                    Create/Start Group {groupId}
+                                </button>
+                            )}
                         </>
                     )}
 

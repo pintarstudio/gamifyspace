@@ -362,6 +362,7 @@ export async function getVirtualSpaceDashboard(req, res) {
                 name: user.name,
                 avatar_public_path: avatarPath(user.avatar_public_path),
                 gamification_enabled: !!user.gamification_enabled,
+                use_no_virtual_space: !!user.use_no_virtual_space,
             },
             hud,
             leaderboard: leaderboardResult.rows,

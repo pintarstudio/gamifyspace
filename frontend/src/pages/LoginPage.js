@@ -9,7 +9,7 @@ const LoginPage = ({ setLoggedIn, setUser }) => {
         console.log("Login berhasil:", user);
         setUser(user);
         setLoggedIn(true);
-        navigate("/virtualspace");
+        navigate(user.use_no_virtual_space ? "/novirtualspace" : "/virtualspace");
     };
 
     return <LoginForm onLoginSuccess={handleLoginSuccess}/>;

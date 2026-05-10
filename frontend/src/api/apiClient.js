@@ -28,3 +28,11 @@ export async function apiPatch(path, data) {
     });
     return res.json();
 }
+
+export async function apiDelete(path) {
+    const res = await fetch(`${API_URL}${path}`, {
+        method: "DELETE",
+        credentials: "include",
+    });
+    return res.json();
+}

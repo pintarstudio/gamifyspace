@@ -171,7 +171,6 @@ export async function ensureQuizActivityTables() {
 
     await pool.query(`ALTER TABLE quiz_sessions ADD COLUMN IF NOT EXISTS group_id INTEGER`);
     await pool.query(`ALTER TABLE quiz_sessions ADD COLUMN IF NOT EXISTS question_completed_at TIMESTAMPTZ`);
-    await pool.query(`ALTER TABLE quiz_answers ALTER COLUMN time_taken_seconds SET DEFAULT 15`);
 
     await pool.query(`
         CREATE TABLE IF NOT EXISTS quiz_members (
@@ -203,6 +202,8 @@ export async function ensureQuizActivityTables() {
             UNIQUE (quiz_session_id, user_id, question_id)
         )
     `);
+
+    await pool.query(`ALTER TABLE quiz_answers ALTER COLUMN time_taken_seconds SET DEFAULT 15`);
 
     await pool.query(`
         CREATE TABLE IF NOT EXISTS quiz_session_results (

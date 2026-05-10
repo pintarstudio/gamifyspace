@@ -23,7 +23,9 @@ import {
 import {
     getCourseById,
     getTopicById,
+    getTopicByIdIncludingHidden,
     getTopicsForCourse,
+    updateTopicVisibility,
 } from "../models/tableActivityModel.js";
 import {
     generateIndividualCaseFeedback,
@@ -215,9 +217,10 @@ export async function getIndividualContext(req, res) {
         if (!user) return;
 
         const objectId = normalizeObjectId(req.query.object_id);
+        const includeHiddenTopics = req.query.admin === "1";
         const [course, topics, activeSession] = await Promise.all([
             getCourseById(user.course_id),
-            getTopicsForCourse(user.course_id),
+            getTopicsForCourse(user.course_id, {includeHidden: includeHiddenTopics}),
             getActiveIndividualSession({courseId: user.course_id, userId: user.user_id, objectId}),
         ]);
 
@@ -233,6 +236,7 @@ export async function getIndividualContext(req, res) {
                 const settings = settingsMap.get(Number(topic.topic_id)) || {};
                 return {
                     ...topic,
+                    show_topic: topic.show_topic !== false,
                     show_pre_test: settings.show_pre_test !== false,
                     show_post_test: settings.show_post_test !== false,
                 };
@@ -489,14 +493,22 @@ export async function updateIndividualSettings(req, res) {
         const user = await getAuthenticatedUser(req, res);
         if (!user) return;
 
-        const topic = await getTopicById(req.params.topicId, user.course_id);
+        const topic = await getTopicByIdIncludingHidden(req.params.topicId, user.course_id);
         if (!topic) return res.status(404).json({message: "Topic tidak ditemukan"});
 
+        const topicVisibility = req.body.show_topic === undefined
+            ? null
+            : await updateTopicVisibility(topic.topic_id, req.body.show_topic);
         const settings = await updateIndividualTopicSettings(topic.topic_id, {
             show_pre_test: req.body.show_pre_test,
             show_post_test: req.body.show_post_test,
         });
-        res.json({settings});
+        res.json({
+            settings: {
+                ...settings,
+                show_topic: topicVisibility ? topicVisibility.show_topic !== false : topic.show_topic !== false,
+            },
+        });
     } catch (error) {
         console.error("Update individual settings error:", error);
         res.status(500).json({message: "Gagal menyimpan setting individual"});

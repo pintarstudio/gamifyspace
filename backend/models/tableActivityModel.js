@@ -30,10 +30,23 @@ async function getColumns(tableName) {
     return result.rows.map((row) => row.column_name);
 }
 
+async function ensureTopicVisibilityColumn() {
+    const columns = await getColumns("topics");
+    if (columns.length === 0) return [];
+
+    if (!hasColumn(columns, "show_topic")) {
+        await pool.query(`ALTER TABLE topics ADD COLUMN IF NOT EXISTS show_topic BOOLEAN NOT NULL DEFAULT TRUE`);
+        return [...columns, "show_topic"];
+    }
+
+    return columns;
+}
+
 export async function ensureTableActivityTables() {
     if (tablesReady) return;
 
     await ensureGamificationTables();
+    await ensureTopicVisibilityColumn();
 
     await pool.query(`
         CREATE TABLE IF NOT EXISTS topic_cases (
@@ -136,14 +149,15 @@ export async function getCourseById(courseId) {
         `SELECT course_id, course_name
          FROM courses
          WHERE course_id = $1
+           AND deleted_at IS NULL
          LIMIT 1`,
         [courseId]
     );
     return result.rows[0] || null;
 }
 
-export async function getTopicsForCourse(courseId) {
-    const columns = await getColumns("topics");
+export async function getTopicsForCourse(courseId, options = {}) {
+    const columns = await ensureTopicVisibilityColumn();
     if (columns.length === 0) return [];
 
     const idColumn = pickColumn(columns, ["topic_id", "id"]);
@@ -162,6 +176,7 @@ export async function getTopicsForCourse(courseId) {
     } else {
         selectColumns.push(`NULL AS topic_description`);
     }
+    selectColumns.push(`COALESCE(show_topic, TRUE) AS show_topic`);
 
     const where = [];
     const params = [];
@@ -171,6 +186,9 @@ export async function getTopicsForCourse(courseId) {
     }
     if (hasColumn(columns, "deleted_at")) {
         where.push(`deleted_at IS NULL`);
+    }
+    if (!options.includeHidden) {
+        where.push(`COALESCE(show_topic, TRUE) = TRUE`);
     }
 
     const result = await pool.query(
@@ -187,6 +205,26 @@ export async function getTopicsForCourse(courseId) {
 export async function getTopicById(topicId, courseId) {
     const topics = await getTopicsForCourse(courseId);
     return topics.find((topic) => String(topic.topic_id) === String(topicId)) || null;
+}
+
+export async function getTopicByIdIncludingHidden(topicId, courseId) {
+    const topics = await getTopicsForCourse(courseId, {includeHidden: true});
+    return topics.find((topic) => String(topic.topic_id) === String(topicId)) || null;
+}
+
+export async function updateTopicVisibility(topicId, showTopic) {
+    const columns = await ensureTopicVisibilityColumn();
+    const idColumn = pickColumn(columns, ["topic_id", "id"]);
+    if (!idColumn) return null;
+
+    const result = await pool.query(
+        `UPDATE topics
+         SET show_topic = $2
+         WHERE ${quoteIdent(idColumn)} = $1
+         RETURNING ${quoteIdent(idColumn)} AS topic_id, show_topic`,
+        [topicId, !!showTopic]
+    );
+    return result.rows[0] || null;
 }
 
 function buildSampleTopicCase(course, topic, caseNumber) {

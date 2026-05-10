@@ -18,7 +18,12 @@ import tableActivityRoutes from "./routes/tableActivityRoutes.js";
 import quizActivityRoutes from "./routes/quizActivityRoutes.js";
 import individualActivityRoutes from "./routes/individualActivityRoutes.js";
 import virtualSpaceDashboardRoutes from "./routes/virtualSpaceDashboardRoutes.js";
+import adminRoutes from "./routes/adminRoutes.js";
+import {ensureAdminTables} from "./models/adminModel.js";
+import {ensureCourseSchema} from "./models/courseModel.js";
+import {ensureQuestionBankAdminTables} from "./models/adminQuestionBankModel.js";
 import {ensureGamificationTables} from "./models/gamificationModel.js";
+import {ensureUserAccessModeColumn} from "./models/userModel.js";
 
 const app = express();
 const server = http.createServer(app);
@@ -37,6 +42,18 @@ const PgSession = pgSession(session);
 
 ensureGamificationTables().catch((error) => {
     console.error("Failed to initialize gamification tables:", error);
+});
+ensureAdminTables().catch((error) => {
+    console.error("Failed to initialize admin tables:", error);
+});
+ensureCourseSchema().catch((error) => {
+    console.error("Failed to initialize course schema:", error);
+});
+ensureQuestionBankAdminTables().catch((error) => {
+    console.error("Failed to initialize question bank admin tables:", error);
+});
+ensureUserAccessModeColumn().catch((error) => {
+    console.error("Failed to initialize user access mode column:", error);
 });
 
 // ====== MIDDLEWARE & ROUTES ======
@@ -75,6 +92,7 @@ app.use("/api/table", tableActivityRoutes);
 app.use("/api/quiz", quizActivityRoutes);
 app.use("/api/individual", individualActivityRoutes);
 app.use("/api/virtualspace", virtualSpaceDashboardRoutes);
+app.use("/api/admin", adminRoutes);
 app.get("/", (req, res) => {
     res.json({status: "ok", message: "GamifySpace backend active"});
 });
@@ -106,13 +124,22 @@ io.on("connection", (socket) => {
 
         userRooms[socket.id] = room;
 
+        const spawnX = Number.isFinite(Number(user.x)) ? Number(user.x) : 400;
+        const spawnY = Number.isFinite(Number(user.y)) ? Number(user.y) : 300;
+
         // Register user in the room
-        users[socket.id] = {...user, room, x: 400, y: 300, direction: "right", lastLogTime: Date.now()};
+        users[socket.id] = {
+            ...user,
+            room,
+            x: spawnX,
+            y: spawnY,
+            direction: user.direction || "right",
+        };
 
         console.log(`${user.name || user.email} joined ${room}`);
         io.to(room).emit("update_users", getUsersInRoom(room));
 
-        logUserAction(user.user_id, "enter_room", {room, position: {x: 400, y: 300}});
+        logUserAction(user.user_id, "enter_room", {room, position: {x: spawnX, y: spawnY}});
     });
 
     socket.on("move", (pos) => {
@@ -132,11 +159,6 @@ io.on("connection", (socket) => {
             u.lastEmitTime = now;
         }
 
-        // Logging every 10 seconds
-        if (now - u.lastLogTime >= 10000) {
-            u.lastLogTime = now;
-            logUserAction(u.user_id, "move", {room, position: {x: pos.x, y: pos.y}});
-        }
     });
 
     socket.on("interact_obj", (data) => {
