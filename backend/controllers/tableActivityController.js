@@ -381,7 +381,9 @@ export async function submitTableAnswers(req, res) {
         }
 
         const submitted = await getSessionById(session.session_id);
-        await upsertTableSessionScores(submitted, answers, feedbackResult.feedback.xp_awards);
+        if (user.gamification_enabled) {
+            await upsertTableSessionScores(submitted, answers, feedbackResult.feedback.xp_awards);
+        }
         const {
             members: updatedMembers,
             answers: submittedAnswers,

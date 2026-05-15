@@ -37,12 +37,20 @@ const individualAnswerFeedback = (activity, answer) =>
     (activity.results?.wrong_answer_feedback || activity.feedback?.wrong_answer_feedback || [])
         .find((item) => String(item.question_id) === String(answer.question_id));
 
+const rankToneClass = (index) => {
+    if (index === 0) return "course-leaderboard__rank--first";
+    if (index === 1) return "course-leaderboard__rank--second";
+    if (index === 2) return "course-leaderboard__rank--third";
+    return index < 10 ? "course-leaderboard__rank--top-ten" : "";
+};
+
 const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
     const [currentUser, setCurrentUser] = useState(user);
     const [dashboard, setDashboard] = useState(null);
     const [selectedActivity, setSelectedActivity] = useState(null);
     const [detailLoading, setDetailLoading] = useState(false);
     const [activeDashboardTab, setActiveDashboardTab] = useState(null);
+    const [expandedLeaderboardGroups, setExpandedLeaderboardGroups] = useState({});
     const navigate = useNavigate();
 
     useEffect(() => {
@@ -117,6 +125,7 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
         avatar: currentUser?.avatar,
         name: currentUser?.name,
         email: currentUser?.email,
+        course_id: currentUser?.course_id,
         room: currentUser?.room,
     }), [
         currentUser?.user_id,
@@ -125,6 +134,7 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
         currentUser?.avatar,
         currentUser?.name,
         currentUser?.email,
+        currentUser?.course_id,
         currentUser?.room,
     ]);
 
@@ -179,6 +189,13 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
         </div>
     );
 
+    const toggleLeaderboardGroup = (courseGroupId) => {
+        setExpandedLeaderboardGroups((current) => ({
+            ...current,
+            [courseGroupId]: !current[courseGroupId],
+        }));
+    };
+
     const renderLeaderboards = () => (
         <div className="leaderboard-stack">
             <div className="leaderboard-block">
@@ -186,17 +203,46 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
                     <h3>Group Activity Leaderboard</h3>
                     <span>XP</span>
                 </div>
-                <div className="course-leaderboard course-leaderboard--compact">
+                <div className="course-leaderboard course-leaderboard--compact course-leaderboard--groups">
                     {groupLeaderboard.length > 0 ? (
                         groupLeaderboard.map((item, index) => (
-                            <article className="course-leaderboard__row" key={item.user_id}>
-                                <div className="course-leaderboard__rank">{index + 1}</div>
-                                <img src={avatarSrc(item.avatar_public_path)} alt={item.name} />
-                                <div>
-                                    <strong>{item.name}</strong>
-                                    <span>{item.activities_count} activities</span>
-                                </div>
-                                <b>{item.total_xp} XP</b>
+                            <article className="course-leaderboard__group" key={item.course_group_id}>
+                                <button
+                                    className="course-leaderboard__row course-leaderboard__row--button"
+                                    type="button"
+                                    onClick={() => toggleLeaderboardGroup(item.course_group_id)}
+                                    aria-expanded={!!expandedLeaderboardGroups[item.course_group_id]}
+                                >
+                                    <div className={`course-leaderboard__rank course-leaderboard__rank--group ${rankToneClass(index)}`}>
+                                        #{index + 1}
+                                    </div>
+                                    <div className="course-leaderboard__group-icon">
+                                        {expandedLeaderboardGroups[item.course_group_id] ? "-" : "+"}
+                                    </div>
+                                    <div>
+                                        <strong>{item.group_name}</strong>
+                                        <span>{item.students_count || 0} students · {item.activities_count || 0} activities</span>
+                                    </div>
+                                    <b>{item.total_group_xp || 0} XP</b>
+                                </button>
+                                {expandedLeaderboardGroups[item.course_group_id] && (
+                                    <div className="course-leaderboard__students">
+                                        {(item.students || []).length > 0 ? (
+                                            item.students.map((student) => (
+                                                <div className="course-leaderboard__student" key={student.user_id}>
+                                                    <img src={avatarSrc(student.avatar_public_path)} alt={student.name} />
+                                                    <div>
+                                                        <strong>{student.name}</strong>
+                                                        <span>{student.activities_count || 0} activities</span>
+                                                    </div>
+                                                    <b>{student.total_xp || 0} XP</b>
+                                                </div>
+                                            ))
+                                        ) : (
+                                            <p className="course-leaderboard__empty">No students assigned.</p>
+                                        )}
+                                    </div>
+                                )}
                             </article>
                         ))
                     ) : (
@@ -210,11 +256,13 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
                     <h3>Quiz Score Leaderboard</h3>
                     <span>Points</span>
                 </div>
-                <div className="course-leaderboard course-leaderboard--compact">
+                <div className="course-leaderboard course-leaderboard--compact course-leaderboard--quiz">
                     {quizLeaderboard.length > 0 ? (
                         quizLeaderboard.map((item, index) => (
                             <article className="course-leaderboard__row" key={item.user_id}>
-                                <div className="course-leaderboard__rank">{index + 1}</div>
+                                <div className={`course-leaderboard__rank course-leaderboard__rank--quiz ${rankToneClass(index)}`}>
+                                    {index + 1}
+                                </div>
                                 <img src={avatarSrc(item.avatar_public_path)} alt={item.name} />
                                 <div>
                                     <strong>{item.name}</strong>

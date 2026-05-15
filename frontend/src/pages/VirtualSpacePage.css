@@ -141,6 +141,11 @@
     gap: 7px;
 }
 
+.course-leaderboard__group {
+    display: grid;
+    gap: 6px;
+}
+
 .activity-card {
     background: #fbfcfd;
     border: 1px solid #dde2e8;
@@ -184,10 +189,46 @@
     padding: 9px;
 }
 
+.course-leaderboard__row--button {
+    color: #20242a;
+    cursor: pointer;
+    font: inherit;
+    text-align: left;
+    width: 100%;
+}
+
+.course-leaderboard__row--button:hover {
+    background: #eef7fd;
+    border-color: #bfdaee;
+}
+
 .course-leaderboard--compact .course-leaderboard__row {
     gap: 7px;
     grid-template-columns: 24px 30px minmax(0, 1fr) auto;
     padding: 7px;
+}
+
+.course-leaderboard--groups.course-leaderboard--compact .course-leaderboard__row {
+    grid-template-columns: 38px 30px minmax(0, 1fr) auto;
+}
+
+.course-leaderboard--quiz.course-leaderboard--compact .course-leaderboard__row {
+    grid-template-columns: 24px 30px minmax(0, 1fr) auto;
+}
+
+.course-leaderboard__group-icon {
+    align-items: center;
+    background: #ffffff;
+    border: 1px solid #cfe0ed;
+    border-radius: 999px;
+    color: #24516d;
+    display: flex;
+    font-size: 15px;
+    font-weight: 900;
+    height: 30px;
+    justify-content: center;
+    line-height: 1;
+    width: 30px;
 }
 
 .course-leaderboard__rank {
@@ -203,6 +244,70 @@
     width: 24px;
 }
 
+.course-leaderboard__rank--group {
+    background: #f7fafc;
+    border: 1px solid #b9cbd9;
+    border-radius: 7px;
+    color: #27313a;
+    font-size: 11px;
+    height: 30px;
+    letter-spacing: 0;
+    width: 38px;
+}
+
+.course-leaderboard__rank--quiz {
+    border: 1px solid #b8d2e7;
+    border-radius: 999px;
+}
+
+.course-leaderboard__rank--first.course-leaderboard__rank--group {
+    background: #fff5d6;
+    border-color: #d7a51f;
+    color: #76520d;
+}
+
+.course-leaderboard__rank--second.course-leaderboard__rank--group {
+    background: #edf2f7;
+    border-color: #a8b4c3;
+    color: #485465;
+}
+
+.course-leaderboard__rank--third.course-leaderboard__rank--group {
+    background: #f7e7d8;
+    border-color: #b77739;
+    color: #744214;
+}
+
+.course-leaderboard__rank--top-ten.course-leaderboard__rank--group {
+    background: #eef7f1;
+    border-color: #bcd8c6;
+    color: #2d6a4f;
+}
+
+.course-leaderboard__rank--first.course-leaderboard__rank--quiz {
+    background: #f7c948;
+    border-color: #d7a51f;
+    color: #3f2f09;
+}
+
+.course-leaderboard__rank--second.course-leaderboard__rank--quiz {
+    background: #dbe3ea;
+    border-color: #a8b4c3;
+    color: #384556;
+}
+
+.course-leaderboard__rank--third.course-leaderboard__rank--quiz {
+    background: #d99a5b;
+    border-color: #b77739;
+    color: #3f220b;
+}
+
+.course-leaderboard__rank--top-ten.course-leaderboard__rank--quiz {
+    background: #dcecf9;
+    border-color: #b8d2e7;
+    color: #24516d;
+}
+
 .course-leaderboard__row img {
     background: #ffffff;
     border-radius: 999px;
@@ -214,6 +319,65 @@
 .course-leaderboard--compact .course-leaderboard__row img {
     height: 30px;
     width: 30px;
+}
+
+.course-leaderboard__students {
+    border-left: 2px solid #d8e7f5;
+    display: grid;
+    gap: 6px;
+    margin-left: 36px;
+    padding-left: 8px;
+}
+
+.course-leaderboard__student {
+    align-items: center;
+    background: #ffffff;
+    border: 1px solid #e2e9f0;
+    border-radius: 8px;
+    display: grid;
+    gap: 8px;
+    grid-template-columns: 26px minmax(0, 1fr) auto;
+    padding: 7px;
+}
+
+.course-leaderboard__student img {
+    background: #f0f3f6;
+    border-radius: 999px;
+    height: 26px;
+    object-fit: cover;
+    width: 26px;
+}
+
+.course-leaderboard__student strong,
+.course-leaderboard__student span {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.course-leaderboard__student strong {
+    color: #27313a;
+    font-size: 12px;
+}
+
+.course-leaderboard__student span {
+    color: #717b87;
+    font-size: 11px;
+}
+
+.course-leaderboard__student b {
+    color: #24516d;
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.course-leaderboard__empty {
+    color: #717b87;
+    font-size: 12px;
+    font-weight: 700;
+    margin: 0;
+    padding: 3px 0;
 }
 
 .course-leaderboard__row strong,

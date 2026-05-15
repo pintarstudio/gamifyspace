@@ -1,6 +1,7 @@
 import express from "express";
 import {
     createAdminResourceData,
+    bulkAssignCourseGroupStudents,
     createQuestionBankItem,
     createTopicMaterialData,
     deleteAdminResourceData,
@@ -27,6 +28,7 @@ router.post("/login", loginAdmin);
 router.post("/logout", logoutAdmin);
 router.get("/references", getAdminReferenceData);
 router.get("/resources/:resource", getAdminResource);
+router.patch("/course-groups/students", bulkAssignCourseGroupStudents);
 router.post("/resources/:resource", createAdminResourceData);
 router.patch("/resources/:resource/:id", updateAdminResourceData);
 router.delete("/resources/:resource/:id", deleteAdminResourceData);

@@ -120,30 +120,58 @@ export async function getVirtualSpaceDashboard(req, res) {
                 [user.user_id, user.course_id]
             ),
             pool.query(
-                `SELECT
-                     u.user_id,
-                     u.name,
-                     a.avatar_public_path,
-                     COALESCE(SUM(gus.xp_earned), 0)::int AS total_xp,
-                     COUNT(DISTINCT gus.activity_id)::int AS activities_count
-                 FROM users u
-                 LEFT JOIN sessions latest_session
-                   ON latest_session.user_id = u.user_id
-                  AND latest_session.id = (
-                      SELECT MAX(s2.id)
-                      FROM sessions s2
-                      WHERE s2.user_id = u.user_id
-                  )
-                 LEFT JOIN avatars a ON a.avatar_id = latest_session.avatar_id
-                 LEFT JOIN gamification_user_scores gus
-                   ON gus.user_id = u.user_id
-                  AND gus.course_id = $1
-                  AND gus.activity_type = 'table_case_study'
-                 WHERE u.course_id = $1
-                   AND u.deleted_at IS NULL
-                 GROUP BY u.user_id, u.name, a.avatar_public_path
-                 ORDER BY total_xp DESC, activities_count DESC, u.name ASC
-                 LIMIT 10`,
+                `WITH student_scores AS (
+                     SELECT
+                         u.user_id,
+                         u.name,
+                         u.course_group_id,
+                         a.avatar_public_path,
+                         COALESCE(SUM(gus.xp_earned), 0)::int AS total_xp,
+                         COUNT(DISTINCT gus.activity_id)::int AS activities_count
+                     FROM users u
+                     LEFT JOIN sessions latest_session
+                       ON latest_session.user_id = u.user_id
+                      AND latest_session.id = (
+                          SELECT MAX(s2.id)
+                          FROM sessions s2
+                          WHERE s2.user_id = u.user_id
+                      )
+                     LEFT JOIN avatars a ON a.avatar_id = latest_session.avatar_id
+                     LEFT JOIN gamification_user_scores gus
+                       ON gus.user_id = u.user_id
+                      AND gus.course_id = $1
+                      AND gus.activity_type = 'table_case_study'
+                     WHERE u.course_id = $1
+                       AND u.deleted_at IS NULL
+                     GROUP BY u.user_id, u.name, u.course_group_id, a.avatar_public_path
+                 )
+                 SELECT
+                     cg.course_group_id,
+                     cg.group_name,
+                     COALESCE(SUM(ss.total_xp), 0)::int AS total_group_xp,
+                     COUNT(ss.user_id)::int AS students_count,
+                     COALESCE(SUM(ss.activities_count), 0)::int AS activities_count,
+                     COALESCE(
+                         JSONB_AGG(
+                             JSONB_BUILD_OBJECT(
+                                 'user_id', ss.user_id,
+                                 'name', ss.name,
+                                 'avatar_public_path', ss.avatar_public_path,
+                                 'total_xp', ss.total_xp,
+                                 'activities_count', ss.activities_count
+                             )
+                             ORDER BY ss.total_xp DESC, ss.activities_count DESC, ss.name ASC
+                         ) FILTER (WHERE ss.user_id IS NOT NULL),
+                         '[]'::jsonb
+                     ) AS students
+                 FROM course_groups cg
+                 LEFT JOIN student_scores ss
+                   ON ss.course_group_id = cg.course_group_id
+                 WHERE cg.course_id = $1
+                   AND cg.deleted_at IS NULL
+                   AND cg.gamification_enabled = TRUE
+                 GROUP BY cg.course_group_id, cg.group_name
+                 ORDER BY total_group_xp DESC, activities_count DESC, cg.group_name ASC`,
                 [user.course_id]
             ),
             pool.query(
@@ -180,6 +208,10 @@ export async function getVirtualSpaceDashboard(req, res) {
                        AND qs.status = 'saved'
                        AND (score.value->>'user_id')::int = u.user_id
                  ) quiz_scores ON TRUE
+                 JOIN course_groups cg
+                   ON cg.course_group_id = u.course_group_id
+                  AND cg.deleted_at IS NULL
+                  AND cg.gamification_enabled = TRUE
                  WHERE u.course_id = $1
                    AND u.deleted_at IS NULL
                  ORDER BY total_quiz_score DESC, quizzes_count DESC, u.name ASC

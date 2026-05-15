@@ -202,7 +202,19 @@
     grid-template-columns: 24px minmax(0, 1fr) auto;
 }
 
+.no-virtual-shell .course-leaderboard--groups.course-leaderboard--compact .no-virtual-leaderboard-row {
+    grid-template-columns: 38px 30px minmax(0, 1fr) auto;
+}
+
+.no-virtual-shell .course-leaderboard--quiz.course-leaderboard--compact .no-virtual-leaderboard-row {
+    grid-template-columns: 24px minmax(0, 1fr) auto;
+}
+
 .no-virtual-leaderboard-row > div:nth-child(2) {
+    min-width: 0;
+}
+
+.course-leaderboard--groups .no-virtual-leaderboard-row > div:nth-child(3) {
     min-width: 0;
 }
 

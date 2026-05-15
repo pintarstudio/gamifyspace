@@ -23,12 +23,22 @@ export async function findSession(session_id) {
              u.email,
              u.gender,
              u.course_id,
-             u.gamification_enabled,
-             COALESCE(u.use_no_virtual_space, FALSE) AS use_no_virtual_space,
+             c.course_name,
+             u.course_group_id,
+             cg.group_name AS course_group_name,
+             COALESCE(cg.gamification_enabled, FALSE) AS gamification_enabled,
+             NOT COALESCE(cg.virtual_space_enabled, FALSE) AS use_no_virtual_space,
+             COALESCE(cg.virtual_space_enabled, FALSE) AS virtual_space_enabled,
              a.avatar_name,
              a.avatar_public_path
          FROM sessions s
          JOIN users u ON s.user_id = u.user_id
+         JOIN courses c
+           ON c.course_id = u.course_id
+          AND c.deleted_at IS NULL
+         LEFT JOIN course_groups cg
+                ON cg.course_group_id = u.course_group_id
+               AND cg.deleted_at IS NULL
          JOIN avatars a ON a.avatar_id = s.avatar_id        
          WHERE s.session_id = $1
            AND s.is_active = TRUE`,

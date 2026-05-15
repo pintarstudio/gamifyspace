@@ -327,12 +327,12 @@ export async function createIndividualSession({courseId, topicId, userId, object
     return result.rows[0] || null;
 }
 
-export async function saveIndividualMcAnswer({session, question, userId, answerIndex}) {
+export async function saveIndividualMcAnswer({session, question, userId, answerIndex, awardXp = true}) {
     const normalizedAnswerIndex = Number.isFinite(Number(answerIndex)) ? Number(answerIndex) : null;
     const isCorrect = normalizedAnswerIndex !== null && Number(question.correct_answer_index) === normalizedAnswerIndex;
     const isAssessment = ["pre_test", "post_test"].includes(session.activity_type);
     const score = isAssessment && isCorrect ? 10 : 0;
-    const xp = session.activity_type === "exercise" && isCorrect ? 10 : 0;
+    const xp = awardXp && session.activity_type === "exercise" && isCorrect ? 10 : 0;
 
     const result = await pool.query(
         `INSERT INTO individual_activity_answers

@@ -186,7 +186,9 @@ async function completeMultipleChoiceSession(session, questions, user) {
                 wrongAnswerFeedbackError = error.message || "Gagal membuat feedback";
             }
         }
-        await upsertIndividualXpScore(session, xpTotal, `${correctCount}/${questions.length} multiple-choice answers correct.`);
+        if (user.gamification_enabled) {
+            await upsertIndividualXpScore(session, xpTotal, `${correctCount}/${questions.length} multiple-choice answers correct.`);
+        }
     }
 
     const resultJson = {
@@ -373,6 +375,7 @@ export async function answerIndividualQuestion(req, res) {
             question: currentQuestion,
             userId: user.user_id,
             answerIndex: req.body.answer_index,
+            awardXp: !!user.gamification_enabled,
         });
 
         const isLastQuestion = session.current_question_index >= questions.length - 1;
@@ -446,7 +449,7 @@ export async function submitIndividualCase(req, res) {
             answered_count: 1,
             correct_count: 0,
             score_total: 0,
-            xp_total: feedback.xp,
+            xp_total: user.gamification_enabled ? feedback.xp : 0,
             case_feedback: feedback,
         };
         const completed = await completeIndividualSession({
@@ -455,9 +458,11 @@ export async function submitIndividualCase(req, res) {
             feedbackJson: feedback,
             feedbackModel: model,
             feedbackError: feedback.error || null,
-            xpTotal: feedback.xp,
+            xpTotal: user.gamification_enabled ? feedback.xp : 0,
         });
-        await upsertIndividualXpScore(session, feedback.xp, feedback.xp_reason);
+        if (user.gamification_enabled) {
+            await upsertIndividualXpScore(session, feedback.xp, feedback.xp_reason);
+        }
 
         const activity = await loadIndividualSession(completed, user);
         res.json({

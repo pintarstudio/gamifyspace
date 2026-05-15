@@ -17,9 +17,13 @@ export async function checkSession(req, res) {
                 email: sessionData.email,
                 gender: sessionData.gender,
                 course_id: sessionData.course_id,
+                course_name: sessionData.course_name,
+                course_group_id: sessionData.course_group_id,
+                course_group_name: sessionData.course_group_name,
                 avatar_public_path: sessionData.avatar_public_path,
                 gamification_enabled: !!sessionData.gamification_enabled,
                 use_no_virtual_space: !!sessionData.use_no_virtual_space,
+                virtual_space_enabled: !!sessionData.virtual_space_enabled,
             },
         });
     } catch (error) {

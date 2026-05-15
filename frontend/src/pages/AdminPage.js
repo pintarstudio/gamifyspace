@@ -96,23 +96,60 @@ const MENU_GROUPS = [
                 ],
             },
             {
+                label: "Course Groups",
+                path: "/coursegroupadmin",
+                resource: "course-groups",
+                idKey: "course_group_id",
+                canAdd: true,
+                canDelete: true,
+                description: "Create course groups and control access mode plus gamification for each group.",
+                tableColumns: [
+                    {key: "course_name", label: "Course"},
+                    {key: "group_name", label: "Group"},
+                    {key: "virtual_space_enabled", label: "Virtual Space", type: "boolean", trueLabel: "Enabled", falseLabel: "Disabled"},
+                    {key: "gamification_enabled", label: "Gamification", type: "boolean", trueLabel: "Enabled", falseLabel: "Disabled"},
+                    {key: "student_count", label: "Students"},
+                ],
+                fields: [
+                    {key: "course_id", label: "Course", type: "select", reference: "courses", required: true},
+                    {key: "group_name", label: "Group Name", required: true},
+                    {
+                        key: "virtual_space_enabled",
+                        label: "Enable Virtual Space",
+                        type: "checkbox",
+                        defaultValue: false,
+                        trueLabel: "Students enter the virtual map",
+                        falseLabel: "Students enter the no-map menu",
+                    },
+                    {
+                        key: "gamification_enabled",
+                        label: "Enable Gamification",
+                        type: "checkbox",
+                        defaultValue: false,
+                        trueLabel: "XP and game layer enabled",
+                        falseLabel: "XP and game layer disabled",
+                    },
+                ],
+            },
+            {
                 label: "Student Access",
                 path: "/studentadmin",
                 resource: "students",
                 idKey: "user_id",
                 canAdd: false,
                 canDelete: false,
-                description: "Choose whether each registered student enters the virtual map or the no-map activity menu after login.",
+                description: "Assign students to course groups. Access mode and gamification come from the selected group.",
                 tableColumns: [
                     {key: "course_name", label: "Course"},
                     {key: "name", label: "Student"},
                     {key: "email", label: "Email"},
+                    {key: "course_group_name", label: "Course Group"},
                     {
-                        key: "use_no_virtual_space",
-                        label: "No Virtual Space",
+                        key: "virtual_space_enabled",
+                        label: "Virtual Space",
                         type: "boolean",
-                        trueLabel: "No-map",
-                        falseLabel: "Virtual map",
+                        trueLabel: "Enabled",
+                        falseLabel: "Disabled",
                     },
                     {
                         key: "gamification_enabled",
@@ -126,20 +163,7 @@ const MENU_GROUPS = [
                     {key: "course_id", label: "Course", type: "select", reference: "courses", required: true},
                     {key: "name", label: "Student Name", required: true},
                     {key: "email", label: "Email", required: true},
-                    {
-                        key: "use_no_virtual_space",
-                        label: "Use No Virtual Space",
-                        type: "checkbox",
-                        trueLabel: "Redirect to /novirtualspace",
-                        falseLabel: "Redirect to /virtualspace",
-                    },
-                    {
-                        key: "gamification_enabled",
-                        label: "Enable Gamification",
-                        type: "checkbox",
-                        trueLabel: "Gamification enabled",
-                        falseLabel: "Gamification disabled",
-                    },
+                    {key: "course_group_id", label: "Course Group", type: "select", reference: "course_groups", dependsOn: "course_id", valueKey: "course_group_id", labelKey: "group_name", required: true},
                 ],
             },
             {
@@ -189,7 +213,7 @@ function getConfig(pathname) {
 function emptyForm(config) {
     if (!config) return {};
     return config.fields.reduce((acc, field) => {
-        acc[field.key] = field.type === "checkbox" ? true : "";
+        acc[field.key] = field.type === "checkbox" ? field.defaultValue ?? true : "";
         return acc;
     }, {});
 }
@@ -274,7 +298,7 @@ const AdminPage = () => {
     const [busy, setBusy] = useState(false);
     const [message, setMessage] = useState("");
     const [rows, setRows] = useState([]);
-    const [references, setReferences] = useState({instructors: [], courses: []});
+    const [references, setReferences] = useState({instructors: [], courses: [], course_groups: []});
     const [editingRow, setEditingRow] = useState(null);
     const [formData, setFormData] = useState({});
     const [openMenus, setOpenMenus] = useState({
@@ -307,6 +331,25 @@ const AdminPage = () => {
     const [bankRows, setBankRows] = useState([]);
     const [bankForm, setBankForm] = useState({});
     const [editingBankRow, setEditingBankRow] = useState(null);
+    const [selectedStudentIds, setSelectedStudentIds] = useState([]);
+    const [studentBulk, setStudentBulk] = useState({
+        course_id: "",
+        course_group_id: "",
+        search: "",
+        target_course_group_id: "",
+    });
+
+    const displayedRows = useMemo(() => {
+        if (activeConfig?.resource !== "students") return rows;
+        const search = studentBulk.search.trim().toLowerCase();
+        return rows.filter((row) => {
+            if (studentBulk.course_id && String(row.course_id) !== String(studentBulk.course_id)) return false;
+            if (studentBulk.course_group_id && String(row.course_group_id) !== String(studentBulk.course_group_id)) return false;
+            if (!search) return true;
+            return [row.name, row.email, row.course_name, row.course_group_name]
+                .some((value) => String(value || "").toLowerCase().includes(search));
+        });
+    }, [activeConfig, rows, studentBulk]);
 
     useEffect(() => {
         let active = true;
@@ -335,6 +378,8 @@ const AdminPage = () => {
         setFormData({});
         setEditingBankRow(null);
         setBankForm({});
+        setSelectedStudentIds([]);
+        setStudentBulk({course_id: "", course_group_id: "", search: "", target_course_group_id: ""});
         setMessage("");
         if (admin && activeConfig?.resource) {
             setBusy(true);
@@ -433,7 +478,17 @@ const AdminPage = () => {
     };
 
     const updateForm = (field, value) => {
-        setFormData((current) => ({...current, [field]: value}));
+        setFormData((current) => {
+            const next = {...current, [field]: value};
+            if (field === "course_id" && next.course_group_id) {
+                const groupStillValid = (references.course_groups || []).some((group) => (
+                    String(group.course_group_id) === String(next.course_group_id)
+                    && String(group.course_id) === String(value)
+                ));
+                if (!groupStillValid) next.course_group_id = "";
+            }
+            return next;
+        });
     };
 
     const handleSave = async (event) => {
@@ -458,7 +513,7 @@ const AdminPage = () => {
 
     const handleDelete = async (row) => {
         if (!activeConfig || !activeConfig.canDelete) return;
-        const label = row.course_name || row.topic_name || "this data";
+        const label = row.group_name || row.course_name || row.topic_name || "this data";
         if (!window.confirm(`Delete ${label}? This will soft-delete the data.`)) return;
 
         setBusy(true);
@@ -468,14 +523,64 @@ const AdminPage = () => {
         setBusy(false);
     };
 
+    const courseGroupOptions = (courseId = "") => (
+        (references.course_groups || [])
+            .filter((group) => !courseId || String(group.course_id) === String(courseId))
+    );
+
+    const updateStudentBulk = (key, value) => {
+        setStudentBulk((current) => {
+            const next = {...current, [key]: value};
+            if (key === "course_id") {
+                next.course_group_id = "";
+                next.target_course_group_id = "";
+            }
+            return next;
+        });
+        setSelectedStudentIds([]);
+    };
+
+    const toggleStudentSelection = (userId) => {
+        setSelectedStudentIds((current) => (
+            current.map(String).includes(String(userId))
+                ? current.filter((id) => String(id) !== String(userId))
+                : [...current, userId]
+        ));
+    };
+
+    const setAllDisplayedStudentsSelected = (checked) => {
+        setSelectedStudentIds(checked ? displayedRows.map((row) => row.user_id) : []);
+    };
+
+    const assignStudentsToGroup = async (userIds) => {
+        if (!studentBulk.target_course_group_id || userIds.length === 0) return;
+        setBusy(true);
+        setMessage("");
+        const data = await apiPatch("/admin/course-groups/students", {
+            course_group_id: studentBulk.target_course_group_id,
+            user_ids: userIds,
+        });
+        if (data.message) setMessage(data.message);
+        if (data.data) {
+            setSelectedStudentIds([]);
+            await Promise.all([loadRows(activeConfig), refreshReferences()]);
+        }
+        setBusy(false);
+    };
+
     const renderReferenceOptions = (field) => {
-        const options = references[field.reference] || [];
+        let options = references[field.reference] || [];
+        if (field.dependsOn && formData[field.dependsOn]) {
+            options = options.filter((option) => String(option[field.dependsOn]) === String(formData[field.dependsOn]));
+        }
         return options.map((option) => {
-            const value = option.instructor_id ?? option.course_id;
-            const label = option.instructor_name || option.course_name;
+            const value = field.valueKey ? option[field.valueKey] : option.instructor_id ?? option.course_id;
+            const label = field.labelKey
+                ? option[field.labelKey]
+                : option.instructor_name || option.course_name;
             return (
                 <option key={value} value={value}>
-                    {label}
+                    {field.reference === "course_groups" ? `${option.course_name} - ${label}` : label}
                 </option>
             );
         });
@@ -791,6 +896,89 @@ const AdminPage = () => {
             {(choices || []).map((choice, index) => <li key={index}>{choice}</li>)}
         </ol>
     );
+
+    const renderStudentBulkPanel = () => {
+        if (activeConfig?.resource !== "students") return null;
+        const targetGroups = courseGroupOptions(studentBulk.course_id);
+        const selectedCount = selectedStudentIds.length;
+        return (
+            <section className="admin-bulk-panel">
+                <div>
+                    <h2>Bulk Group Assignment</h2>
+                    <p>Filter students, select rows, then move them to a course group in one action.</p>
+                </div>
+                <div className="admin-bulk-grid">
+                    <label>
+                        Course Filter
+                        <select
+                            value={studentBulk.course_id}
+                            onChange={(event) => updateStudentBulk("course_id", event.target.value)}
+                        >
+                            <option value="">All courses</option>
+                            {(references.courses || []).map((course) => (
+                                <option key={course.course_id} value={course.course_id}>
+                                    {course.course_name}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+                    <label>
+                        Current Group
+                        <select
+                            value={studentBulk.course_group_id}
+                            onChange={(event) => updateStudentBulk("course_group_id", event.target.value)}
+                        >
+                            <option value="">Any group</option>
+                            {courseGroupOptions(studentBulk.course_id).map((group) => (
+                                <option key={group.course_group_id} value={group.course_group_id}>
+                                    {group.course_name} - {group.group_name}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+                    <label>
+                        Search
+                        <input
+                            value={studentBulk.search}
+                            onChange={(event) => updateStudentBulk("search", event.target.value)}
+                            placeholder="Name or email"
+                        />
+                    </label>
+                    <label>
+                        Target Group
+                        <select
+                            value={studentBulk.target_course_group_id}
+                            onChange={(event) => updateStudentBulk("target_course_group_id", event.target.value)}
+                        >
+                            <option value="">Choose target group</option>
+                            {targetGroups.map((group) => (
+                                <option key={group.course_group_id} value={group.course_group_id}>
+                                    {group.course_name} - {group.group_name}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+                </div>
+                <div className="admin-bulk-actions">
+                    <span>{displayedRows.length} shown, {selectedCount} selected</span>
+                    <button
+                        type="button"
+                        disabled={busy || !studentBulk.target_course_group_id || selectedCount === 0}
+                        onClick={() => assignStudentsToGroup(selectedStudentIds)}
+                    >
+                        Assign Selected
+                    </button>
+                    <button
+                        type="button"
+                        disabled={busy || !studentBulk.target_course_group_id || displayedRows.length === 0}
+                        onClick={() => assignStudentsToGroup(displayedRows.map((row) => row.user_id))}
+                    >
+                        Assign All Shown
+                    </button>
+                </div>
+            </section>
+        );
+    };
 
     const renderBankForm = () => {
         if (!activeConfig?.bankType || Object.keys(bankForm).length === 0) return null;
@@ -1379,6 +1567,8 @@ const AdminPage = () => {
 
                             {message && <div className="admin-inline-message">{message}</div>}
 
+                            {renderStudentBulkPanel()}
+
                             {(Object.keys(formData).length > 0 || editingRow) && (
                                 <form className="admin-data-form" onSubmit={handleSave}>
                                     <div>
@@ -1408,6 +1598,16 @@ const AdminPage = () => {
                                 <table className="admin-data-table">
                                     <thead>
                                     <tr>
+                                        {activeConfig.resource === "students" && (
+                                            <th>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={displayedRows.length > 0 && selectedStudentIds.length === displayedRows.length}
+                                                    onChange={(event) => setAllDisplayedStudentsSelected(event.target.checked)}
+                                                    aria-label="Select all shown students"
+                                                />
+                                            </th>
+                                        )}
                                         {activeConfig.tableColumns.map((column) => (
                                             <th key={column.key}>{column.label}</th>
                                         ))}
@@ -1415,8 +1615,18 @@ const AdminPage = () => {
                                     </tr>
                                     </thead>
                                     <tbody>
-                                    {rows.map((row) => (
+                                    {displayedRows.map((row) => (
                                         <tr key={row[activeConfig.idKey]}>
+                                            {activeConfig.resource === "students" && (
+                                                <td>
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={selectedStudentIds.map(String).includes(String(row.user_id))}
+                                                        onChange={() => toggleStudentSelection(row.user_id)}
+                                                        aria-label={`Select ${row.name}`}
+                                                    />
+                                                </td>
+                                            )}
                                             {activeConfig.tableColumns.map((column) => (
                                                 <td key={column.key}>
                                                     {column.type === "color" ? (
@@ -1441,9 +1651,9 @@ const AdminPage = () => {
                                             </td>
                                         </tr>
                                     ))}
-                                    {rows.length === 0 && (
+                                    {displayedRows.length === 0 && (
                                         <tr>
-                                            <td colSpan={activeConfig.tableColumns.length + 1}>
+                                            <td colSpan={activeConfig.tableColumns.length + 1 + (activeConfig.resource === "students" ? 1 : 0)}>
                                                 {busy ? "Loading data..." : "No data found."}
                                             </td>
                                         </tr>

@@ -19,8 +19,6 @@ async function runSchemaQuery(query) {
 }
 
 async function createGamificationTables() {
-    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS gamification_enabled BOOLEAN NOT NULL DEFAULT TRUE`);
-
     await runSchemaQuery(`
         CREATE TABLE IF NOT EXISTS gamification_levels (
             level_id INTEGER PRIMARY KEY,

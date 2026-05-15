@@ -82,8 +82,7 @@ const LoginForm = ({onLoginSuccess}) => {
     const handleSubmit = async (e) => {
         e.preventDefault();
         const noAvatarStudentAccess = studentUrlMode
-            && demoLogin?.user?.use_no_virtual_space
-            && !demoLogin?.created;
+            && demoLogin?.user?.use_no_virtual_space;
         const error = validateLogin(form, {requireAvatar: !noAvatarStudentAccess});
         if (error) return alert(error);
         // console.log(form);
@@ -110,8 +109,7 @@ const LoginForm = ({onLoginSuccess}) => {
     const selectedAvatar = avatars.find(a => String(a.avatar_id) === String(form.avatar_id));
     const isDemoResolved = !!demoLogin?.course && !!demoLogin?.user;
     const noAvatarStudentAccess = studentUrlMode
-        && !!demoLogin?.user?.use_no_virtual_space
-        && !demoLogin?.created;
+        && !!demoLogin?.user?.use_no_virtual_space;
     const shouldBlockStudentUrl = studentUrlMode && !demoLoading && !isDemoResolved && !!demoError;
     const postStudentLogout = new URLSearchParams(window.location.search).get("loggedout") === "student";
     const isStudentAccessView = studentUrlMode || postStudentLogout;

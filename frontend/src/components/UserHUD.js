@@ -13,6 +13,8 @@ const UserHUD = ({ currentUser, handleLogout, summary, hideAvatar = false }) => 
   const gamificationEnabled = !!currentUser.gamification_enabled;
   const groupXp = summary?.total_group_xp || 0;
   const individualXp = summary?.total_individual_exercise_xp || 0;
+  const courseName = currentUser.course_name || "Course";
+  const groupName = currentUser.course_group_name || "No group";
   const individualLevel = summary?.individual_level || {
     level: 1,
     name: "Rookie",
@@ -28,6 +30,10 @@ const UserHUD = ({ currentUser, handleLogout, summary, hideAvatar = false }) => 
 
       <div className="user-hud__body">
         <div className="user-hud__name">{currentUser.name}</div>
+        <div className="user-hud__meta" aria-label={`${courseName}, ${groupName}`}>
+          <span>{courseName}</span>
+          <span>{groupName}</span>
+        </div>
         {gamificationEnabled && (
           <>
             <div className="user-hud__xp-list">

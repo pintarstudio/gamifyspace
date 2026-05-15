@@ -53,7 +53,12 @@ export async function login(req, res) {
             user: {
                 ...user,
                 course_id: course.course_id,
+                course_name: course.course_name,
+                course_group_id: user.course_group_id,
+                course_group_name: user.course_group_name,
+                gamification_enabled: !!user.gamification_enabled,
                 use_no_virtual_space: !!user.use_no_virtual_space,
+                virtual_space_enabled: !!user.virtual_space_enabled,
                 avatar_id: sessionAvatarId,
                 avatar_public_path: sessionAvatarPath
             }
@@ -102,7 +107,9 @@ export async function resolveDemoLogin(req, res) {
             },
             user: {
                 ...user,
+                gamification_enabled: !!user.gamification_enabled,
                 use_no_virtual_space: !!user.use_no_virtual_space,
+                virtual_space_enabled: !!user.virtual_space_enabled,
             },
             created,
         });

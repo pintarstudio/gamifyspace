@@ -127,6 +127,7 @@ function App() {
                 <Route path="/avataradmin" element={<AdminPage/>}/>
                 <Route path="/courseadmin" element={<AdminPage/>}/>
                 <Route path="/topicadmin" element={<AdminPage/>}/>
+                <Route path="/coursegroupadmin" element={<AdminPage/>}/>
                 <Route path="/studentadmin" element={<AdminPage/>}/>
                 <Route path="/questionbankadmin" element={<AdminPage/>}/>
                 <Route path="/quizbankadmin" element={<AdminPage/>}/>

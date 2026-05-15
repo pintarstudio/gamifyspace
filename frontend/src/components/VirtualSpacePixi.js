@@ -14,6 +14,14 @@ const randomSpawnPosition = () => ({
     y: Math.floor(Math.random() * (850 - 650 + 1)) + 650,
 });
 
+const normalizeRoomName = (room) => {
+    const cleaned = String(room || "room1").trim().replace(/^\/+/, "");
+    const fileName = cleaned.split("/").pop() || "room1";
+    return fileName.replace(/\.json$/i, "") || "room1";
+};
+
+const roomFileName = (room) => `${normalizeRoomName(room)}.json`;
+
 const createAvatarNameTag = (name) => {
     const paddingX = 8;
     const paddingY = 4;
@@ -91,20 +99,22 @@ const VirtualSpacePixi = ({user}) => {
     // Handle room switching
     const handleRoomChange = (newRoom) => {
         //console.log("🏠 Switching to:", newRoom);
+        const nextRoom = normalizeRoomName(newRoom);
 
         // Update local user room info
         if (localUserRef.current) {
             const spawnPosition = randomSpawnPosition();
-            localUserRef.current.room = newRoom;
+            localUserRef.current.room = nextRoom;
+            localUserRef.current.course_id = user.course_id;
             localUserRef.current.x = spawnPosition.x;
             localUserRef.current.y = spawnPosition.y;
         }
 
         // Update displayed room and notify server
-        setCurrentRoom(newRoom);
+        setCurrentRoom(roomFileName(nextRoom));
         socket.emit("join_room", {
             user: localUserRef.current,
-            room: newRoom,
+            room: nextRoom,
         });
     };
     const initAvatars = (app, worldContainer, checkCollision, TILE_SIZE, mapWidth, mapHeight, user, zoomFactor, localUserRef) => {
@@ -124,13 +134,15 @@ const VirtualSpacePixi = ({user}) => {
             x: spawnPosition.x,
             y: spawnPosition.y,
             name: user.name || "User",
-            room: localUserRef.current?.room || user.room || "room1",
+            course_id: user.course_id,
+            room: normalizeRoomName(localUserRef.current?.room || user.room || currentRoom || "room1"),
         };
         localUserRef.current = localUser;
 
         // Setelah localUserRef.current = localUser;
         setTimeout(() => {
-            const activeRoom = localUserRef.current.room || "room1";
+            const activeRoom = normalizeRoomName(localUserRef.current.room || "room1");
+            localUserRef.current.room = activeRoom;
             socket.emit("join_room", {user: localUserRef.current, room: activeRoom});
             //console.log("➡️ Joining room (delayed):", activeRoom);
         }, 200);
@@ -139,7 +151,7 @@ const VirtualSpacePixi = ({user}) => {
         socket.on("update_users", async (usersData) => {
             //console.log("🔁 Received update_users for all rooms:", usersData);
             let myKey = null;
-            const currentRoom = localUserRef.current?.room || "room1";
+            const currentRoom = normalizeRoomName(localUserRef.current?.room || "room1");
             const filteredUsers = Object.fromEntries(
                 Object.entries(usersData).filter(([_, u]) => u.room === currentRoom)
             );
@@ -174,7 +186,7 @@ const VirtualSpacePixi = ({user}) => {
                 localKeyRef.current = myKey;
                 if (filteredUsers[myKey]) {
                     // Do NOT overwrite local x/y — only update room
-                    localUser.room = filteredUsers[myKey].room || currentRoom;
+                    localUser.room = normalizeRoomName(filteredUsers[myKey].room || currentRoom);
                     localUserRef.current = localUser;
                 }
             }
@@ -199,7 +211,7 @@ const VirtualSpacePixi = ({user}) => {
     // Fetch current room data
     useEffect(() => {
         // Fetch room JSON from public folder
-        fetch(`/maps/${currentRoom}`)
+        fetch(`/maps/${roomFileName(currentRoom)}`)
             .then((response) => response.json())
             .then((data) => {
                 setRoomData(data);
@@ -299,7 +311,10 @@ const VirtualSpacePixi = ({user}) => {
             // Objects
             //console.log("🧭 Calling initObjects...");
             initObjects(app, worldContainer, roomData, user, localUserRef, zoomFactor, handleRoomChange);
-            socket.emit("request_update_users", {room: localUserRef.current?.room || "room1.json"});
+            socket.emit("request_update_users", {
+                course_id: user.course_id,
+                room: normalizeRoomName(localUserRef.current?.room || currentRoom || "room1"),
+            });
 
             cleanupPixi = () => {
                 app.ticker.remove(smoothAvatarTicker);

@@ -1,7 +1,15 @@
 import crypto from "crypto";
 import {pool} from "../db/index.js";
 import {ensureGamificationTables} from "./gamificationModel.js";
-import {ensureUserAccessModeColumn} from "./userModel.js";
+import {
+    assignUsersToCourseGroup,
+    createCourseGroup,
+    deleteCourseGroup,
+    ensureCourseGroupSchema,
+    ensureDefaultCourseGroups,
+    listCourseGroups,
+    updateCourseGroup,
+} from "./courseGroupModel.js";
 
 let adminReadyPromise = null;
 
@@ -18,8 +26,6 @@ const hashPassword = (password) => {
 };
 
 async function createAdminTables() {
-    await ensureUserAccessModeColumn();
-
     await pool.query(`
         DO $$
         BEGIN
@@ -168,7 +174,8 @@ function booleanValue(value, fallback = true) {
 
 export async function getAdminReferences() {
     await ensureAdminTables();
-    const [instructors, courses, topics] = await Promise.all([
+    await ensureCourseGroupSchema();
+    const [instructors, courses, topics, courseGroups] = await Promise.all([
         pool.query(
             `SELECT instructor_id, instructor_name
              FROM instructor
@@ -192,18 +199,34 @@ export async function getAdminReferences() {
                AND c.deleted_at IS NULL
              ORDER BY c.course_name ASC, t.topic_name ASC`
         ),
+        pool.query(
+            `SELECT
+                 cg.course_group_id,
+                 cg.course_id,
+                 cg.group_name,
+                 c.course_name,
+                 cg.gamification_enabled,
+                 cg.virtual_space_enabled
+             FROM course_groups cg
+             JOIN courses c ON c.course_id = cg.course_id
+             WHERE cg.deleted_at IS NULL
+               AND c.deleted_at IS NULL
+             ORDER BY c.course_name ASC, cg.group_name ASC`
+        ),
     ]);
 
     return {
         instructors: instructors.rows,
         courses: courses.rows,
         topics: topics.rows,
+        course_groups: courseGroups.rows,
     };
 }
 
 export async function listAdminResource(resource) {
     await ensureAdminTables();
     if (resource === "levels") await ensureGamificationTables();
+    if (resource === "course-groups") return listCourseGroups();
 
     if (resource === "levels") {
         const result = await pool.query(
@@ -262,7 +285,7 @@ export async function listAdminResource(resource) {
     }
 
     if (resource === "students") {
-        await ensureUserAccessModeColumn();
+        await ensureCourseGroupSchema();
         const result = await pool.query(
             `SELECT
                  u.user_id,
@@ -271,10 +294,16 @@ export async function listAdminResource(resource) {
                  u.gender,
                  u.course_id,
                  c.course_name,
-                 COALESCE(u.gamification_enabled, FALSE) AS gamification_enabled,
-                 COALESCE(u.use_no_virtual_space, FALSE) AS use_no_virtual_space
+                 u.course_group_id,
+                 cg.group_name AS course_group_name,
+                 COALESCE(cg.gamification_enabled, FALSE) AS gamification_enabled,
+                 NOT COALESCE(cg.virtual_space_enabled, FALSE) AS use_no_virtual_space,
+                 COALESCE(cg.virtual_space_enabled, FALSE) AS virtual_space_enabled
              FROM users u
              JOIN courses c ON c.course_id = u.course_id
+             LEFT JOIN course_groups cg
+                    ON cg.course_group_id = u.course_group_id
+                   AND cg.deleted_at IS NULL
              WHERE u.deleted_at IS NULL
                AND c.deleted_at IS NULL
              ORDER BY c.course_name ASC, u.name ASC`
@@ -311,7 +340,12 @@ export async function createAdminResource(resource, payload) {
                 nullableText(payload.location),
             ]
         );
+        await ensureDefaultCourseGroups(result.rows[0].course_id);
         return result.rows[0];
+    }
+
+    if (resource === "course-groups") {
+        return createCourseGroup(payload);
     }
 
     if (resource === "topics") {
@@ -334,6 +368,7 @@ export async function createAdminResource(resource, payload) {
 export async function updateAdminResource(resource, id, payload) {
     await ensureAdminTables();
     if (resource === "levels") await ensureGamificationTables();
+    if (resource === "course-groups") return updateCourseGroup(id, payload);
 
     if (resource === "levels") {
         const result = await pool.query(
@@ -415,24 +450,32 @@ export async function updateAdminResource(resource, id, payload) {
     }
 
     if (resource === "students") {
-        await ensureUserAccessModeColumn();
+        await ensureCourseGroupSchema();
         const result = await pool.query(
             `UPDATE users
              SET name = $2,
                  email = $3,
                  course_id = $4,
-                 gamification_enabled = $5,
-                 use_no_virtual_space = $6
+                 course_group_id = $5
              WHERE user_id = $1
                AND deleted_at IS NULL
+               AND (
+                   $5::int IS NULL
+                   OR EXISTS (
+                       SELECT 1
+                       FROM course_groups cg
+                       WHERE cg.course_group_id = $5
+                         AND cg.course_id = $4
+                         AND cg.deleted_at IS NULL
+                   )
+               )
              RETURNING user_id`,
             [
                 id,
                 nullableText(payload.name),
                 nullableText(payload.email),
                 nullableInteger(payload.course_id),
-                booleanValue(payload.gamification_enabled, false),
-                booleanValue(payload.use_no_virtual_space, false),
+                nullableInteger(payload.course_group_id),
             ]
         );
         return result.rows[0] || null;
@@ -443,6 +486,8 @@ export async function updateAdminResource(resource, id, payload) {
 
 export async function deleteAdminResource(resource, id) {
     await ensureAdminTables();
+
+    if (resource === "course-groups") return deleteCourseGroup(id);
 
     if (resource === "courses") {
         const result = await pool.query(
@@ -471,4 +516,11 @@ export async function deleteAdminResource(resource, id) {
     }
 
     return null;
+}
+
+export async function bulkAssignStudentsToCourseGroup(payload) {
+    return assignUsersToCourseGroup({
+        courseGroupId: payload.course_group_id,
+        userIds: payload.user_ids,
+    });
 }

@@ -1,4 +1,5 @@
 import {
+    bulkAssignStudentsToCourseGroup,
     createAdminResource,
     deleteAdminResource,
     ensureAdminTables,
@@ -82,11 +83,18 @@ function validatePayload(resource, payload, mode = "create") {
         return null;
     }
 
+    if (resource === "course-groups") {
+        if (!payload.course_id) return "Course wajib dipilih";
+        if (!payload.group_name) return "Group name wajib diisi";
+        return null;
+    }
+
     if (resource === "students") {
         if (mode !== "update") return "Student data can only be edited";
         if (!payload.name) return "Student name wajib diisi";
         if (!payload.email) return "Student email wajib diisi";
         if (!payload.course_id) return "Course wajib dipilih";
+        if (!payload.course_group_id) return "Course group wajib dipilih";
         return null;
     }
 
@@ -260,6 +268,29 @@ export async function deleteAdminResourceData(req, res) {
     } catch (error) {
         console.error("Admin resource delete error:", error);
         res.status(500).json({message: "Gagal menghapus data"});
+    }
+}
+
+export async function bulkAssignCourseGroupStudents(req, res) {
+    try {
+        const admin = await getCurrentAdmin(req);
+        if (!admin) return res.status(401).json({message: "Admin belum login"});
+
+        if (!req.body.course_group_id || !Array.isArray(req.body.user_ids) || req.body.user_ids.length === 0) {
+            return res.status(400).json({message: "Course group dan daftar student wajib dipilih"});
+        }
+
+        const result = await bulkAssignStudentsToCourseGroup(req.body);
+        res.json({
+            message: `${result.updated_count || 0} student berhasil dipindahkan ke group.`,
+            data: result,
+        });
+    } catch (error) {
+        console.error("Admin bulk group assignment error:", error);
+        if (error.code === "COURSE_GROUP_NOT_FOUND") {
+            return res.status(404).json({message: error.message});
+        }
+        res.status(500).json({message: "Gagal memindahkan student ke group"});
     }
 }
 
