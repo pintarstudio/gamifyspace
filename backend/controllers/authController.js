@@ -1,6 +1,6 @@
 // backend/controllers/authController.js
 import {findActiveCourseById, findCourseByName} from "../models/courseModel.js";
-import {createDemoUser, findUserByCourseNameEmail, findUserById, updateUserRole} from "../models/userModel.js";
+import {createDemoUser, findUserByCourseNameEmail, findUserByEmail, findUserById, updateUserRole} from "../models/userModel.js";
 import {createSession, deactivateSession} from "../models/sessionModel.js";
 import {getDefaultAvatar} from "../models/avatarModel.js";
 import {findRoleById, STUDENT_ROLE_ID} from "../models/roleModel.js";
@@ -11,6 +11,9 @@ const normalizeLookupText = (value) =>
         .replace(/&amp;/gi, "&")
         .replace(/\s+/g, " ")
         .trim();
+
+const isSameLookupText = (left, right) =>
+    normalizeLookupText(left).toLowerCase() === normalizeLookupText(right).toLowerCase();
 
 export async function login(req, res) {
     try {
@@ -102,14 +105,39 @@ export async function resolveDemoLogin(req, res) {
         let created = false;
 
         if (!user) {
-            user = await createDemoUser({
-                name: studentName,
-                email: studentEmail,
-                course_id: course.course_id,
-            });
-            created = true;
+            const existingEmailUser = await findUserByEmail(studentEmail);
+            if (existingEmailUser) {
+                if (String(existingEmailUser.course_id) !== String(course.course_id)) {
+                    return res.status(409).json({
+                        message: "Email sudah terdaftar pada course lain. Silakan gunakan email student yang berbeda atau hubungi administrator.",
+                    });
+                }
+
+                if (!isSameLookupText(existingEmailUser.name, studentName)) {
+                    return res.status(409).json({
+                        message: "Email sudah terdaftar untuk profil lain pada course ini. Silakan gunakan email student yang berbeda atau hubungi administrator.",
+                    });
+                }
+
+                if (String(existingEmailUser.role_id) !== String(STUDENT_ROLE_ID)) {
+                    return res.status(409).json({
+                        message: `Email sudah terdaftar sebagai ${existingEmailUser.role_name || "role lain"}. Silakan gunakan email student yang berbeda atau hubungi administrator.`,
+                    });
+                }
+
+                user = existingEmailUser;
+            } else {
+                user = await createDemoUser({
+                    name: studentName,
+                    email: studentEmail,
+                    course_id: course.course_id,
+                });
+                created = true;
+            }
         } else if (String(user.role_id) !== String(STUDENT_ROLE_ID)) {
-            user = await updateUserRole(user.user_id, STUDENT_ROLE_ID);
+            return res.status(409).json({
+                message: `Email sudah terdaftar sebagai ${user.role_name || "role lain"}. Silakan gunakan email student yang berbeda atau hubungi administrator.`,
+            });
         }
 
         res.json({
@@ -129,6 +157,11 @@ export async function resolveDemoLogin(req, res) {
         });
     } catch (error) {
         console.error("Resolve demo login error:", error);
+        if (error?.code === "23505") {
+            return res.status(409).json({
+                message: "Email sudah terdaftar. Silakan gunakan email student yang berbeda atau hubungi administrator.",
+            });
+        }
         res.status(500).json({message: "Gagal memuat data demo login"});
     }
 }

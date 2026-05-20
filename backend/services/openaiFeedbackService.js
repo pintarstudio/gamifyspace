@@ -143,8 +143,8 @@ function normalizeFeedback(feedback, answers) {
             studentFeedbackGroups.push({
                 student_ids: [studentId],
                 student_names: [answer.name],
-                www: "WWW: Your response was included in the group submission and shows an effort to engage with the case.",
-                ebi: "EBI: Add clearer reasoning, direct links to the case details, and a specific recommendation supported by evidence.",
+                www: "WWW: Jawabanmu sudah termasuk dalam pengumpulan kelompok dan menunjukkan usaha untuk memahami studi kasus.",
+                ebi: "EBI: Tambahkan alasan yang lebih jelas, hubungkan langsung dengan detail kasus, dan berikan rekomendasi yang didukung bukti.",
             });
         }
     }
@@ -165,7 +165,7 @@ function normalizeFeedback(feedback, answers) {
             xpAwardMap.set(studentId, {
                 student_id: studentId,
                 xp: 0,
-                reason: "No XP awarded because the answer was not evaluated.",
+                reason: "Tidak ada XP karena jawaban belum dievaluasi.",
             });
         }
     }
@@ -221,6 +221,7 @@ export async function generateCognitiveFeedback({caseTitle, casePrompt, answers}
                     content: [
                         "You are an educational cognitive-evaluation assistant for collaborative case study answers.",
                         "Return only JSON that matches the schema.",
+                        "Write every user-facing feedback field in Bahasa Indonesia, including combined_feedback.www, combined_feedback.ebi, student_feedback_groups.www, student_feedback_groups.ebi, group_xp_reason, and every student XP reason.",
                         "Evaluate reasoning, problem identification, use of evidence, conceptual understanding, and quality of recommendations.",
                         "Group students with substantially similar answers into the same student_feedback_groups item to reduce repeated feedback.",
                         "Award group_xp from 0 to 100 based on the overall quality of the combined submitted answers.",
@@ -315,6 +316,7 @@ export async function generateQuizWrongAnswerFeedback({items}) {
                     content: [
                         "You are a concise quiz tutor.",
                         "Return only JSON that matches the schema.",
+                        "Write every feedback value in Bahasa Indonesia.",
                         "For each item, explain why the chosen answer is wrong and why the correct answer fits the question context.",
                         "Do not mention scoring, timing, or unrelated alternatives.",
                         "Keep each feedback under 100 words.",
@@ -396,6 +398,7 @@ export async function generateIndividualCaseFeedback({caseTitle, casePrompt, ans
                     content: [
                         "You are an educational evaluator for an individual case-study answer.",
                         "Return only JSON that matches the schema.",
+                        "Write every user-facing feedback field in Bahasa Indonesia, including www, ebi, and xp_reason.",
                         "Evaluate conceptual understanding, case relevance, reasoning quality, and practicality of the recommendation.",
                         "WWW explains what the student did well.",
                         "EBI explains how the answer can be improved.",

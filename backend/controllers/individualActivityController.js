@@ -439,7 +439,7 @@ export async function submitIndividualCase(req, res) {
                 www: "",
                 ebi: "",
                 xp: 0,
-                xp_reason: "0 XP saved because AI feedback failed.",
+                xp_reason: "0 XP disimpan karena feedback AI gagal dibuat.",
                 error: error.message || "Gagal membuat feedback",
             };
         }

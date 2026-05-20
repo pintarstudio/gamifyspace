@@ -161,7 +161,7 @@ const LoginForm = ({onLoginSuccess}) => {
                 {demoError && <div className="login-alert login-alert--error">{demoError}</div>}
                 {shouldBlockStudentUrl && (
                     <p className="login-block-note">
-                        This student access link cannot continue until the course is available.
+                        This student access link cannot continue. Please contact the course administrator.
                     </p>
                 )}
                 {isDemoResolved && (

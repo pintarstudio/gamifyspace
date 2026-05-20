@@ -136,6 +136,39 @@ export async function findUserByCourseNameEmail({course_id, name, email}) {
     return result.rows[0] || null;
 }
 
+export async function findUserByEmail(email) {
+    await ensureUserAccessModeColumn();
+    const result = await pool.query(
+        `SELECT
+             u.user_id,
+             u.name,
+             u.email,
+             u.course_id,
+             c.course_name,
+             u.course_group_id,
+             cg.group_name AS course_group_name,
+             u.role_id,
+             r.role_name,
+             COALESCE(cg.gamification_enabled, FALSE) AS gamification_enabled,
+             NOT COALESCE(cg.virtual_space_enabled, FALSE) AS use_no_virtual_space,
+             COALESCE(cg.virtual_space_enabled, FALSE) AS virtual_space_enabled
+         FROM users u
+         JOIN courses c
+           ON c.course_id = u.course_id
+          AND c.deleted_at IS NULL
+         LEFT JOIN course_groups cg
+                ON cg.course_group_id = u.course_group_id
+               AND cg.deleted_at IS NULL
+         JOIN roles r
+           ON r.role_id = u.role_id
+         WHERE LOWER(TRIM(u.email)) = LOWER(TRIM($1))
+           AND u.deleted_at IS NULL
+         LIMIT 1`,
+        [email]
+    );
+    return result.rows[0] || null;
+}
+
 export async function createDemoUser({name, email, course_id}) {
     await ensureUserAccessModeColumn();
     const defaultGroup = await getDefaultCourseGroupForCourse(course_id);
