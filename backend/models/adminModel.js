@@ -10,6 +10,12 @@ import {
     listCourseGroups,
     updateCourseGroup,
 } from "./courseGroupModel.js";
+import {
+    ensureRoleSchema,
+    INSTRUCTOR_ROLE_ID,
+    listRoles,
+    updateRole,
+} from "./roleModel.js";
 
 let adminReadyPromise = null;
 
@@ -27,27 +33,8 @@ const hashPassword = (password) => {
 
 async function createAdminTables() {
     await pool.query(`
-        DO $$
-        BEGIN
-            IF to_regclass('public.instructor') IS NULL AND to_regclass('public.instructors') IS NOT NULL THEN
-                ALTER TABLE instructors RENAME TO instructor;
-            END IF;
-        END $$;
-    `);
-
-    await pool.query(`
-        CREATE TABLE IF NOT EXISTS instructor (
-            instructor_id SERIAL PRIMARY KEY,
-            instructor_name TEXT NOT NULL,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        )
-    `);
-
-    await pool.query(`
         CREATE TABLE IF NOT EXISTS useradmin (
             useradmin_id SERIAL PRIMARY KEY,
-            instructor_id INTEGER NOT NULL REFERENCES instructor(instructor_id),
             username TEXT NOT NULL UNIQUE,
             password_hash TEXT NOT NULL,
             last_login TIMESTAMPTZ,
@@ -58,31 +45,41 @@ async function createAdminTables() {
         )
     `);
 
-    await pool.query(
-        `INSERT INTO instructor (instructor_id, instructor_name)
-         VALUES
-             (1, 'Instructor 1'),
-             (2, 'Instructor 2')
-         ON CONFLICT (instructor_id)
-         DO UPDATE SET
-             instructor_name = EXCLUDED.instructor_name,
-             updated_at = NOW()`
-    );
+    await pool.query(`
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1
+                FROM pg_constraint
+                WHERE conname IN ('useradmin_instructor_id_fkey', 'useradmin_instructor_id_users_fkey')
+                  AND conrelid = 'useradmin'::regclass
+            ) THEN
+                ALTER TABLE useradmin DROP CONSTRAINT IF EXISTS useradmin_instructor_id_fkey;
+                ALTER TABLE useradmin DROP CONSTRAINT IF EXISTS useradmin_instructor_id_users_fkey;
+            END IF;
+        END $$;
+    `);
+
+    await pool.query(`
+        ALTER TABLE useradmin
+        DROP COLUMN IF EXISTS instructor_id
+    `);
 
     await pool.query(
-        `INSERT INTO useradmin (instructor_id, username, password_hash, role, is_disabled)
+        `INSERT INTO useradmin (username, password_hash, role, is_disabled)
          VALUES
-             (1, 'admin', $1, 'admin', FALSE),
-             (1, 'instructor', $2, 'instructor', FALSE)
+             ('admin', $1, 'admin', FALSE),
+             ('instructor', $2, 'instructor', FALSE)
          ON CONFLICT (username)
          DO UPDATE SET
-             instructor_id = EXCLUDED.instructor_id,
              password_hash = EXCLUDED.password_hash,
              role = EXCLUDED.role,
              is_disabled = EXCLUDED.is_disabled,
              updated_at = NOW()`,
         [hashPassword("gamifyitadmin"), hashPassword("gamifyitinstructor")]
     );
+
+    await ensureTopicAdminSchema();
 }
 
 export async function ensureAdminTables() {
@@ -101,15 +98,12 @@ export async function findAdminByUsername(username) {
     const result = await pool.query(
         `SELECT
              ua.useradmin_id,
-             ua.instructor_id,
              ua.username,
              ua.password_hash,
              ua.last_login,
              ua.role,
-             ua.is_disabled,
-             i.instructor_name
+             ua.is_disabled
          FROM useradmin ua
-         JOIN instructor i ON i.instructor_id = ua.instructor_id
          WHERE LOWER(ua.username) = LOWER($1)
          LIMIT 1`,
         [String(username || "").trim()]
@@ -122,14 +116,11 @@ export async function findAdminById(useradminId) {
     const result = await pool.query(
         `SELECT
              ua.useradmin_id,
-             ua.instructor_id,
              ua.username,
              ua.last_login,
              ua.role,
-             ua.is_disabled,
-             i.instructor_name
+             ua.is_disabled
          FROM useradmin ua
-         JOIN instructor i ON i.instructor_id = ua.instructor_id
          WHERE ua.useradmin_id = $1
          LIMIT 1`,
         [useradminId]
@@ -172,14 +163,34 @@ function booleanValue(value, fallback = true) {
     return ["true", "1", "yes", "on"].includes(String(value).toLowerCase());
 }
 
+async function ensureTopicAdminSchema() {
+    await pool.query(`
+        DO $$
+        BEGIN
+            IF to_regclass('public.topics') IS NOT NULL THEN
+                ALTER TABLE topics
+                ADD COLUMN IF NOT EXISTS week INTEGER;
+            END IF;
+        END $$;
+    `);
+}
+
 export async function getAdminReferences() {
     await ensureAdminTables();
     await ensureCourseGroupSchema();
-    const [instructors, courses, topics, courseGroups] = await Promise.all([
+    await ensureRoleSchema();
+    await ensureTopicAdminSchema();
+    const [instructors, courses, topics, courseGroups, roles] = await Promise.all([
         pool.query(
-            `SELECT instructor_id, instructor_name
-             FROM instructor
-             ORDER BY instructor_name ASC`
+            `SELECT
+                 u.user_id AS instructor_id,
+                 u.name AS instructor_name,
+                 u.email
+             FROM users u
+             WHERE u.role_id = $1
+               AND u.deleted_at IS NULL
+             ORDER BY u.name ASC`,
+            [INSTRUCTOR_ROLE_ID]
         ),
         pool.query(
             `SELECT course_id, course_code, course_name
@@ -191,13 +202,14 @@ export async function getAdminReferences() {
             `SELECT
                  t.topic_id,
                  t.topic_name,
+                 t.week,
                  t.course_id,
                  c.course_name
              FROM topics t
              JOIN courses c ON c.course_id = t.course_id
              WHERE t.deleted_at IS NULL
                AND c.deleted_at IS NULL
-             ORDER BY c.course_name ASC, t.topic_name ASC`
+             ORDER BY c.course_name ASC, t.week ASC NULLS LAST, t.topic_name ASC`
         ),
         pool.query(
             `SELECT
@@ -213,6 +225,7 @@ export async function getAdminReferences() {
                AND c.deleted_at IS NULL
              ORDER BY c.course_name ASC, cg.group_name ASC`
         ),
+        listRoles(),
     ]);
 
     return {
@@ -220,6 +233,7 @@ export async function getAdminReferences() {
         courses: courses.rows,
         topics: topics.rows,
         course_groups: courseGroups.rows,
+        roles,
     };
 }
 
@@ -227,6 +241,7 @@ export async function listAdminResource(resource) {
     await ensureAdminTables();
     if (resource === "levels") await ensureGamificationTables();
     if (resource === "course-groups") return listCourseGroups();
+    if (resource === "roles") return listRoles();
 
     if (resource === "levels") {
         const result = await pool.query(
@@ -254,12 +269,12 @@ export async function listAdminResource(resource) {
                  c.course_code,
                  c.course_name,
                  c.instructor_id,
-                 i.instructor_name,
+                 u.name AS instructor_name,
                  c.semester,
                  c.location,
                  c.updated_at
              FROM courses c
-             JOIN instructor i ON i.instructor_id = c.instructor_id
+             LEFT JOIN users u ON u.user_id = c.instructor_id
              WHERE c.deleted_at IS NULL
              ORDER BY c.course_name ASC`
         );
@@ -267,35 +282,39 @@ export async function listAdminResource(resource) {
     }
 
     if (resource === "topics") {
+        await ensureTopicAdminSchema();
         const result = await pool.query(
             `SELECT
                  t.topic_id,
                  t.course_id,
                  c.course_name,
                  t.topic_name,
+                 t.week,
                  t.show_topic,
                  t.updated_at
              FROM topics t
              JOIN courses c ON c.course_id = t.course_id
              WHERE t.deleted_at IS NULL
                AND c.deleted_at IS NULL
-             ORDER BY c.course_name ASC, t.topic_name ASC`
+             ORDER BY c.course_name ASC, t.week ASC NULLS LAST, t.topic_name ASC`
         );
         return result.rows;
     }
 
     if (resource === "students") {
         await ensureCourseGroupSchema();
+        await ensureRoleSchema();
         const result = await pool.query(
             `SELECT
                  u.user_id,
                  u.name,
                  u.email,
-                 u.gender,
                  u.course_id,
                  c.course_name,
                  u.course_group_id,
                  cg.group_name AS course_group_name,
+                 u.role_id,
+                 r.role_name,
                  COALESCE(cg.gamification_enabled, FALSE) AS gamification_enabled,
                  NOT COALESCE(cg.virtual_space_enabled, FALSE) AS use_no_virtual_space,
                  COALESCE(cg.virtual_space_enabled, FALSE) AS virtual_space_enabled
@@ -304,6 +323,8 @@ export async function listAdminResource(resource) {
              LEFT JOIN course_groups cg
                     ON cg.course_group_id = u.course_group_id
                    AND cg.deleted_at IS NULL
+             JOIN roles r
+               ON r.role_id = u.role_id
              WHERE u.deleted_at IS NULL
                AND c.deleted_at IS NULL
              ORDER BY c.course_name ASC, u.name ASC`
@@ -330,7 +351,17 @@ export async function createAdminResource(resource, payload) {
     if (resource === "courses") {
         const result = await pool.query(
             `INSERT INTO courses (course_code, course_name, instructor_id, semester, location)
-             VALUES ($1, $2, $3, $4, $5)
+             SELECT $1, $2, $3, $4, $5
+             WHERE (
+                 $3::int IS NULL
+                 OR EXISTS (
+                     SELECT 1
+                     FROM users u
+                     WHERE u.user_id = $3
+                       AND u.role_id = $6
+                       AND u.deleted_at IS NULL
+                 )
+               )
              RETURNING course_id`,
             [
                 nullableText(payload.course_code),
@@ -338,8 +369,10 @@ export async function createAdminResource(resource, payload) {
                 nullableInteger(payload.instructor_id),
                 nullableInteger(payload.semester),
                 nullableText(payload.location),
+                INSTRUCTOR_ROLE_ID,
             ]
         );
+        if (!result.rows[0]) return null;
         await ensureDefaultCourseGroups(result.rows[0].course_id);
         return result.rows[0];
     }
@@ -349,17 +382,62 @@ export async function createAdminResource(resource, payload) {
     }
 
     if (resource === "topics") {
+        await ensureTopicAdminSchema();
         const result = await pool.query(
-            `INSERT INTO topics (course_id, topic_name, show_topic, updated_at)
-             VALUES ($1, $2, $3, NOW())
+            `INSERT INTO topics (course_id, topic_name, week, show_topic, updated_at)
+             VALUES ($1, $2, $3, $4, NOW())
              RETURNING topic_id`,
             [
                 nullableInteger(payload.course_id),
                 nullableText(payload.topic_name),
+                nullableInteger(payload.week),
                 booleanValue(payload.show_topic),
             ]
         );
         return result.rows[0];
+    }
+
+    if (resource === "students") {
+        await ensureCourseGroupSchema();
+        await ensureRoleSchema();
+        const result = await pool.query(
+            `INSERT INTO users (name, email, course_id, course_group_id, role_id)
+             SELECT $1, $2, $3, $4, $5
+             WHERE EXISTS (
+                 SELECT 1
+                 FROM courses c
+                 WHERE c.course_id = $3
+                   AND c.deleted_at IS NULL
+             )
+               AND EXISTS (
+                 SELECT 1
+                 FROM roles r
+                 WHERE r.role_id = $5
+             )
+               AND (
+                 EXISTS (
+                     SELECT 1
+                     FROM course_groups cg
+                     WHERE cg.course_group_id = $4
+                       AND cg.course_id = $3
+                       AND cg.deleted_at IS NULL
+                 )
+                 OR (
+                     $5::int = $6
+                     AND $4::int IS NULL
+                 )
+             )
+             RETURNING user_id`,
+            [
+                nullableText(payload.name),
+                nullableText(payload.email),
+                nullableInteger(payload.course_id),
+                nullableInteger(payload.course_group_id),
+                nullableInteger(payload.role_id),
+                INSTRUCTOR_ROLE_ID,
+            ]
+        );
+        return result.rows[0] || null;
     }
 
     return null;
@@ -369,6 +447,7 @@ export async function updateAdminResource(resource, id, payload) {
     await ensureAdminTables();
     if (resource === "levels") await ensureGamificationTables();
     if (resource === "course-groups") return updateCourseGroup(id, payload);
+    if (resource === "roles") return updateRole(id, payload);
 
     if (resource === "levels") {
         const result = await pool.query(
@@ -416,6 +495,16 @@ export async function updateAdminResource(resource, id, payload) {
                  updated_at = NOW()
              WHERE course_id = $1
                AND deleted_at IS NULL
+               AND (
+                   $4::int IS NULL
+                   OR EXISTS (
+                       SELECT 1
+                       FROM users u
+                       WHERE u.user_id = $4
+                         AND u.role_id = $7
+                         AND u.deleted_at IS NULL
+                   )
+               )
              RETURNING course_id`,
             [
                 id,
@@ -424,17 +513,20 @@ export async function updateAdminResource(resource, id, payload) {
                 nullableInteger(payload.instructor_id),
                 nullableInteger(payload.semester),
                 nullableText(payload.location),
+                INSTRUCTOR_ROLE_ID,
             ]
         );
         return result.rows[0] || null;
     }
 
     if (resource === "topics") {
+        await ensureTopicAdminSchema();
         const result = await pool.query(
             `UPDATE topics
              SET course_id = $2,
                  topic_name = $3,
-                 show_topic = $4,
+                 week = $4,
+                 show_topic = $5,
                  updated_at = NOW()
              WHERE topic_id = $1
                AND deleted_at IS NULL
@@ -443,6 +535,7 @@ export async function updateAdminResource(resource, id, payload) {
                 id,
                 nullableInteger(payload.course_id),
                 nullableText(payload.topic_name),
+                nullableInteger(payload.week),
                 booleanValue(payload.show_topic),
             ]
         );
@@ -451,12 +544,14 @@ export async function updateAdminResource(resource, id, payload) {
 
     if (resource === "students") {
         await ensureCourseGroupSchema();
+        await ensureRoleSchema();
         const result = await pool.query(
             `UPDATE users
              SET name = $2,
                  email = $3,
                  course_id = $4,
-                 course_group_id = $5
+                 course_group_id = $5,
+                 role_id = $6
              WHERE user_id = $1
                AND deleted_at IS NULL
                AND (
@@ -466,8 +561,13 @@ export async function updateAdminResource(resource, id, payload) {
                        FROM course_groups cg
                        WHERE cg.course_group_id = $5
                          AND cg.course_id = $4
-                         AND cg.deleted_at IS NULL
+                       AND cg.deleted_at IS NULL
                    )
+               )
+               AND EXISTS (
+                   SELECT 1
+                   FROM roles r
+                   WHERE r.role_id = $6
                )
              RETURNING user_id`,
             [
@@ -476,6 +576,7 @@ export async function updateAdminResource(resource, id, payload) {
                 nullableText(payload.email),
                 nullableInteger(payload.course_id),
                 nullableInteger(payload.course_group_id),
+                nullableInteger(payload.role_id),
             ]
         );
         return result.rows[0] || null;

@@ -4,9 +4,11 @@ import {
     ensureCourseGroupSchema,
     getDefaultCourseGroupForCourse,
 } from "./courseGroupModel.js";
+import {ensureRoleSchema, STUDENT_ROLE_ID} from "./roleModel.js";
 
 export async function ensureUserAccessModeColumn() {
-    return ensureCourseGroupSchema();
+    await ensureCourseGroupSchema();
+    return ensureRoleSchema();
 }
 
 export async function findUserById(id) {
@@ -16,6 +18,7 @@ export async function findUserById(id) {
              u.*,
              c.course_name,
              cg.group_name AS course_group_name,
+             r.role_name,
              COALESCE(cg.gamification_enabled, FALSE) AS gamification_enabled,
              NOT COALESCE(cg.virtual_space_enabled, FALSE) AS use_no_virtual_space,
              COALESCE(cg.virtual_space_enabled, FALSE) AS virtual_space_enabled
@@ -26,6 +29,8 @@ export async function findUserById(id) {
          LEFT JOIN course_groups cg
                 ON cg.course_group_id = u.course_group_id
                AND cg.deleted_at IS NULL
+         JOIN roles r
+           ON r.role_id = u.role_id
          WHERE u.user_id = $1
          LIMIT 1`,
         [id]
@@ -42,11 +47,12 @@ export async function getAllUsersByCourseId(course_id = null) {
                  u.user_id,
                  u.name,
                  u.email,
-                 u.gender,
                  u.course_id,
                  c.course_name,
                  u.course_group_id,
                  cg.group_name AS course_group_name,
+                 u.role_id,
+                 r.role_name,
                  COALESCE(cg.gamification_enabled, FALSE) AS gamification_enabled,
                  NOT COALESCE(cg.virtual_space_enabled, FALSE) AS use_no_virtual_space,
                  COALESCE(cg.virtual_space_enabled, FALSE) AS virtual_space_enabled
@@ -57,6 +63,8 @@ export async function getAllUsersByCourseId(course_id = null) {
              LEFT JOIN course_groups cg
                     ON cg.course_group_id = u.course_group_id
                    AND cg.deleted_at IS NULL
+             JOIN roles r
+               ON r.role_id = u.role_id
              WHERE u.course_id = $1 
                AND u.deleted_at IS NULL
              ORDER BY u.name ASC`,
@@ -68,11 +76,12 @@ export async function getAllUsersByCourseId(course_id = null) {
                  u.user_id,
                  u.name,
                  u.email,
-                 u.gender,
                  u.course_id,
                  c.course_name,
                  u.course_group_id,
                  cg.group_name AS course_group_name,
+                 u.role_id,
+                 r.role_name,
                  COALESCE(cg.gamification_enabled, FALSE) AS gamification_enabled,
                  NOT COALESCE(cg.virtual_space_enabled, FALSE) AS use_no_virtual_space,
                  COALESCE(cg.virtual_space_enabled, FALSE) AS virtual_space_enabled
@@ -83,6 +92,8 @@ export async function getAllUsersByCourseId(course_id = null) {
              LEFT JOIN course_groups cg
                     ON cg.course_group_id = u.course_group_id
                    AND cg.deleted_at IS NULL
+             JOIN roles r
+               ON r.role_id = u.role_id
              WHERE u.deleted_at IS NULL
              ORDER BY u.name ASC`
         );
@@ -97,11 +108,12 @@ export async function findUserByCourseNameEmail({course_id, name, email}) {
              u.user_id,
              u.name,
              u.email,
-             u.gender,
              u.course_id,
              c.course_name,
              u.course_group_id,
              cg.group_name AS course_group_name,
+             u.role_id,
+             r.role_name,
              COALESCE(cg.gamification_enabled, FALSE) AS gamification_enabled,
              NOT COALESCE(cg.virtual_space_enabled, FALSE) AS use_no_virtual_space,
              COALESCE(cg.virtual_space_enabled, FALSE) AS virtual_space_enabled
@@ -112,6 +124,8 @@ export async function findUserByCourseNameEmail({course_id, name, email}) {
          LEFT JOIN course_groups cg
                 ON cg.course_group_id = u.course_group_id
                AND cg.deleted_at IS NULL
+         JOIN roles r
+           ON r.role_id = u.role_id
          WHERE u.course_id = $1
            AND LOWER(TRIM(u.name)) = LOWER(TRIM($2))
            AND LOWER(TRIM(u.email)) = LOWER(TRIM($3))
@@ -126,21 +140,40 @@ export async function createDemoUser({name, email, course_id}) {
     await ensureUserAccessModeColumn();
     const defaultGroup = await getDefaultCourseGroupForCourse(course_id);
     const result = await pool.query(
-        `INSERT INTO users (name, email, gender, course_id, course_group_id)
-         VALUES ($1, $2, NULL, $3, $4)
-         RETURNING user_id, name, email, gender, course_id, course_group_id`,
-        [name, email, course_id, defaultGroup?.course_group_id || null]
+        `INSERT INTO users (name, email, course_id, course_group_id, role_id)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING user_id, name, email, course_id, course_group_id`,
+        [name, email, course_id, defaultGroup?.course_group_id || null, STUDENT_ROLE_ID]
     );
     return findUserById(result.rows[0].user_id);
 }
 
-export async function createUser({name, email, gender, avatar, course_id}) {
+export async function createUser({name, email, avatar, course_id}) {
     await ensureUserAccessModeColumn();
     const defaultGroup = await getDefaultCourseGroupForCourse(course_id);
     const result = await pool.query(
-        `INSERT INTO users (name, email, gender, avatar, course_id, course_group_id)
-         VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-        [name, email, gender, avatar, course_id, defaultGroup?.course_group_id || null]
+        `INSERT INTO users (name, email, avatar, course_id, course_group_id)
+         VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+        [name, email, avatar, course_id, defaultGroup?.course_group_id || null]
     );
     return findUserById(result.rows[0].user_id);
+}
+
+export async function updateUserRole(userId, roleId) {
+    await ensureUserAccessModeColumn();
+    const result = await pool.query(
+        `UPDATE users
+         SET role_id = $2
+         WHERE user_id = $1
+           AND deleted_at IS NULL
+           AND EXISTS (
+               SELECT 1
+               FROM roles r
+               WHERE r.role_id = $2
+           )
+         RETURNING user_id`,
+        [userId, roleId]
+    );
+    if (!result.rows[0]) return null;
+    return findUserById(userId);
 }

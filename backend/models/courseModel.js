@@ -1,11 +1,13 @@
 // backend/models/courseModel.js
 import {pool} from "../db/index.js";
 import {ensureAdminTables} from "./adminModel.js";
+import {ensureRoleSchema, INSTRUCTOR_ROLE_ID} from "./roleModel.js";
 
 let courseReadyPromise = null;
 
 async function createCourseSchema() {
     await ensureAdminTables();
+    await ensureRoleSchema();
 
     await pool.query(`
         ALTER TABLE courses
@@ -13,8 +15,44 @@ async function createCourseSchema() {
     `);
 
     await pool.query(`
+        ALTER TABLE courses
+        ALTER COLUMN instructor_id DROP NOT NULL
+    `);
+
+    await pool.query(`
         DO $$
         BEGIN
+            IF EXISTS (
+                SELECT 1
+                FROM pg_constraint
+                WHERE conname = 'courses_instructor_id_fkey'
+                  AND conrelid = 'courses'::regclass
+            ) THEN
+                ALTER TABLE courses DROP CONSTRAINT courses_instructor_id_fkey;
+            END IF;
+        END $$;
+    `);
+
+    await pool.query(`
+        DO $$
+        BEGIN
+            IF to_regclass('public.instructor') IS NOT NULL THEN
+                UPDATE users u
+                SET role_id = ${INSTRUCTOR_ROLE_ID}
+                FROM instructor i
+                WHERE u.deleted_at IS NULL
+                  AND LOWER(TRIM(u.name::TEXT)) = LOWER(TRIM(i.instructor_name::TEXT));
+
+                UPDATE courses c
+                SET instructor_id = u.user_id,
+                    updated_at = NOW()
+                FROM instructor i
+                JOIN users u
+                  ON LOWER(TRIM(u.name::TEXT)) = LOWER(TRIM(i.instructor_name::TEXT))
+                 AND u.deleted_at IS NULL
+                WHERE c.instructor_id = i.instructor_id;
+            END IF;
+
             IF EXISTS (
                 SELECT 1
                 FROM information_schema.columns
@@ -22,25 +60,55 @@ async function createCourseSchema() {
                   AND column_name = 'lecturer_name'
             ) THEN
                 UPDATE courses c
-                SET instructor_id = i.instructor_id,
+                SET instructor_id = u.user_id,
                     updated_at = NOW()
-                FROM instructor i
+                FROM users u
                 WHERE c.instructor_id IS NULL
                   AND c.lecturer_name IS NOT NULL
-                  AND LOWER(TRIM(c.lecturer_name::TEXT)) = LOWER(TRIM(i.instructor_name::TEXT));
+                  AND u.deleted_at IS NULL
+                  AND LOWER(TRIM(c.lecturer_name::TEXT)) = LOWER(TRIM(u.name::TEXT));
+
+                UPDATE users u
+                SET role_id = ${INSTRUCTOR_ROLE_ID}
+                FROM courses c
+                WHERE c.lecturer_name IS NOT NULL
+                  AND u.deleted_at IS NULL
+                  AND LOWER(TRIM(c.lecturer_name::TEXT)) = LOWER(TRIM(u.name::TEXT));
             END IF;
         END $$;
     `);
 
     await pool.query(`
         UPDATE courses
-        SET instructor_id = 1,
+        SET instructor_id = (
+                SELECT u.user_id
+                FROM users u
+                WHERE u.role_id = ${INSTRUCTOR_ROLE_ID}
+                  AND u.deleted_at IS NULL
+                ORDER BY u.user_id ASC
+                LIMIT 1
+            ),
             updated_at = NOW()
         WHERE instructor_id IS NULL
           AND EXISTS (
               SELECT 1
-              FROM instructor
-              WHERE instructor_id = 1
+              FROM users u
+              WHERE u.role_id = ${INSTRUCTOR_ROLE_ID}
+                AND u.deleted_at IS NULL
+          )
+    `);
+
+    await pool.query(`
+        UPDATE courses c
+        SET instructor_id = NULL,
+            updated_at = NOW()
+        WHERE c.instructor_id IS NOT NULL
+          AND NOT EXISTS (
+              SELECT 1
+              FROM users u
+              WHERE u.user_id = c.instructor_id
+                AND u.role_id = ${INSTRUCTOR_ROLE_ID}
+                AND u.deleted_at IS NULL
           )
     `);
 
@@ -50,24 +118,28 @@ async function createCourseSchema() {
             IF NOT EXISTS (
                 SELECT 1
                 FROM pg_constraint
-                WHERE conname = 'courses_instructor_id_fkey'
+                WHERE conname = 'courses_instructor_id_users_fkey'
                   AND conrelid = 'courses'::regclass
             ) THEN
                 ALTER TABLE courses
-                ADD CONSTRAINT courses_instructor_id_fkey
-                FOREIGN KEY (instructor_id) REFERENCES instructor(instructor_id);
+                ADD CONSTRAINT courses_instructor_id_users_fkey
+                FOREIGN KEY (instructor_id) REFERENCES users(user_id)
+                ON DELETE SET NULL;
             END IF;
         END $$;
     `);
 
     await pool.query(`
         ALTER TABLE courses
-        ALTER COLUMN instructor_id SET NOT NULL
+        DROP COLUMN IF EXISTS lecturer_name
     `);
 
     await pool.query(`
-        ALTER TABLE courses
-        DROP COLUMN IF EXISTS lecturer_name
+        DROP TABLE IF EXISTS instructors CASCADE
+    `);
+
+    await pool.query(`
+        DROP TABLE IF EXISTS instructor CASCADE
     `);
 }
 
@@ -85,9 +157,9 @@ export async function ensureCourseSchema() {
 export async function getAllCourses() {
     await ensureCourseSchema();
     const result = await pool.query(`
-        SELECT c.*, i.instructor_name
+        SELECT c.*, u.name AS instructor_name
         FROM courses c
-        JOIN instructor i ON i.instructor_id = c.instructor_id
+        LEFT JOIN users u ON u.user_id = c.instructor_id
         WHERE c.deleted_at IS NULL
         ORDER BY c.course_name ASC
     `);
@@ -97,9 +169,9 @@ export async function getAllCourses() {
 export async function findCourseByName(courseName) {
     await ensureCourseSchema();
     const result = await pool.query(
-        `SELECT c.*, i.instructor_name
+        `SELECT c.*, u.name AS instructor_name
          FROM courses c
-         JOIN instructor i ON i.instructor_id = c.instructor_id
+         LEFT JOIN users u ON u.user_id = c.instructor_id
          WHERE c.deleted_at IS NULL
            AND LOWER(TRIM(c.course_name)) = LOWER(TRIM($1))
          LIMIT 1`,
@@ -111,9 +183,9 @@ export async function findCourseByName(courseName) {
 export async function findActiveCourseById(courseId) {
     await ensureCourseSchema();
     const result = await pool.query(
-        `SELECT c.*, i.instructor_name
+        `SELECT c.*, u.name AS instructor_name
          FROM courses c
-         JOIN instructor i ON i.instructor_id = c.instructor_id
+         LEFT JOIN users u ON u.user_id = c.instructor_id
          WHERE c.course_id = $1
            AND c.deleted_at IS NULL
          LIMIT 1`,

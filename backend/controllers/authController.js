@@ -1,8 +1,9 @@
 // backend/controllers/authController.js
 import {findActiveCourseById, findCourseByName} from "../models/courseModel.js";
-import {createDemoUser, findUserByCourseNameEmail, findUserById} from "../models/userModel.js";
+import {createDemoUser, findUserByCourseNameEmail, findUserById, updateUserRole} from "../models/userModel.js";
 import {createSession, deactivateSession} from "../models/sessionModel.js";
 import {getDefaultAvatar} from "../models/avatarModel.js";
+import {findRoleById, STUDENT_ROLE_ID} from "../models/roleModel.js";
 import {v4 as uuidv4} from "uuid";
 
 const normalizeLookupText = (value) =>
@@ -13,7 +14,7 @@ const normalizeLookupText = (value) =>
 
 export async function login(req, res) {
     try {
-        const { user_id, course_id, avatar_id, avatar_public_path, password } = req.body;
+        const { user_id, course_id, avatar_id, avatar_public_path, password, role_id } = req.body;
 
         if (!user_id) {
             return res.status(400).json({ message: "User wajib dipilih" });
@@ -22,9 +23,16 @@ export async function login(req, res) {
             return res.status(401).json({ message: "Password demo tidak sesuai" });
         }
 
-        const user = await findUserById(user_id);
+        let user = await findUserById(user_id);
         if (!user) {
             return res.status(404).json({ message: "User tidak ditemukan" });
+        }
+        if (role_id) {
+            const role = await findRoleById(role_id);
+            if (!role) {
+                return res.status(400).json({message: "Role tidak ditemukan"});
+            }
+            user = await updateUserRole(user.user_id, role.role_id);
         }
         const course = await findActiveCourseById(course_id || user.course_id);
         if (!course || String(user.course_id) !== String(course.course_id)) {
@@ -56,6 +64,8 @@ export async function login(req, res) {
                 course_name: course.course_name,
                 course_group_id: user.course_group_id,
                 course_group_name: user.course_group_name,
+                role_id: user.role_id,
+                role_name: user.role_name,
                 gamification_enabled: !!user.gamification_enabled,
                 use_no_virtual_space: !!user.use_no_virtual_space,
                 virtual_space_enabled: !!user.virtual_space_enabled,
@@ -98,6 +108,8 @@ export async function resolveDemoLogin(req, res) {
                 course_id: course.course_id,
             });
             created = true;
+        } else if (String(user.role_id) !== String(STUDENT_ROLE_ID)) {
+            user = await updateUserRole(user.user_id, STUDENT_ROLE_ID);
         }
 
         res.json({
@@ -107,6 +119,8 @@ export async function resolveDemoLogin(req, res) {
             },
             user: {
                 ...user,
+                role_id: user.role_id,
+                role_name: user.role_name,
                 gamification_enabled: !!user.gamification_enabled,
                 use_no_virtual_space: !!user.use_no_virtual_space,
                 virtual_space_enabled: !!user.virtual_space_enabled,

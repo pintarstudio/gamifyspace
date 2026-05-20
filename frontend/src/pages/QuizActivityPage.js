@@ -1,13 +1,14 @@
 import React, {useEffect, useMemo, useRef, useState} from "react";
 import {useSearchParams} from "react-router-dom";
 import {apiGet, apiPost} from "../api/apiClient";
+import AvatarIcon from "../components/AvatarIcon";
+import {
+    ACTIVITY_STATUS,
+    activeActivityMessage,
+    clearActivityStatus,
+    setActivityStatus,
+} from "../utils/activityStatus";
 import "./QuizActivityPage.css";
-
-const avatarSrc = (path) => {
-    if (!path) return "/avatars/default.png";
-    const normalizedPath = path.startsWith("/") ? path : `/${path}`;
-    return `/avatars${normalizedPath}/thumbnail.png`;
-};
 
 const getMessage = (data, fallback) => data?.message || fallback;
 
@@ -55,7 +56,9 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack}) => {
     const [savingResult, setSavingResult] = useState(false);
     const [message, setMessage] = useState("");
     const [now, setNow] = useState(Date.now());
+    const [currentUser, setCurrentUser] = useState(null);
     const timeoutPulseRef = useRef("");
+    const activityStatusKeyRef = useRef(null);
 
     const selectedTopic = useMemo(
         () => context?.topics?.find((topic) => String(topic.topic_id) === String(selectedTopicId)),
@@ -83,6 +86,28 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack}) => {
     }, [routeTableId, objectId, noVirtual, selectedEntryGroupId]);
 
     useEffect(() => {
+        apiGet("/session").then((data) => {
+            if (data.loggedIn && data.user) setCurrentUser(data.user);
+        });
+    }, []);
+
+    useEffect(() => {
+        if (!currentUser) return undefined;
+
+        const clearStatusOnPageHide = () => {
+            if (!activityStatusKeyRef.current) return;
+            clearActivityStatus({
+                user: currentUser,
+                activityKey: activityStatusKeyRef.current,
+                keepalive: true,
+            });
+        };
+
+        window.addEventListener("pagehide", clearStatusOnPageHide);
+        return () => window.removeEventListener("pagehide", clearStatusOnPageHide);
+    }, [currentUser]);
+
+    useEffect(() => {
         const timerId = window.setInterval(() => setNow(Date.now()), 500);
         return () => window.clearInterval(timerId);
     }, []);
@@ -99,6 +124,64 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack}) => {
 
         return () => window.clearInterval(intervalId);
     }, [activeSession?.quiz_session_id, activeSession?.is_member, activeSession?.status]);
+
+    useEffect(() => {
+        if (
+            !currentUser
+            || !activeSession?.quiz_session_id
+            || !activeSession?.is_member
+            || !["lobby", "in_progress"].includes(activeSession.status)
+        ) {
+            return undefined;
+        }
+
+        const status = ACTIVITY_STATUS.quiz;
+        const activityKey = `${status.type}:${activeSession.quiz_session_id}`;
+        const metadata = {
+            object_id: activeSession.object_id || objectId,
+            group_id: activeSession.group_id,
+            table_id: activeSession.table_id,
+        };
+        const refreshStatus = () => {
+            activityStatusKeyRef.current = activityKey;
+            setActivityStatus({user: currentUser, status, activityKey, metadata});
+        };
+
+        refreshStatus();
+        const intervalId = window.setInterval(refreshStatus, 120000);
+
+        return () => {
+            window.clearInterval(intervalId);
+            clearActivityStatus({user: currentUser, activityKey, keepalive: true});
+            if (activityStatusKeyRef.current === activityKey) activityStatusKeyRef.current = null;
+        };
+    }, [
+        currentUser,
+        activeSession?.quiz_session_id,
+        activeSession?.is_member,
+        activeSession?.status,
+        activeSession?.object_id,
+        activeSession?.group_id,
+        activeSession?.table_id,
+        objectId,
+    ]);
+
+    const reserveQuizStatus = async (activityKey, metadata, isPending = false) => {
+        if (!currentUser) return {ok: true};
+        const result = await setActivityStatus({
+            user: currentUser,
+            status: ACTIVITY_STATUS.quiz,
+            activityKey,
+            metadata,
+            isPending,
+        });
+        if (!result.ok) {
+            setMessage(activeActivityMessage(result.current));
+        } else {
+            activityStatusKeyRef.current = activityKey;
+        }
+        return result;
+    };
 
     const localTimeLeft = useMemo(() => {
         if (activeSession?.status !== "in_progress" || !activeSession.question_started_at) {
@@ -149,6 +232,17 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack}) => {
 
         setBusy(true);
         setMessage("");
+        const pendingActivityKey = `${ACTIVITY_STATUS.quiz.type}:pending:${nextGroupId}`;
+        const statusResult = await reserveQuizStatus(pendingActivityKey, {
+            object_id: objectId,
+            group_id: nextGroupId,
+            table_id: noVirtual ? nextGroupId : tableId,
+        }, true);
+        if (!statusResult.ok) {
+            setBusy(false);
+            return;
+        }
+
         const data = await apiPost("/quiz/sessions", {
             table_id: noVirtual ? nextGroupId : tableId,
             group_id: nextGroupId,
@@ -165,6 +259,8 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack}) => {
             setMessage(getMessage(data, "Quiz aktif ditemukan. Silakan join."));
         } else {
             setMessage(getMessage(data, "Gagal membuat quiz."));
+            if (currentUser) clearActivityStatus({user: currentUser, activityKey: pendingActivityKey});
+            if (activityStatusKeyRef.current === pendingActivityKey) activityStatusKeyRef.current = null;
         }
         setBusy(false);
     };
@@ -174,12 +270,25 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack}) => {
 
         setBusy(true);
         setMessage("");
+        const activityKey = `${ACTIVITY_STATUS.quiz.type}:${session.quiz_session_id}`;
+        const statusResult = await reserveQuizStatus(activityKey, {
+            object_id: session.object_id || objectId,
+            group_id: session.group_id || nextGroupId,
+            table_id: session.table_id || nextGroupId,
+        });
+        if (!statusResult.ok) {
+            setBusy(false);
+            return;
+        }
+
         const data = await apiPost(`/quiz/sessions/${session.quiz_session_id}/join`, {});
         if (data.session) {
             if (noVirtual) setSelectedEntryGroupId(nextGroupId);
             setActiveSession(data.session);
         } else {
             setMessage(getMessage(data, "Gagal join quiz."));
+            if (currentUser) clearActivityStatus({user: currentUser, activityKey});
+            if (activityStatusKeyRef.current === activityKey) activityStatusKeyRef.current = null;
         }
         setBusy(false);
     };
@@ -232,6 +341,8 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack}) => {
         setBusy(true);
         setMessage("");
         const data = await apiPost(`/quiz/sessions/${activeSession.quiz_session_id}/exit`, {});
+        if (currentUser) clearActivityStatus({user: currentUser, activityKey: `${ACTIVITY_STATUS.quiz.type}:${activeSession.quiz_session_id}`});
+        activityStatusKeyRef.current = null;
         if (data.session) {
             setActiveSession(data.session);
             setMessage(getMessage(data, "Berhasil keluar dari quiz."));
@@ -299,7 +410,7 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack}) => {
                     <div className="quiz-members__heading">Group {activeSession.group_id || activeSession.table_id}</div>
                     {activeSession.members.map((member) => (
                         <div className="quiz-member" key={member.member_id}>
-                            <img src={avatarSrc(member.avatar_public_path)} alt={member.name} />
+                            <AvatarIcon path={member.avatar_public_path} alt={member.name} />
                             <span>{member.name}</span>
                         </div>
                     ))}
@@ -469,7 +580,7 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack}) => {
                                         {activeSession.scoreboard.map((item, index) => (
                                             <article className="quiz-score-row" key={item.user_id}>
                                                 <div className="quiz-rank">{index + 1}</div>
-                                                <img src={avatarSrc(item.avatar_public_path)} alt={item.name} />
+                                                <AvatarIcon path={item.avatar_public_path} alt={item.name} />
                                                 <div>
                                                     <strong>{item.name}</strong>
                                                     <span>{item.correct_count}/{item.question_count} correct</span>
@@ -612,7 +723,7 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack}) => {
                             <p>A quiz is already active at this big table. New users can only join while a seat is available.</p>
                             <div className="quiz-member-strip">
                                 {activeSession.members.map((member) => (
-                                    <img key={member.member_id} src={avatarSrc(member.avatar_public_path)} alt={member.name} />
+                                    <AvatarIcon key={member.member_id} path={member.avatar_public_path} alt={member.name} />
                                 ))}
                             </div>
                             <button className="quiz-button quiz-button--primary" onClick={handleJoinQuiz} disabled={!canJoin || busy}>

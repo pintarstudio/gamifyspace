@@ -44,7 +44,23 @@ const MENU_GROUPS = [
                 ],
                 fields: [
                     {key: "avatar_name", label: "Avatar Name", required: true},
-                    {key: "avatar_public_path", label: "Public Path", required: true, placeholder: "/owlet/"},
+                    {key: "avatar_public_path", label: "Public Path", required: true, placeholder: "/student21/student21.png"},
+                ],
+            },
+            {
+                label: "Role",
+                path: "/roleadmin",
+                resource: "roles",
+                idKey: "role_id",
+                canAdd: false,
+                canDelete: false,
+                description: "Manage the student and instructor roles assigned to users.",
+                tableColumns: [
+                    {key: "role_id", label: "ID"},
+                    {key: "role_name", label: "Role"},
+                ],
+                fields: [
+                    {key: "role_name", label: "Role Name", required: true},
                 ],
             },
         ],
@@ -71,7 +87,7 @@ const MENU_GROUPS = [
                 fields: [
                     {key: "course_code", label: "Course Code", required: true},
                     {key: "course_name", label: "Course Name", required: true},
-                    {key: "instructor_id", label: "Instructor", type: "select", reference: "instructors", required: true},
+                    {key: "instructor_id", label: "Instructor", type: "select", reference: "instructors"},
                     {key: "semester", label: "Semester", type: "number"},
                     {key: "location", label: "Location"},
                 ],
@@ -86,11 +102,13 @@ const MENU_GROUPS = [
                 description: "Create, update, or soft-delete topics for each active course.",
                 tableColumns: [
                     {key: "course_name", label: "Course"},
+                    {key: "week", label: "Week"},
                     {key: "topic_name", label: "Topic Name"},
                     {key: "show_topic", label: "Visible", type: "boolean"},
                 ],
                 fields: [
                     {key: "course_id", label: "Course", type: "select", reference: "courses", required: true},
+                    {key: "week", label: "Week", type: "number", placeholder: "1"},
                     {key: "topic_name", label: "Topic Name", required: true},
                     {key: "show_topic", label: "Show Topic", type: "checkbox"},
                 ],
@@ -132,17 +150,18 @@ const MENU_GROUPS = [
                 ],
             },
             {
-                label: "Student Access",
+                label: "Managing User",
                 path: "/studentadmin",
                 resource: "students",
                 idKey: "user_id",
-                canAdd: false,
+                canAdd: true,
                 canDelete: false,
-                description: "Assign students to course groups. Access mode and gamification come from the selected group.",
+                description: "Assign users to course groups and roles. Access mode and gamification come from the selected group.",
                 tableColumns: [
                     {key: "course_name", label: "Course"},
                     {key: "name", label: "Student"},
                     {key: "email", label: "Email"},
+                    {key: "role_name", label: "Role"},
                     {key: "course_group_name", label: "Course Group"},
                     {
                         key: "virtual_space_enabled",
@@ -161,8 +180,9 @@ const MENU_GROUPS = [
                 ],
                 fields: [
                     {key: "course_id", label: "Course", type: "select", reference: "courses", required: true},
-                    {key: "name", label: "Student Name", required: true},
+                    {key: "name", label: "User Name", required: true},
                     {key: "email", label: "Email", required: true},
+                    {key: "role_id", label: "Role", type: "select", reference: "roles", valueKey: "role_id", labelKey: "role_name", required: true},
                     {key: "course_group_id", label: "Course Group", type: "select", reference: "course_groups", dependsOn: "course_id", valueKey: "course_group_id", labelKey: "group_name", required: true},
                 ],
             },
@@ -298,7 +318,7 @@ const AdminPage = () => {
     const [busy, setBusy] = useState(false);
     const [message, setMessage] = useState("");
     const [rows, setRows] = useState([]);
-    const [references, setReferences] = useState({instructors: [], courses: [], course_groups: []});
+    const [references, setReferences] = useState({instructors: [], courses: [], course_groups: [], roles: []});
     const [editingRow, setEditingRow] = useState(null);
     const [formData, setFormData] = useState({});
     const [openMenus, setOpenMenus] = useState({
@@ -346,7 +366,7 @@ const AdminPage = () => {
             if (studentBulk.course_id && String(row.course_id) !== String(studentBulk.course_id)) return false;
             if (studentBulk.course_group_id && String(row.course_group_id) !== String(studentBulk.course_group_id)) return false;
             if (!search) return true;
-            return [row.name, row.email, row.course_name, row.course_group_name]
+            return [row.name, row.email, row.course_name, row.course_group_name, row.role_name]
                 .some((value) => String(value || "").toLowerCase().includes(search));
         });
     }, [activeConfig, rows, studentBulk]);
@@ -596,12 +616,18 @@ const AdminPage = () => {
 
     const renderField = (field) => {
         const value = formData[field.key];
+        const selectedRole = (references.roles || []).find((role) => String(role.role_id) === String(formData.role_id));
+        const isInstructorSelected = String(selectedRole?.role_name || "").toLowerCase() === "instructor";
+        const isOptionalInstructorGroup = activeConfig?.resource === "students"
+            && field.key === "course_group_id"
+            && isInstructorSelected;
+
         if (field.type === "select") {
             return (
                 <select
                     value={value}
                     onChange={(event) => updateForm(field.key, event.target.value)}
-                    required={field.required}
+                    required={isOptionalInstructorGroup ? false : field.required}
                 >
                     <option value="">Choose {field.label}</option>
                     {renderReferenceOptions(field)}
@@ -626,12 +652,12 @@ const AdminPage = () => {
 
         return (
             <input
-                type={field.type || "text"}
-                value={value ?? ""}
-                placeholder={field.placeholder || ""}
-                onChange={(event) => updateForm(field.key, event.target.value)}
-                required={field.required}
-            />
+            type={field.type || "text"}
+            value={value ?? ""}
+            placeholder={field.placeholder || ""}
+            onChange={(event) => updateForm(field.key, event.target.value)}
+            required={field.required}
+        />
         );
     };
 
@@ -1530,7 +1556,7 @@ const AdminPage = () => {
                         <button type="button" onClick={() => navigate("/courseadmin")}>Course Master</button>
                     </div>
                     <div className="admin-account">
-                        <span>{admin.instructor_name}</span>
+                        <span>{admin.username}</span>
                         <strong>{admin.role}</strong>
                         <button type="button" onClick={handleLogout} disabled={busy}>
                             Logout

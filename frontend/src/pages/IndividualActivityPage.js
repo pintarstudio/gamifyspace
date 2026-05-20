@@ -1,6 +1,12 @@
-import React, {useEffect, useMemo, useState} from "react";
+import React, {useEffect, useMemo, useRef, useState} from "react";
 import {useSearchParams} from "react-router-dom";
 import {apiGet, apiPatch, apiPost} from "../api/apiClient";
+import {
+    activeActivityMessage,
+    activityStatusForIndividual,
+    clearActivityStatus,
+    setActivityStatus,
+} from "../utils/activityStatus";
 import "./IndividualActivityPage.css";
 
 const choiceLabel = (index) => ["A", "B", "C", "D"][index] || String(index + 1);
@@ -32,6 +38,8 @@ const IndividualActivityPage = ({embedded = false, onBack}) => {
     const [busy, setBusy] = useState(false);
     const [message, setMessage] = useState("");
     const [completionNotice, setCompletionNotice] = useState("");
+    const [currentUser, setCurrentUser] = useState(null);
+    const activityStatusKeyRef = useRef(null);
 
     const selectedTopic = useMemo(
         () => context?.topics?.find((topic) => String(topic.topic_id) === String(selectedTopicId)),
@@ -71,11 +79,56 @@ const IndividualActivityPage = ({embedded = false, onBack}) => {
     }, [objectId]);
 
     useEffect(() => {
+        apiGet("/session").then((data) => {
+            if (data.loggedIn && data.user) setCurrentUser(data.user);
+        });
+    }, []);
+
+    useEffect(() => {
+        if (!currentUser) return undefined;
+
+        const clearStatusOnPageHide = () => {
+            if (!activityStatusKeyRef.current) return;
+            clearActivityStatus({
+                user: currentUser,
+                activityKey: activityStatusKeyRef.current,
+                keepalive: true,
+            });
+        };
+
+        window.addEventListener("pagehide", clearStatusOnPageHide);
+        return () => window.removeEventListener("pagehide", clearStatusOnPageHide);
+    }, [currentUser]);
+
+    useEffect(() => {
         if (!availableActivityTypes.includes(activityType)) {
             setActivityType("exercise");
             setQuestionKind("multiple_choice");
         }
     }, [availableActivityTypes, activityType]);
+
+    useEffect(() => {
+        if (!currentUser || activeSession?.status !== "in_progress") return undefined;
+
+        const status = activityStatusForIndividual(activeSession.activity_type);
+        const activityKey = `${status.type}:${activeSession.session_id}`;
+        const metadata = {
+            object_id: activeSession.object_id || objectId,
+        };
+        const refreshStatus = () => {
+            activityStatusKeyRef.current = activityKey;
+            setActivityStatus({user: currentUser, status, activityKey, metadata});
+        };
+
+        refreshStatus();
+        const intervalId = window.setInterval(refreshStatus, 120000);
+
+        return () => {
+            window.clearInterval(intervalId);
+            clearActivityStatus({user: currentUser, activityKey, keepalive: true});
+            if (activityStatusKeyRef.current === activityKey) activityStatusKeyRef.current = null;
+        };
+    }, [currentUser, activeSession?.status, activeSession?.session_id, activeSession?.activity_type, activeSession?.object_id, objectId]);
 
     const handleStart = async () => {
         if (!selectedTopicId) {
@@ -85,6 +138,24 @@ const IndividualActivityPage = ({embedded = false, onBack}) => {
 
         setBusy(true);
         setMessage("");
+        const status = activityStatusForIndividual(activityType);
+        const pendingActivityKey = `${status.type}:pending:${objectId}`;
+        if (currentUser) {
+            const statusResult = await setActivityStatus({
+                user: currentUser,
+                status,
+                activityKey: pendingActivityKey,
+                metadata: {object_id: objectId},
+                isPending: true,
+            });
+            if (!statusResult.ok) {
+                setMessage(activeActivityMessage(statusResult.current));
+                setBusy(false);
+                return;
+            }
+            activityStatusKeyRef.current = pendingActivityKey;
+        }
+
         const data = await apiPost("/individual/sessions", {
             object_id: objectId,
             topic_id: selectedTopicId,
@@ -100,6 +171,8 @@ const IndividualActivityPage = ({embedded = false, onBack}) => {
             setMessage(getMessage(data, "Aktivitas aktif ditemukan."));
         } else {
             setMessage(getMessage(data, "Gagal memulai aktivitas."));
+            if (currentUser) clearActivityStatus({user: currentUser, activityKey: pendingActivityKey});
+            if (activityStatusKeyRef.current === pendingActivityKey) activityStatusKeyRef.current = null;
         }
         setBusy(false);
     };
@@ -155,6 +228,9 @@ const IndividualActivityPage = ({embedded = false, onBack}) => {
         if (!activeSession?.session_id) return;
         setBusy(true);
         const data = await apiPost(`/individual/sessions/${activeSession.session_id}/exit`, {});
+        const status = activityStatusForIndividual(activeSession.activity_type);
+        if (currentUser) clearActivityStatus({user: currentUser, activityKey: `${status.type}:${activeSession.session_id}`});
+        activityStatusKeyRef.current = null;
         setActiveSession(null);
         setMessage(getMessage(data, "Aktivitas dibatalkan."));
         setBusy(false);

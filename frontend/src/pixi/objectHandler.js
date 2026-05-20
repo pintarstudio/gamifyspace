@@ -1,5 +1,6 @@
 import * as PIXI from "pixi.js";
 import socket from "../utils/socketClient";
+import {activeActivityMessage, isActivityStatusActive} from "../utils/activityStatus";
 
 console.log("🟦 [objectHandler] Initializing interactable objects...");
 
@@ -7,6 +8,27 @@ const getObjectProperty = (obj, name) =>
     obj.properties?.find((p) => p.name === name)?.value;
 
 const hasValue = (value) => value !== undefined && value !== null && value !== "";
+
+const labelRect = (display, padding = 4) => {
+    if (!display || display.destroyed) return null;
+    const width = Math.max(1, display.width || 1);
+    const height = Math.max(1, display.height || 1);
+    const pivotX = display.pivot?.x || 0;
+    const pivotY = display.pivot?.y || 0;
+    return {
+        x: display.x - pivotX - padding,
+        y: display.y - pivotY - padding,
+        width: width + padding * 2,
+        height: height + padding * 2,
+    };
+};
+
+const rectsOverlap = (a, b) =>
+    !!a && !!b
+    && a.x < b.x + b.width
+    && a.x + a.width > b.x
+    && a.y < b.y + b.height
+    && a.y + a.height > b.y;
 
 const GUIDE_MESSAGES = {
     "guide-discussion": "Bentuk tim maksimal 4 orang, pecahkan studi kasus, dan raih poin bersama!",
@@ -125,6 +147,8 @@ export function initObjects(app, worldContainer, roomData, user, localUserRef, z
     console.log("🟨 [objectHandler] Object layer found:", objectLayer?.name, "Total objects:", objectLayer?.objects?.length || 0);
 
     const objects = [];
+    let activeActivityPopup = null;
+    let activeActivityPopupContext = null;
 
     // Proximity highlight tuning
     const proximityRadius = 40;
@@ -237,6 +261,7 @@ export function initObjects(app, worldContainer, roomData, user, localUserRef, z
         const objectName = activeObject.nameProp || activeObject.obj.name || "unknown_object";
         const objectId = hasValue(activeObject.idProp) ? activeObject.idProp : activeObject.obj.id || null;
         const objectKind = String(objectName).toLowerCase();
+        const activeActivityStatus = localUserRef.current?.activity_status;
         if (getGuideMessage(objectName)) {
             if (activeObject.infoText) {
                 activeObject.infoText.visible = true;
@@ -251,6 +276,20 @@ export function initObjects(app, worldContainer, roomData, user, localUserRef, z
                 object_id: objectId,
                 action: "ask",
             });
+            return;
+        }
+
+        if (isActivityStatusActive(activeActivityStatus)) {
+            if (activeObject.infoText) {
+                activeObject.infoText.visible = true;
+                activeObject.infoText.x = activeObject.sprite.x + activeObject.sprite.width / 2;
+                activeObject.infoText.y = activeObject.sprite.y - 36;
+                activeObject.infoText.__hideAt = performance.now() + 4500;
+            } else if (activeObject.hintText) {
+                activeObject.hintText.visible = true;
+                activeObject.hintText.__originalText = activeObject.hintText.__originalText || activeObject.hintText.children?.at(-1)?.text;
+            }
+            window.alert(activeActivityMessage(activeActivityStatus));
             return;
         }
 
@@ -269,13 +308,41 @@ export function initObjects(app, worldContainer, roomData, user, localUserRef, z
 
         if (!finalUrl) return;
 
+        if (activeActivityPopup && !activeActivityPopup.closed) {
+            const nextPopupContext = {
+                key: `${objectName}:${objectId}:${groupId || ""}:${tableId || ""}:${activeObject.urlProp || ""}`,
+                objectName,
+                objectId,
+            };
+
+            if (activeActivityPopupContext?.key === nextPopupContext.key) {
+                activeActivityPopup.focus();
+                return;
+            }
+
+            window.alert(
+                `You already have an activity window open for ${activeActivityPopupContext?.objectName || "object"} ${activeActivityPopupContext?.objectId || ""}. ` +
+                `Close or finish it before opening ${objectName} ${objectId || ""}.`
+            );
+            return;
+        }
+
+        activeActivityPopupContext = null;
         console.log("🟥 [objectHandler] start activity triggered for:", activeObject.nameProp, "→", finalUrl);
         const popup = window.open(
             finalUrl,
             "popupWindow",
             "popup=yes,width=800,height=600,top=100,left=100,resizable=yes,scrollbars=yes,status=no"
         );
-        if (popup) popup.focus();
+        if (popup) {
+            activeActivityPopup = popup;
+            activeActivityPopupContext = {
+                key: `${objectName}:${objectId}:${groupId || ""}:${tableId || ""}:${activeObject.urlProp || ""}`,
+                objectName,
+                objectId,
+            };
+            popup.focus();
+        }
 
         socket.emit("interact_obj", {
             user_id: userId,
@@ -293,6 +360,7 @@ export function initObjects(app, worldContainer, roomData, user, localUserRef, z
     app.ticker.add(() => {
         const localUser = localUserRef.current;
         if (!localUser) return;
+        const hasActiveActivity = isActivityStatusActive(localUser.activity_status);
 
         // Find nearest object within radius
         let nearest = null;
@@ -301,6 +369,9 @@ export function initObjects(app, worldContainer, roomData, user, localUserRef, z
         for (let i = 0; i < objects.length; i++) {
             const o = objects[i];
             if (!o?.sprite || !o.hasInteraction) continue;
+            const isGuideObject = !!getGuideMessage(o.nameProp);
+            const suppressActivityPrompt = hasActiveActivity && !isGuideObject && !!o.urlProp;
+            if (suppressActivityPrompt) continue;
 
             const objCenterX = o.sprite.x + o.sprite.width / 2;
             const objCenterY = o.sprite.y + o.sprite.height / 2;
@@ -317,12 +388,15 @@ export function initObjects(app, worldContainer, roomData, user, localUserRef, z
         // Apply highlight / pulse
         const t = (app.ticker.lastTime || performance.now()) * PULSE_SPEED;
         const pulse = 1 + Math.sin(t) * PULSE_AMPL;
+        let activePromptRect = null;
 
         for (let i = 0; i < objects.length; i++) {
             const o = objects[i];
             if (!o?.sprite) continue;
 
-            const isActive = o === nearest;
+            const isGuideObject = !!getGuideMessage(o.nameProp);
+            const suppressActivityPrompt = hasActiveActivity && !isGuideObject && !!o.urlProp;
+            const isActive = !suppressActivityPrompt && o === nearest;
 
             // Hint: show only for the nearest interactable
             if (o.hintText) {
@@ -330,6 +404,15 @@ export function initObjects(app, worldContainer, roomData, user, localUserRef, z
                 if (isActive) {
                     o.hintText.x = o.sprite.x + o.sprite.width / 2;
                     o.hintText.y = o.sprite.y - 18;
+                    const nextPromptRect = labelRect(o.hintText, 4);
+                    const overlapsProtectedLabel = (worldContainer.__labelCollisionRects || [])
+                        .some((item) =>
+                            item.type !== "object-prompt"
+                            && (item.priority || 0) >= 100
+                            && rectsOverlap(nextPromptRect, item.rect)
+                        );
+                    o.hintText.visible = !overlapsProtectedLabel;
+                    if (!overlapsProtectedLabel) activePromptRect = nextPromptRect;
                 }
             }
 
@@ -365,6 +448,10 @@ export function initObjects(app, worldContainer, roomData, user, localUserRef, z
                 o.sprite.scale.set(bx, by);
             }
         }
+
+        worldContainer.__objectPromptCollisionRect = activePromptRect
+            ? {rect: activePromptRect, priority: 95, type: "object-prompt"}
+            : null;
     });
 
     // Cleanup global keydown handler when PIXI app is destroyed

@@ -19,11 +19,13 @@ import quizActivityRoutes from "./routes/quizActivityRoutes.js";
 import individualActivityRoutes from "./routes/individualActivityRoutes.js";
 import virtualSpaceDashboardRoutes from "./routes/virtualSpaceDashboardRoutes.js";
 import adminRoutes from "./routes/adminRoutes.js";
+import roleRoutes from "./routes/roleRoutes.js";
 import {ensureAdminTables} from "./models/adminModel.js";
 import {ensureCourseSchema} from "./models/courseModel.js";
 import {ensureQuestionBankAdminTables} from "./models/adminQuestionBankModel.js";
 import {ensureGamificationTables} from "./models/gamificationModel.js";
 import {ensureCourseGroupSchema} from "./models/courseGroupModel.js";
+import {ensureRoleSchema} from "./models/roleModel.js";
 
 const app = express();
 const server = http.createServer(app);
@@ -54,6 +56,9 @@ ensureQuestionBankAdminTables().catch((error) => {
 });
 ensureCourseGroupSchema().catch((error) => {
     console.error("Failed to initialize course group schema:", error);
+});
+ensureRoleSchema().catch((error) => {
+    console.error("Failed to initialize role schema:", error);
 });
 
 // ====== MIDDLEWARE & ROUTES ======
@@ -88,6 +93,7 @@ app.use("/api/courses", courseRoutes);
 app.use("/api/session", sessionRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/avatars", avatarRoutes);
+app.use("/api/roles", roleRoutes);
 app.use("/api/table", tableActivityRoutes);
 app.use("/api/quiz", quizActivityRoutes);
 app.use("/api/individual", individualActivityRoutes);
@@ -100,6 +106,15 @@ app.get("/", (req, res) => {
 // ====== SOCKET.IO ======
 let users = {};
 let userRooms = {}; // Track which room each socket belongs to
+const activityLocks = {};
+const ACTIVITY_STATUS_TIMEOUT_MS = 5 * 60 * 1000;
+const VALID_ACTIVITY_STATUS_TYPES = new Set([
+    "individual_exercise",
+    "individual_pre_test",
+    "individual_post_test",
+    "group_discussion",
+    "quiz",
+]);
 
 function normalizeRoomName(room) {
     const cleaned = String(room || "room1").trim().replace(/^\/+/, "");
@@ -117,6 +132,182 @@ function buildScopedRoom({courseId, room}) {
     if (!normalizedCourseId) return null;
     return `course:${normalizedCourseId}:room:${normalizeRoomName(room)}`;
 }
+
+function activityLockKey(courseId, userId) {
+    const normalizedCourseId = normalizeCourseId(courseId);
+    if (!normalizedCourseId || !userId) return null;
+    return `${normalizedCourseId}:${userId}`;
+}
+
+function isStatusActive(status) {
+    return !!status?.expires_at && Number(status.expires_at) > Date.now();
+}
+
+function sanitizeActivityStatus(status) {
+    if (!status || !isStatusActive(status)) return null;
+    const {
+        type,
+        label,
+        activity_key,
+        object_id,
+        object_name,
+        group_id,
+        table_id,
+        started_at,
+        expires_at,
+    } = status;
+    return {
+        type,
+        label,
+        activity_key,
+        object_id,
+        object_name,
+        group_id,
+        table_id,
+        started_at,
+        expires_at,
+    };
+}
+
+function serializeUserForRoom(user) {
+    const {activityStatusTimer, ...serializableUser} = user;
+    const status = sanitizeActivityStatus(serializableUser.activity_status);
+    if (status) return {...serializableUser, activity_status: status};
+    const {activity_status, ...withoutStatus} = serializableUser;
+    return withoutStatus;
+}
+
+function matchingUserEntries(courseId, userId) {
+    return Object.entries(users).filter(([, u]) =>
+        String(u.user_id) === String(userId)
+        && String(u.course_id) === String(normalizeCourseId(courseId))
+    );
+}
+
+function broadcastRoomsForEntries(entries) {
+    const rooms = new Set(entries.map(([, u]) => u.scopedRoom).filter(Boolean));
+    rooms.forEach((room) => io.to(room).emit("update_users", getUsersInRoom(room)));
+}
+
+function clearActivityStatusForUser({courseId, userId, activityKey = null, broadcast = true}) {
+    const key = activityLockKey(courseId, userId);
+    const current = key ? activityLocks[key] : null;
+    if (current && activityKey && current.activity_key !== activityKey) return false;
+
+    if (key) delete activityLocks[key];
+    const entries = matchingUserEntries(courseId, userId);
+    entries.forEach(([socketId, u]) => {
+        if (activityKey && u.activity_status?.activity_key !== activityKey) return;
+        if (u.activityStatusTimer) clearTimeout(u.activityStatusTimer);
+        delete u.activityStatusTimer;
+        delete u.activity_status;
+    });
+    if (broadcast) broadcastRoomsForEntries(entries);
+    return true;
+}
+
+function scheduleActivityStatusTimeout(courseId, userId, activityKey) {
+    const entries = matchingUserEntries(courseId, userId);
+    entries.forEach(([, u]) => {
+        if (u.activityStatusTimer) clearTimeout(u.activityStatusTimer);
+        u.activityStatusTimer = setTimeout(() => {
+            clearActivityStatusForUser({courseId, userId, activityKey});
+        }, ACTIVITY_STATUS_TIMEOUT_MS + 250);
+    });
+}
+
+function setActivityStatusForUser({courseId, userId, status}) {
+    const key = activityLockKey(courseId, userId);
+    if (!key || !status || !VALID_ACTIVITY_STATUS_TYPES.has(status.type)) {
+        return {ok: false, reason: "INVALID_STATUS"};
+    }
+
+    const now = Date.now();
+    const current = activityLocks[key];
+    if (
+        current
+        && isStatusActive(current)
+        && current.activity_key
+        && status.activity_key
+        && current.activity_key !== status.activity_key
+    ) {
+        const canPromotePendingActivity = current.is_pending && current.type === status.type;
+        if (!canPromotePendingActivity) {
+            return {
+                ok: false,
+                reason: "ACTIVITY_ALREADY_ACTIVE",
+                current: sanitizeActivityStatus(current),
+            };
+        }
+    }
+
+    if (
+        current
+        && isStatusActive(current)
+        && !current.is_pending
+        && current.activity_key
+        && !status.activity_key
+    ) {
+        return {
+            ok: false,
+            reason: "ACTIVITY_ALREADY_ACTIVE",
+            current: sanitizeActivityStatus(current),
+        };
+    }
+
+    const nextStatus = {
+        type: status.type,
+        label: String(status.label || "").trim() || "In activity",
+        activity_key: status.activity_key || `${status.type}:pending`,
+        object_id: status.object_id || null,
+        object_name: status.object_name || null,
+        group_id: status.group_id || null,
+        table_id: status.table_id || null,
+        is_pending: !!status.is_pending,
+        started_at: current?.started_at && current.activity_key === status.activity_key ? current.started_at : now,
+        expires_at: now + ACTIVITY_STATUS_TIMEOUT_MS,
+    };
+
+    activityLocks[key] = nextStatus;
+    const entries = matchingUserEntries(courseId, userId);
+    entries.forEach(([, u]) => {
+        u.activity_status = nextStatus;
+    });
+    scheduleActivityStatusTimeout(courseId, userId, nextStatus.activity_key);
+    broadcastRoomsForEntries(entries);
+
+    return {ok: true, status: sanitizeActivityStatus(nextStatus)};
+}
+
+app.post("/api/activity-status/clear", (req, res) => {
+    const sessionUser = req.session?.user;
+    const bodyUserId = req.body?.user_id;
+    const bodyCourseId = req.body?.course_id;
+    const userId = sessionUser?.user_id || bodyUserId;
+    const courseId = sessionUser?.course_id || bodyCourseId;
+
+    if (!userId || !courseId) {
+        return res.status(400).json({ok: false, reason: "MISSING_USER"});
+    }
+
+    if (
+        sessionUser
+        && (
+            String(sessionUser.user_id) !== String(bodyUserId || sessionUser.user_id)
+            || String(sessionUser.course_id) !== String(bodyCourseId || sessionUser.course_id)
+        )
+    ) {
+        return res.status(403).json({ok: false, reason: "SESSION_MISMATCH"});
+    }
+
+    const cleared = clearActivityStatusForUser({
+        courseId,
+        userId,
+        activityKey: req.body?.activity_key || null,
+    });
+
+    return res.json({ok: true, cleared});
+});
 
 io.on("connection", (socket) => {
     console.log("User connected:", socket.id);
@@ -159,6 +350,11 @@ io.on("connection", (socket) => {
             y: spawnY,
             direction: user.direction || "right",
         };
+        const lock = activityLocks[activityLockKey(courseId, user.user_id)];
+        if (lock && isStatusActive(lock)) {
+            users[socket.id].activity_status = lock;
+            scheduleActivityStatusTimeout(courseId, user.user_id, lock.activity_key);
+        }
 
         console.log(`${user.name || user.email} joined ${visibleRoom} in course ${courseId}`);
         io.to(scopedRoom).emit("update_users", getUsersInRoom(scopedRoom));
@@ -191,11 +387,30 @@ io.on("connection", (socket) => {
         logUserAction(user_id, "interact_obj", {object_name, object_id, group_id, url, action, targetRoom});
     });
 
+    socket.on("activity_status:set", (data, callback) => {
+        const result = setActivityStatusForUser({
+            courseId: data?.course_id,
+            userId: data?.user_id,
+            status: data?.status,
+        });
+        callback?.(result);
+    });
+
+    socket.on("activity_status:clear", (data, callback) => {
+        const cleared = clearActivityStatusForUser({
+            courseId: data?.course_id,
+            userId: data?.user_id,
+            activityKey: data?.activity_key || null,
+        });
+        callback?.({ok: true, cleared});
+    });
+
     socket.on("logout", () => {
         const u = users[socket.id];
         const scopedRoom = userRooms[socket.id];
         if (u && scopedRoom) {
             logUserAction(u.user_id, "logout", {course_id: u.course_id, room: u.room, position: {x: u.x, y: u.y}});
+            clearActivityStatusForUser({courseId: u.course_id, userId: u.user_id, broadcast: false});
             io.to(scopedRoom).emit("user_left", u.user_id);
             delete users[socket.id];
             io.to(scopedRoom).emit("update_users", getUsersInRoom(scopedRoom));
@@ -209,6 +424,7 @@ io.on("connection", (socket) => {
         const scopedRoom = userRooms[socket.id];
         if (u && scopedRoom) {
             logUserAction(u.user_id, "exit_room", {course_id: u.course_id, room: u.room, position: {x: u.x, y: u.y}});
+            clearActivityStatusForUser({courseId: u.course_id, userId: u.user_id, broadcast: false});
             io.to(scopedRoom).emit("user_left", u.user_id); // 🔹 notify others
             delete users[socket.id];
             io.to(scopedRoom).emit("update_users", getUsersInRoom(scopedRoom));
@@ -232,7 +448,7 @@ io.on("connection", (socket) => {
 function getUsersInRoom(scopedRoom) {
     const filtered = {};
     for (const [id, u] of Object.entries(users)) {
-        if (u.scopedRoom === scopedRoom) filtered[id] = u;
+        if (u.scopedRoom === scopedRoom) filtered[id] = serializeUserForRoom(u);
     }
     return filtered;
 }

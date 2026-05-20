@@ -29,13 +29,12 @@ import {
     generateMaterialDigest,
     generateQuestionDrafts,
 } from "../services/openaiQuestionBankService.js";
+import {INSTRUCTOR_ROLE_ID} from "../models/roleModel.js";
 
 function serializeAdmin(admin) {
     if (!admin) return null;
     return {
         useradmin_id: admin.useradmin_id,
-        instructor_id: admin.instructor_id,
-        instructor_name: admin.instructor_name,
         username: admin.username,
         role: admin.role,
         last_login: admin.last_login,
@@ -70,10 +69,15 @@ function validatePayload(resource, payload, mode = "create") {
         return null;
     }
 
+    if (resource === "roles") {
+        if (mode !== "update") return "Role data can only be edited";
+        if (!payload.role_name) return "Role name wajib diisi";
+        return null;
+    }
+
     if (resource === "courses") {
         if (!payload.course_code) return "Course code wajib diisi";
         if (!payload.course_name) return "Course name wajib diisi";
-        if (!payload.instructor_id) return "Instructor wajib dipilih";
         return null;
     }
 
@@ -90,11 +94,13 @@ function validatePayload(resource, payload, mode = "create") {
     }
 
     if (resource === "students") {
-        if (mode !== "update") return "Student data can only be edited";
-        if (!payload.name) return "Student name wajib diisi";
-        if (!payload.email) return "Student email wajib diisi";
+        if (!payload.name) return "User name wajib diisi";
+        if (!payload.email) return "User email wajib diisi";
         if (!payload.course_id) return "Course wajib dipilih";
-        if (!payload.course_group_id) return "Course group wajib dipilih";
+        if (!payload.role_id) return "Role wajib dipilih";
+        if (String(payload.role_id) !== String(INSTRUCTOR_ROLE_ID) && !payload.course_group_id) {
+            return "Course group wajib dipilih";
+        }
         return null;
     }
 

@@ -150,7 +150,9 @@
 }
 
 .quiz-member-strip img,
-.quiz-score-row img {
+.quiz-member-strip .avatar-icon,
+.quiz-score-row img,
+.quiz-score-row .avatar-icon {
     background: #f0f3f6;
     border-radius: 999px;
     height: 42px;
@@ -218,7 +220,8 @@
     min-height: 46px;
 }
 
-.quiz-member img {
+.quiz-member img,
+.quiz-member .avatar-icon {
     background: #ffffff;
     border-radius: 999px;
     height: 38px;

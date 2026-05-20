@@ -1,6 +1,7 @@
 import React, {useEffect, useMemo, useState} from "react";
 import {useNavigate} from "react-router-dom";
 import {apiGet, apiPost} from "../api/apiClient";
+import AvatarIcon from "../components/AvatarIcon";
 import UserHUD from "../components/UserHUD";
 import IndividualActivityPage from "./IndividualActivityPage";
 import TableActivityPage from "./TableActivityPage";
@@ -32,12 +33,6 @@ const activityCards = [
 const choiceLabel = (index) => ["A", "B", "C", "D"][index] || String(index + 1);
 
 const activityPrompt = (activity) => activity?.case_prompt || activity?.question_text || "Saved activity details are available below.";
-
-const avatarSrc = (path) => {
-    if (!path) return "/avatars/default.png";
-    const normalized = path.startsWith("/") ? path : `/${path}`;
-    return `/avatars${normalized}/thumbnail.png`;
-};
 
 const rankToneClass = (index) => {
     if (index === 0) return "course-leaderboard__rank--first";
@@ -188,7 +183,7 @@ const NoVirtualSpacePage = ({user, setLoggedIn, setUser}) => {
                                     {(item.students || []).length > 0 ? (
                                         item.students.map((student) => (
                                             <div className="course-leaderboard__student" key={student.user_id}>
-                                                <img src={avatarSrc(student.avatar_public_path)} alt={student.name} />
+                                                <AvatarIcon path={student.avatar_public_path} alt={student.name} />
                                                 <div>
                                                     <strong>{student.name}</strong>
                                                     <span>{student.activities_count || 0} activities</span>

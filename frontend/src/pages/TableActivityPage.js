@@ -1,13 +1,14 @@
-import React, {useEffect, useMemo, useState} from "react";
+import React, {useEffect, useMemo, useRef, useState} from "react";
 import {useSearchParams} from "react-router-dom";
 import {API_URL, apiGet, apiPatch, apiPost} from "../api/apiClient";
+import AvatarIcon from "../components/AvatarIcon";
+import {
+    ACTIVITY_STATUS,
+    activeActivityMessage,
+    clearActivityStatus,
+    setActivityStatus,
+} from "../utils/activityStatus";
 import "./TableActivityPage.css";
-
-const avatarSrc = (path) => {
-    if (!path) return "/avatars/default.png";
-    const normalizedPath = path.startsWith("/") ? path : `/${path}`;
-    return `/avatars${normalizedPath}/thumbnail.png`;
-};
 
 const getMessage = (data, fallback) => data?.message || fallback;
 
@@ -32,6 +33,8 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack}) => {
     const [busy, setBusy] = useState(false);
     const [submittingFeedback, setSubmittingFeedback] = useState(false);
     const [message, setMessage] = useState("");
+    const [currentUser, setCurrentUser] = useState(null);
+    const activityStatusKeyRef = useRef(null);
 
     const selectedTopic = useMemo(
         () => context?.topics?.find((topic) => String(topic.topic_id) === String(selectedTopicId)),
@@ -62,6 +65,28 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack}) => {
         loadContext(noVirtual && !selectedEntryGroupId ? "101" : groupId, !noVirtual || !!selectedEntryGroupId);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [routeGroupId, objectId, noVirtual, selectedEntryGroupId]);
+
+    useEffect(() => {
+        apiGet("/session").then((data) => {
+            if (data.loggedIn && data.user) setCurrentUser(data.user);
+        });
+    }, []);
+
+    useEffect(() => {
+        if (!currentUser) return undefined;
+
+        const clearStatusOnPageHide = () => {
+            if (!activityStatusKeyRef.current) return;
+            clearActivityStatus({
+                user: currentUser,
+                activityKey: activityStatusKeyRef.current,
+                keepalive: true,
+            });
+        };
+
+        window.addEventListener("pagehide", clearStatusOnPageHide);
+        return () => window.removeEventListener("pagehide", clearStatusOnPageHide);
+    }, [currentUser]);
 
     useEffect(() => {
         if (!activeSession?.session_id || !activeSession?.is_member || isGeneratingFeedback) return undefined;
@@ -118,6 +143,47 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack}) => {
         };
     }, [activeSession?.session_id, activeSession?.is_member]);
 
+    useEffect(() => {
+        if (!currentUser || !activeSession?.session_id || !activeSession?.is_member || activeSession?.is_submitted) return undefined;
+
+        const status = ACTIVITY_STATUS.group_discussion;
+        const activityKey = `${status.type}:${activeSession.session_id}`;
+        const metadata = {
+            object_id: activeSession.object_id || objectId,
+            group_id: activeSession.group_id,
+        };
+        const refreshStatus = () => {
+            activityStatusKeyRef.current = activityKey;
+            setActivityStatus({user: currentUser, status, activityKey, metadata});
+        };
+
+        refreshStatus();
+        const intervalId = window.setInterval(refreshStatus, 120000);
+
+        return () => {
+            window.clearInterval(intervalId);
+            clearActivityStatus({user: currentUser, activityKey, keepalive: true});
+            if (activityStatusKeyRef.current === activityKey) activityStatusKeyRef.current = null;
+        };
+    }, [currentUser, activeSession?.session_id, activeSession?.is_member, activeSession?.is_submitted, activeSession?.object_id, activeSession?.group_id, objectId]);
+
+    const reserveGroupActivityStatus = async (activityKey, metadata, isPending = false) => {
+        if (!currentUser) return {ok: true};
+        const result = await setActivityStatus({
+            user: currentUser,
+            status: ACTIVITY_STATUS.group_discussion,
+            activityKey,
+            metadata,
+            isPending,
+        });
+        if (!result.ok) {
+            setMessage(activeActivityMessage(result.current));
+        } else {
+            activityStatusKeyRef.current = activityKey;
+        }
+        return result;
+    };
+
     const handleStart = async () => {
         const nextGroupId = noVirtual ? entryCode.trim() : groupId;
         if (noVirtual && !isNoVirtualCode(nextGroupId)) {
@@ -131,6 +197,16 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack}) => {
 
         setBusy(true);
         setMessage("");
+        const pendingActivityKey = `${ACTIVITY_STATUS.group_discussion.type}:pending:${nextGroupId}`;
+        const statusResult = await reserveGroupActivityStatus(pendingActivityKey, {
+            object_id: objectId,
+            group_id: nextGroupId,
+        }, true);
+        if (!statusResult.ok) {
+            setBusy(false);
+            return;
+        }
+
         const data = await apiPost("/table/sessions", {
             group_id: nextGroupId,
             object_id: objectId,
@@ -148,6 +224,8 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack}) => {
             setMessage(getMessage(data, "Session aktif ditemukan. Silakan join."));
         } else {
             setMessage(getMessage(data, "Gagal membuat group session."));
+            if (currentUser) clearActivityStatus({user: currentUser, activityKey: pendingActivityKey});
+            if (activityStatusKeyRef.current === pendingActivityKey) activityStatusKeyRef.current = null;
         }
         setBusy(false);
     };
@@ -157,6 +235,15 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack}) => {
 
         setBusy(true);
         setMessage("");
+        const statusResult = await reserveGroupActivityStatus(`${ACTIVITY_STATUS.group_discussion.type}:${session.session_id}`, {
+            object_id: session.object_id || objectId,
+            group_id: session.group_id || nextGroupId,
+        });
+        if (!statusResult.ok) {
+            setBusy(false);
+            return;
+        }
+
         const data = await apiPost(`/table/sessions/${session.session_id}/join`, {});
         if (data.session) {
             if (noVirtual) setSelectedEntryGroupId(nextGroupId);
@@ -164,6 +251,8 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack}) => {
             setAnswerText(data.session.my_answer?.answer_text || "");
         } else {
             setMessage(getMessage(data, "Gagal join group."));
+            if (currentUser) clearActivityStatus({user: currentUser, activityKey: `${ACTIVITY_STATUS.group_discussion.type}:${session.session_id}`});
+            if (activityStatusKeyRef.current === `${ACTIVITY_STATUS.group_discussion.type}:${session.session_id}`) activityStatusKeyRef.current = null;
         }
         setBusy(false);
     };
@@ -206,6 +295,8 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack}) => {
         setBusy(true);
         setMessage("");
         const data = await apiPost(`/table/sessions/${activeSession.session_id}/exit`, {});
+        if (currentUser) clearActivityStatus({user: currentUser, activityKey: `${ACTIVITY_STATUS.group_discussion.type}:${activeSession.session_id}`});
+        activityStatusKeyRef.current = null;
         setAnswerText("");
         if (data.session?.is_active) {
             setActiveSession(data.session);
@@ -274,7 +365,7 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack}) => {
                     <div className="table-members__heading">Group {activeSession.group_id}</div>
                     {activeSession.members.map((member) => (
                         <div className="table-member" key={member.member_id}>
-                            <img src={avatarSrc(member.avatar_public_path)} alt={member.name} />
+                            <AvatarIcon path={member.avatar_public_path} alt={member.name} />
                             <span>{member.name}</span>
                         </div>
                     ))}
@@ -325,7 +416,7 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack}) => {
                                 {(gamification.leaderboard || []).map((item, index) => (
                                     <article className="leaderboard-row" key={item.user_id}>
                                         <div className="leaderboard-rank">{index + 1}</div>
-                                        <img src={avatarSrc(item.avatar_public_path)} alt={item.name} />
+                                        <AvatarIcon path={item.avatar_public_path} alt={item.name} />
                                         <div className="leaderboard-student">
                                             <strong>{item.name}</strong>
                                             <span>{item.answered ? "Answered" : "Waiting for answer"}</span>
@@ -384,7 +475,7 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack}) => {
                                 {activeAnswers.map((answer) => (
                                     <article className="answer-card" key={answer.answer_id}>
                                         <div className="answer-card__author">
-                                            <img src={avatarSrc(answer.avatar_public_path)} alt={answer.name} />
+                                            <AvatarIcon path={answer.avatar_public_path} alt={answer.name} />
                                             <div>
                                                 <strong>{answer.name}</strong>
                                                 <span>{new Date(answer.updated_at).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})}</span>
@@ -543,7 +634,7 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack}) => {
                             </p>
                             <div className="member-strip">
                                 {activeSession.members.map((member) => (
-                                    <img key={member.member_id} src={avatarSrc(member.avatar_public_path)} alt={member.name} />
+                                    <AvatarIcon key={member.member_id} path={member.avatar_public_path} alt={member.name} />
                                 ))}
                             </div>
                             <button

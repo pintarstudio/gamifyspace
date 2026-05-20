@@ -308,7 +308,8 @@
     color: #24516d;
 }
 
-.course-leaderboard__row img {
+.course-leaderboard__row img,
+.course-leaderboard__row .avatar-icon {
     background: #ffffff;
     border-radius: 999px;
     height: 36px;
@@ -316,7 +317,8 @@
     width: 36px;
 }
 
-.course-leaderboard--compact .course-leaderboard__row img {
+.course-leaderboard--compact .course-leaderboard__row img,
+.course-leaderboard--compact .course-leaderboard__row .avatar-icon {
     height: 30px;
     width: 30px;
 }
@@ -340,7 +342,8 @@
     padding: 7px;
 }
 
-.course-leaderboard__student img {
+.course-leaderboard__student img,
+.course-leaderboard__student .avatar-icon {
     background: #f0f3f6;
     border-radius: 999px;
     height: 26px;
@@ -518,7 +521,8 @@
     gap: 10px;
 }
 
-.activity-member-list img {
+.activity-member-list img,
+.activity-member-list .avatar-icon {
     border-radius: 999px;
     height: 36px;
     object-fit: cover;

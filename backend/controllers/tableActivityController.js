@@ -8,7 +8,6 @@ import {
     beginFeedbackGeneration,
     createGroupSession,
     ensureTableActivityTables,
-    ensureSampleCasesForTopics,
     exitSessionMember,
     getActiveGroupSession,
     getCourseById,
@@ -142,10 +141,6 @@ export async function getTableContext(req, res) {
             getTopicsForCourse(user.course_id),
             getActiveGroupSession(user.course_id, groupId),
         ]);
-        if (course && topics.length > 0) {
-            await ensureSampleCasesForTopics(course, topics);
-        }
-
         const {members, answers, feedbackGroups, gamification} = await loadSessionActivity(activeSession, user);
 
         res.json({
@@ -189,7 +184,6 @@ export async function startTableSession(req, res) {
             return res.status(400).json({message: "Pilih topic terlebih dahulu"});
         }
 
-        await ensureSampleCasesForTopics(course, [topic]);
         const caseSelection = await selectAvailableCaseForStudent(topic.topic_id, user.user_id);
         if (!caseSelection.caseStudy) {
             return res.status(409).json({

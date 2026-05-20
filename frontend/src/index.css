@@ -166,6 +166,24 @@ code {
     width: fit-content;
 }
 
+.login-demo-card .login-role-chip,
+.login-avatar-role {
+    background: #edf2ff;
+    border: 1px solid #b7c7f3;
+    border-radius: 999px;
+    color: #2d426f;
+    display: inline-flex;
+    font-size: 12px;
+    font-weight: 900;
+    margin-top: 5px;
+    padding: 5px 9px;
+    width: fit-content;
+}
+
+.login-avatar-role {
+    margin-top: 6px;
+}
+
 .login-field-grid {
     display: grid;
     gap: 14px;
@@ -281,7 +299,9 @@ code {
     box-shadow: 0 0 0 3px rgba(47, 113, 151, 0.16);
 }
 
-.avatar-item img {
+.avatar-item img,
+.avatar-item .avatar-icon,
+.avatar-item__icon {
     background: #edf2f7;
     border-radius: 8px;
     height: 58px;
@@ -318,11 +338,6 @@ code {
     background: #9aa5b1;
     box-shadow: none;
     cursor: not-allowed;
-}
-
-.gender-group {
-    text-align: left;
-    margin-bottom: 12px;
 }
 
 button {

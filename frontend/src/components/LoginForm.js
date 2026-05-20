@@ -1,11 +1,13 @@
 import React, {useEffect, useState} from "react";
 import {apiGet, apiPost} from "../api/apiClient";
 import {validateLogin} from "../utils/validate";
+import AvatarIcon from "./AvatarIcon";
 
 const LoginForm = ({onLoginSuccess}) => {
     const [courses, setCourses] = useState([]);
     const [users, setUsers] = useState([]);
     const [avatars, setAvatars] = useState([]);
+    const [roles, setRoles] = useState([]);
     const [demoLogin, setDemoLogin] = useState(null);
     const [demoError, setDemoError] = useState("");
     const [demoLoading, setDemoLoading] = useState(false);
@@ -13,12 +15,25 @@ const LoginForm = ({onLoginSuccess}) => {
     const [form, setForm] = useState({
         course_id: "",
         user_id: "",
+        role_id: "",
         avatar_id: "",
         password: "",
     });
 
     useEffect(() => {
         apiGet("/courses").then(setCourses);
+    }, []);
+
+    useEffect(() => {
+        apiGet("/roles").then((data) => {
+            const roleRows = Array.isArray(data) ? data : [];
+            const studentRole = roleRows.find((role) => String(role.role_name).toLowerCase() === "student");
+            setRoles(roleRows);
+            setForm((prev) => prev.role_id
+                ? prev
+                : {...prev, role_id: studentRole?.role_id || roleRows[0]?.role_id || ""}
+            );
+        });
     }, []);
 
     useEffect(() => {
@@ -50,6 +65,7 @@ const LoginForm = ({onLoginSuccess}) => {
                     ...prev,
                     course_id: data.course.course_id,
                     user_id: data.user.user_id,
+                    role_id: data.user.role_id || 1,
                     password: "adminadmin",
                 }));
             })
@@ -90,6 +106,7 @@ const LoginForm = ({onLoginSuccess}) => {
         const res = await apiPost("/login", {
             user_id: form.user_id,
             course_id: form.course_id,
+            role_id: studentUrlMode ? 1 : form.role_id,
             avatar_id: noAvatarStudentAccess ? null : form.avatar_id,
             password: form.password,
             avatar_public_path: noAvatarStudentAccess ? null : selectedAvatar ? selectedAvatar.avatar_public_path : null
@@ -107,6 +124,7 @@ const LoginForm = ({onLoginSuccess}) => {
     };
 
     const selectedAvatar = avatars.find(a => String(a.avatar_id) === String(form.avatar_id));
+    const selectedRole = roles.find((role) => String(role.role_id) === String(form.role_id));
     const isDemoResolved = !!demoLogin?.course && !!demoLogin?.user;
     const noAvatarStudentAccess = studentUrlMode
         && !!demoLogin?.user?.use_no_virtual_space;
@@ -153,6 +171,7 @@ const LoginForm = ({onLoginSuccess}) => {
                         <div>
                             <b>{demoLogin.user.name}</b>
                             <small>{demoLogin.user.email}</small>
+                            <em className="login-role-chip">{demoLogin.user.role_name || "Student"}</em>
                         </div>
                         {demoLogin.created && <em className="login-created-note">New student profile created.</em>}
                     </section>
@@ -197,6 +216,23 @@ const LoginForm = ({onLoginSuccess}) => {
                                 </select>
                             </label>
 
+                            <label className="login-field">
+                                <span>Role</span>
+                                <select
+                                    name="role_id"
+                                    value={form.role_id}
+                                    onChange={handleChange}
+                                    required
+                                >
+                                    <option value="">Choose role</option>
+                                    {roles.map((role) => (
+                                        <option key={role.role_id} value={role.role_id}>
+                                            {role.role_name}
+                                        </option>
+                                    ))}
+                                </select>
+                            </label>
+
                             <label className="login-field login-field--full">
                                 <span>Password</span>
                                 <input
@@ -217,10 +253,11 @@ const LoginForm = ({onLoginSuccess}) => {
                             <div>
                                 <span>Avatar</span>
                                 <strong>{selectedAvatar?.avatar_name || "Choose avatar"}</strong>
+                                {selectedRole && <small className="login-avatar-role">Role: {selectedRole.role_name}</small>}
                             </div>
                             {selectedAvatar && (
-                                <img
-                                    src={`/avatars${selectedAvatar.avatar_public_path}/thumbnail.png`}
+                                <AvatarIcon
+                                    path={selectedAvatar.avatar_public_path}
                                     alt={selectedAvatar.avatar_name}
                                     className="login-avatar-preview"
                                 />
@@ -236,10 +273,7 @@ const LoginForm = ({onLoginSuccess}) => {
                                     type="button"
                                     aria-pressed={String(form.avatar_id) === String(a.avatar_id)}
                                 >
-                                    <img
-                                        src={`/avatars${a.avatar_public_path}/thumbnail.png`}
-                                        alt={a.avatar_name}
-                                    />
+                                    <AvatarIcon path={a.avatar_public_path} alt={a.avatar_name} className="avatar-item__icon" />
                                     <span>{a.avatar_name}</span>
                                 </button>
                             ))}
@@ -250,7 +284,7 @@ const LoginForm = ({onLoginSuccess}) => {
                     <button
                         className="login-submit"
                         type="submit"
-                        disabled={demoLoading || !form.course_id || !form.user_id || (!noAvatarStudentAccess && !form.avatar_id) || !form.password}
+                        disabled={demoLoading || !form.course_id || !form.user_id || !form.role_id || (!noAvatarStudentAccess && !form.avatar_id) || !form.password}
                     >
                         Masuk
                     </button>

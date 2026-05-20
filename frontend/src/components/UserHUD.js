@@ -1,11 +1,6 @@
 import React from "react";
+import AvatarIcon from "./AvatarIcon";
 import "./UserHUD.css";
-
-const avatarSrc = (path) => {
-  if (!path) return "/avatars/default.png";
-  const normalized = path.startsWith("/") ? path : `/${path}`;
-  return `/avatars${normalized}/thumbnail.png`;
-};
 
 const UserHUD = ({ currentUser, handleLogout, summary, hideAvatar = false }) => {
   if (!currentUser) return null;
@@ -15,6 +10,7 @@ const UserHUD = ({ currentUser, handleLogout, summary, hideAvatar = false }) => 
   const individualXp = summary?.total_individual_exercise_xp || 0;
   const courseName = currentUser.course_name || "Course";
   const groupName = currentUser.course_group_name || "No group";
+  const roleName = currentUser.role_name || "Student";
   const individualLevel = summary?.individual_level || {
     level: 1,
     name: "Rookie",
@@ -25,11 +21,12 @@ const UserHUD = ({ currentUser, handleLogout, summary, hideAvatar = false }) => 
   return (
     <section className={`user-hud${gamificationEnabled ? " user-hud--game" : ""}${hideAvatar ? " user-hud--plain" : ""}`}>
       {!hideAvatar && (
-        <img src={avatarSrc(currentUser.avatar_public_path)} alt={currentUser.name} className="user-hud__avatar" />
+        <AvatarIcon path={currentUser.avatar_public_path} alt={currentUser.name} className="user-hud__avatar" />
       )}
 
       <div className="user-hud__body">
         <div className="user-hud__name">{currentUser.name}</div>
+        <div className="user-hud__role">{roleName}</div>
         <div className="user-hud__meta" aria-label={`${courseName}, ${groupName}`}>
           <span>{courseName}</span>
           <span>{groupName}</span>

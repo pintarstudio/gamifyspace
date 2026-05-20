@@ -2,15 +2,10 @@
 import React, {useEffect, useMemo, useState} from "react";
 import {useNavigate} from "react-router-dom";
 import {apiGet, apiPost} from "../api/apiClient";
+import AvatarIcon from "../components/AvatarIcon";
 import VirtualSpacePixi from "../components/VirtualSpacePixi";
 import UserHUD from "../components/UserHUD";
 import "./VirtualSpacePage.css";
-
-const avatarSrc = (path) => {
-    if (!path) return "/avatars/default.png";
-    const normalized = path.startsWith("/") ? path : `/${path}`;
-    return `/avatars${normalized}/thumbnail.png`;
-};
 
 const choiceLabel = (index) => ["A", "B", "C", "D"][index] || String(index + 1);
 
@@ -230,7 +225,7 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
                                         {(item.students || []).length > 0 ? (
                                             item.students.map((student) => (
                                                 <div className="course-leaderboard__student" key={student.user_id}>
-                                                    <img src={avatarSrc(student.avatar_public_path)} alt={student.name} />
+                                                    <AvatarIcon path={student.avatar_public_path} alt={student.name} />
                                                     <div>
                                                         <strong>{student.name}</strong>
                                                         <span>{student.activities_count || 0} activities</span>
@@ -263,7 +258,7 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
                                 <div className={`course-leaderboard__rank course-leaderboard__rank--quiz ${rankToneClass(index)}`}>
                                     {index + 1}
                                 </div>
-                                <img src={avatarSrc(item.avatar_public_path)} alt={item.name} />
+                                <AvatarIcon path={item.avatar_public_path} alt={item.name} />
                                 <div>
                                     <strong>{item.name}</strong>
                                     <span>{item.quizzes_count} quizzes</span>
@@ -379,7 +374,7 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
                                         <div className="activity-member-list">
                                             {selectedActivity.members.map((member) => (
                                                 <article key={member.user_id}>
-                                                    <img src={avatarSrc(member.avatar_public_path)} alt={member.name} />
+                                                    <AvatarIcon path={member.avatar_public_path} alt={member.name} />
                                                     <div>
                                                         <strong>{member.name}</strong>
                                                         {showGameLayer
@@ -491,7 +486,7 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
                                                     {(selectedActivity.results?.scoreboard || []).map((item, index) => (
                                                         <article key={item.user_id}>
                                                             <div className="quiz-history-rank">{index + 1}</div>
-                                                            <img src={avatarSrc(item.avatar_public_path)} alt={item.name} />
+                                                            <AvatarIcon path={item.avatar_public_path} alt={item.name} />
                                                             <div>
                                                                 <strong>{item.name}</strong>
                                                                 <span>{item.correct_count}/{item.question_count} correct</span>
@@ -521,7 +516,7 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
                                                                     className={`quiz-history-answer${showGameLayer ? "" : " quiz-history-answer--no-score"}`}
                                                                     key={answer.answer_id}
                                                                 >
-                                                                    <img src={avatarSrc(answer.avatar_public_path)} alt={answer.name} />
+                                                                    <AvatarIcon path={answer.avatar_public_path} alt={answer.name} />
                                                                     <div>
                                                                         <strong>{answer.name}</strong>
                                                                         <span>
@@ -553,7 +548,7 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
                                             {selectedActivity.answers.map((answer) => (
                                                 <article key={answer.user_id}>
                                                     <div className="history-answer-author">
-                                                        <img src={avatarSrc(answer.avatar_public_path)} alt={answer.name} />
+                                                        <AvatarIcon path={answer.avatar_public_path} alt={answer.name} />
                                                         <strong>{answer.name}</strong>
                                                     </div>
                                                     <p>{answer.answer_text}</p>
@@ -592,7 +587,7 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
                                                         ).map((student, index) => (
                                                             <span key={`${student.user_id || student.name}-${index}`}>
                                                                 {student.avatar_public_path && (
-                                                                    <img src={avatarSrc(student.avatar_public_path)} alt={student.name} />
+                                                                    <AvatarIcon path={student.avatar_public_path} alt={student.name} />
                                                                 )}
                                                                 <strong>{student.name}</strong>
                                                             </span>

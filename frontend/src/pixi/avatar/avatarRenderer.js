@@ -1,4 +1,13 @@
 import * as PIXI from "pixi.js";
+import {
+    AVATAR_SHEET_DIRECTIONS,
+    AVATAR_SHEET_FRAME_HEIGHT,
+    AVATAR_SHEET_FRAME_WIDTH,
+    AVATAR_SHEET_FRAMES_PER_DIRECTION,
+    AVATAR_SHEET_RENDER_TILE_WIDTH,
+    avatarFallbackSrc,
+    avatarSpriteSheetSrc,
+} from "../../utils/avatarAssets";
 
 // Kamu boleh hapus lerp ini nanti kalau sudah tidak dipakai di mana-mana,
 // untuk sekarang biarkan saja kalau masih merasa perlu.
@@ -6,8 +15,81 @@ import * as PIXI from "pixi.js";
 //     return current + (target - current) * factor;
 // }
 
-// Cache atlas yang sudah dimuat untuk efisiensi
-const atlasCache = {};
+const avatarAnimationCache = {};
+
+const avatarPublicPath = (user) => {
+    if (user.avatar_public_path && user.avatar_public_path.trim() !== "") {
+        return user.avatar_public_path;
+    }
+    return user.avatar && user.avatar.trim() !== "" ? user.avatar : null;
+};
+
+const textureFromFrame = (baseTexture, frame) => new PIXI.Texture({
+    source: baseTexture.source,
+    frame,
+});
+
+const buildDirectionalFrames = (texture) => {
+    const framesByDirection = {};
+
+    AVATAR_SHEET_DIRECTIONS.forEach((direction, directionIndex) => {
+        framesByDirection[direction] = [];
+
+        for (let i = 0; i < AVATAR_SHEET_FRAMES_PER_DIRECTION; i += 1) {
+            const frameIndex = directionIndex * AVATAR_SHEET_FRAMES_PER_DIRECTION + i;
+            framesByDirection[direction].push(textureFromFrame(
+                texture,
+                new PIXI.Rectangle(
+                    frameIndex * AVATAR_SHEET_FRAME_WIDTH,
+                    0,
+                    AVATAR_SHEET_FRAME_WIDTH,
+                    AVATAR_SHEET_FRAME_HEIGHT
+                )
+            ));
+        }
+    });
+
+    return framesByDirection;
+};
+
+const loadAvatarAnimation = async (path) => {
+    const cacheKey = path || "__default__";
+    if (avatarAnimationCache[cacheKey]) return avatarAnimationCache[cacheKey];
+
+    const loadPromise = (async () => {
+        if (path) {
+            const texture = await PIXI.Assets.load(avatarSpriteSheetSrc(path));
+            return {
+                frames: buildDirectionalFrames(texture),
+                mode: "directional-sheet",
+            };
+        }
+
+        const texture = await PIXI.Assets.load(avatarFallbackSrc());
+        return {
+            frames: {right: [texture], up: [texture], left: [texture], down: [texture]},
+            mode: "static",
+        };
+    })();
+
+    avatarAnimationCache[cacheKey] = loadPromise;
+    return loadPromise;
+};
+
+const setAvatarDirection = (avatar, direction) => {
+    const dir = direction || avatar.lastDirection || "right";
+    const frames = avatar.framesByDirection?.[dir] || avatar.framesByDirection?.right;
+    const sprite = avatar.sprite;
+
+    if (frames && sprite.textures !== frames) {
+        const wasPlaying = sprite.playing;
+        sprite.textures = frames;
+        sprite.gotoAndStop(0);
+        if (wasPlaying && sprite.play) sprite.play();
+    }
+
+    sprite.scale.x = sprite.baseScaleX;
+};
 
 const createAvatarNameTag = (name) => {
     const paddingX = 8;
@@ -78,66 +160,26 @@ export async function renderUsers(worldContainer, avatars, usersData, localKeyRe
     });
 
     for (const [id, u] of Object.entries(usersData)) {
-        // Tentukan URL avatar
-        let avatarUrl;
-        if (u.avatar_public_path && u.avatar_public_path.trim() !== "") {
-            avatarUrl = `/avatars${u.avatar_public_path}/walk.json`;
-        } else if (u.avatar && u.avatar.trim() !== "") {
-            avatarUrl = u.avatar;
-        } else {
-            avatarUrl = "/avatars/default.png";
-        }
+        const avatarPath = avatarPublicPath(u);
 
         // Jika avatar untuk user ini belum ada → buat sprite & nameText
         if (!avatars[id]) {
             let sprite;
 
             try {
-                if (avatarUrl.endsWith(".json")) {
-                    // Gunakan cache atlas jika sudah pernah dimuat
-                    const atlas = atlasCache[avatarUrl] || await PIXI.Assets.load(avatarUrl);
-                    atlasCache[avatarUrl] = atlas;
+                const animation = await loadAvatarAnimation(avatarPath);
+                const initialDirection = u.direction || "right";
+                const initialFrames = animation.frames[initialDirection] || animation.frames.right;
 
-                    const frames = [];
-                    const animKeys = Object.keys(atlas.animations || {});
-                    const firstAnimKey = animKeys.length > 0 ? animKeys[0] : null;
-
-                    if (firstAnimKey) {
-                        for (const frameItem of atlas.animations[firstAnimKey]) {
-                            let texture;
-                            if (typeof frameItem === "string") {
-                                texture = atlas.textures[frameItem];
-                            } else if (frameItem instanceof PIXI.Texture) {
-                                texture = frameItem;
-                            } else if (frameItem?.frame) {
-                                // v8 style
-                                texture = new PIXI.Texture(
-                                    atlas.baseTexture ?? atlas.source?.baseTexture,
-                                    frameItem.frame
-                                );
-                            }
-                            if (texture) frames.push(texture);
-                        }
-
-                        if (frames.length > 0) {
-                            sprite = new PIXI.AnimatedSprite(frames);
-                            sprite.animationSpeed = 0.13;
-                            sprite.play();
-                        } else {
-                            const texture = await PIXI.Assets.load("/avatars/default.png");
-                            sprite = new PIXI.Sprite(texture);
-                        }
-                    } else {
-                        const texture = await PIXI.Assets.load("/avatars/default.png");
-                        sprite = new PIXI.Sprite(texture);
-                    }
-                } else {
-                    const texture = await PIXI.Assets.load(avatarUrl);
-                    sprite = new PIXI.Sprite(texture);
-                }
+                sprite = new PIXI.AnimatedSprite(initialFrames);
+                sprite.animationSpeed = 0.13;
+                sprite.gotoAndStop(0);
 
                 // Ukuran Avatar
-                const scaleFactor = (TILE_SIZE * 3) / sprite.texture.width;
+                const targetAvatarWidth = animation.mode === "directional-sheet"
+                    ? TILE_SIZE * AVATAR_SHEET_RENDER_TILE_WIDTH
+                    : TILE_SIZE * 3;
+                const scaleFactor = targetAvatarWidth / sprite.texture.width;
                 sprite.scale.set(scaleFactor);
                 sprite.anchor.set(0.5);
                 sprite.baseScaleX = sprite.scale.x;
@@ -160,14 +202,18 @@ export async function renderUsers(worldContainer, avatars, usersData, localKeyRe
                 avatars[id] = {
                     sprite,
                     nameText,
+                    framesByDirection: animation.frames,
+                    animationMode: animation.mode,
                     // target posisi (untuk di-lerp di ticker)
                     // targetX: u.x,
                     // targetY: u.y,
                     // simpan arah
+                    setDirection: (direction) => setAvatarDirection(avatars[id], direction),
                     lastDirection: u.direction || "right",
                 };
+                setAvatarDirection(avatars[id], u.direction || "right");
             } catch (err) {
-                console.error("Failed to load avatar:", avatarUrl, err);
+                console.error("Failed to load avatar:", avatarPath, err);
                 continue;
             }
         } else {
@@ -189,23 +235,12 @@ export async function renderUsers(worldContainer, avatars, usersData, localKeyRe
                 dir = avatar.lastDirection;
             }
 
-            if (id !== localKeyRef.current) {
-                // Remote user: pakai direction dari server
-                if (dir === "left") {
-                    avatar.sprite.scale.x = -avatar.sprite.baseScaleX;
-                } else if (dir === "right") {
-                    avatar.sprite.scale.x = avatar.sprite.baseScaleX;
-                }
-            } else {
+            if (id === localKeyRef.current) {
                 // Local user: kalau server belum sync, pakai lastDirection di localStorage
-                const localDir = dir || localStorage.getItem("lastDirection") || "right";
-                avatar.sprite.scale.x =
-                    localDir === "left"
-                        ? -avatar.sprite.baseScaleX
-                        : avatar.sprite.baseScaleX;
-                dir = localDir;
+                dir = dir || localStorage.getItem("lastDirection") || "right";
             }
 
+            setAvatarDirection(avatar, dir);
             avatar.lastDirection = dir;
         }
     }

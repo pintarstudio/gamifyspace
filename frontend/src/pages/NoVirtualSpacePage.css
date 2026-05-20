@@ -300,6 +300,41 @@
     .virtual-sidebar {
         overflow: visible;
     }
+
+    .no-virtual-shell .user-hud--plain.user-hud--game {
+        align-items: start;
+        grid-template-columns: minmax(0, 1fr) auto;
+    }
+
+    .no-virtual-shell .user-hud--plain.user-hud--game .user-hud__body {
+        align-items: start;
+        display: grid;
+        gap: 4px 14px;
+        grid-template-columns: minmax(180px, 0.82fr) minmax(260px, 1.18fr);
+    }
+
+    .no-virtual-shell .user-hud--plain.user-hud--game .user-hud__name,
+    .no-virtual-shell .user-hud--plain.user-hud--game .user-hud__meta,
+    .no-virtual-shell .user-hud--plain.user-hud--game .user-hud__xp-list {
+        grid-column: 1;
+    }
+
+    .no-virtual-shell .user-hud--plain.user-hud--game .user-hud__xp-list {
+        margin-top: 4px;
+    }
+
+    .no-virtual-shell .user-hud--plain.user-hud--game .user-hud__level {
+        align-self: stretch;
+        grid-column: 2;
+        grid-row: 1 / span 3;
+        margin-top: 0;
+        min-width: 0;
+    }
+
+    .no-virtual-shell .user-hud--plain.user-hud--game .user-hud__logout {
+        align-self: start;
+        white-space: nowrap;
+    }
 }
 
 @media (max-width: 760px) {
@@ -320,5 +355,23 @@
     .table-app--embedded.table-workspace,
     .quiz-app--embedded.quiz-workspace {
         grid-template-columns: 1fr;
+    }
+
+    .no-virtual-shell .user-hud--plain.user-hud--game {
+        grid-template-columns: 1fr;
+    }
+
+    .no-virtual-shell .user-hud--plain.user-hud--game .user-hud__body {
+        grid-template-columns: 1fr;
+    }
+
+    .no-virtual-shell .user-hud--plain.user-hud--game .user-hud__level {
+        grid-column: 1;
+        grid-row: auto;
+        margin-top: 8px;
+    }
+
+    .no-virtual-shell .user-hud--plain.user-hud--game .user-hud__logout {
+        justify-self: start;
     }
 }

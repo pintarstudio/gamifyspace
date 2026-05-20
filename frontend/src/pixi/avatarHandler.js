@@ -18,10 +18,10 @@ export function initAvatars(app, worldContainer, checkCollision, TILE_SIZE, mapW
     const localUser = {
         user_id: user.user_id || user.id,
         avatar: user.avatar_public_path && user.avatar_public_path.trim() !== ""
-            ? `/avatars${user.avatar_public_path}/walk.json`
+            ? user.avatar_public_path
             : user.avatar && user.avatar.trim() !== ""
                 ? user.avatar
-                : "/avatars/default.png",
+                : null,
         x: spawnPosition.x,
         y: spawnPosition.y,
         name: user.name || "User",

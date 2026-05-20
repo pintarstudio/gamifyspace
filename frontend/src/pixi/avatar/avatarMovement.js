@@ -41,8 +41,14 @@ export function initAvatarMovement(app, worldContainer, avatars, localUserRef, l
             // Persist last known direction
             let direction = lastDirection || "right";
 
-            if (keys["ArrowUp"]) newY -= step;
-            if (keys["ArrowDown"]) newY += step;
+            if (keys["ArrowUp"]) {
+                newY -= step;
+                direction = "up";
+            }
+            if (keys["ArrowDown"]) {
+                newY += step;
+                direction = "down";
+            }
             if (keys["ArrowLeft"]) {
                 newX -= step;
                 direction = "left";
@@ -73,11 +79,7 @@ export function initAvatarMovement(app, worldContainer, avatars, localUserRef, l
                 avatars[myKey].nameText.y =
                     localUser.y - avatars[myKey].sprite.height * 0.6;
 
-                if (direction === "left") {
-                    avatars[myKey].sprite.scale.x = -avatars[myKey].sprite.baseScaleX;
-                } else if (direction === "right") {
-                    avatars[myKey].sprite.scale.x = avatars[myKey].sprite.baseScaleX;
-                }
+                avatars[myKey].setDirection?.(direction);
             }
             // Simpan arah terakhir di memori dan localStorage untuk persistensi antar-room
             localUser.direction = direction;

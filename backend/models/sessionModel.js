@@ -21,11 +21,12 @@ export async function findSession(session_id) {
              s.*,
              u.name,
              u.email,
-             u.gender,
              u.course_id,
              c.course_name,
              u.course_group_id,
              cg.group_name AS course_group_name,
+             u.role_id,
+             r.role_name,
              COALESCE(cg.gamification_enabled, FALSE) AS gamification_enabled,
              NOT COALESCE(cg.virtual_space_enabled, FALSE) AS use_no_virtual_space,
              COALESCE(cg.virtual_space_enabled, FALSE) AS virtual_space_enabled,
@@ -39,6 +40,8 @@ export async function findSession(session_id) {
          LEFT JOIN course_groups cg
                 ON cg.course_group_id = u.course_group_id
                AND cg.deleted_at IS NULL
+         JOIN roles r
+           ON r.role_id = u.role_id
          JOIN avatars a ON a.avatar_id = s.avatar_id        
          WHERE s.session_id = $1
            AND s.is_active = TRUE`,

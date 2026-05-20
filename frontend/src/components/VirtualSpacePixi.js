@@ -3,6 +3,15 @@ import * as PIXI from "pixi.js";
 import socket from "../utils/socketClient";
 import {initMap} from "../pixi/mapRenderer";
 import {initObjects} from "../pixi/objectHandler";
+import {
+    AVATAR_SHEET_DIRECTIONS,
+    AVATAR_SHEET_FRAME_HEIGHT,
+    AVATAR_SHEET_FRAME_WIDTH,
+    AVATAR_SHEET_FRAMES_PER_DIRECTION,
+    AVATAR_SHEET_RENDER_TILE_WIDTH,
+    avatarFallbackSrc,
+    avatarSpriteSheetSrc,
+} from "../utils/avatarAssets";
 // Controls how high the name label sits above the avatar.
 // Increase these values to add more space.
 const NAME_OFFSET_MULT = 1.15;   // multiplier of sprite height
@@ -13,6 +22,82 @@ const randomSpawnPosition = () => ({
     x: Math.floor(Math.random() * (900 - 650 + 1)) + 650,
     y: Math.floor(Math.random() * (850 - 650 + 1)) + 650,
 });
+
+const avatarAnimationCache = {};
+
+const avatarPublicPath = (user) => {
+    if (user.avatar_public_path && user.avatar_public_path.trim() !== "") {
+        return user.avatar_public_path;
+    }
+    return user.avatar && user.avatar.trim() !== "" ? user.avatar : null;
+};
+
+const textureFromFrame = (baseTexture, frame) => new PIXI.Texture({
+    source: baseTexture.source,
+    frame,
+});
+
+const buildDirectionalFrames = (texture) => {
+    const framesByDirection = {};
+
+    AVATAR_SHEET_DIRECTIONS.forEach((direction, directionIndex) => {
+        framesByDirection[direction] = [];
+
+        for (let i = 0; i < AVATAR_SHEET_FRAMES_PER_DIRECTION; i += 1) {
+            const frameIndex = directionIndex * AVATAR_SHEET_FRAMES_PER_DIRECTION + i;
+            framesByDirection[direction].push(textureFromFrame(
+                texture,
+                new PIXI.Rectangle(
+                    frameIndex * AVATAR_SHEET_FRAME_WIDTH,
+                    0,
+                    AVATAR_SHEET_FRAME_WIDTH,
+                    AVATAR_SHEET_FRAME_HEIGHT
+                )
+            ));
+        }
+    });
+
+    return framesByDirection;
+};
+
+const loadAvatarAnimation = async (path) => {
+    const cacheKey = path || "__default__";
+    if (avatarAnimationCache[cacheKey]) return avatarAnimationCache[cacheKey];
+
+    const loadPromise = (async () => {
+        if (path) {
+            const texture = await PIXI.Assets.load(avatarSpriteSheetSrc(path));
+            return {
+                frames: buildDirectionalFrames(texture),
+                mode: "directional-sheet",
+            };
+        }
+
+        const texture = await PIXI.Assets.load(avatarFallbackSrc());
+        return {
+            frames: {right: [texture], up: [texture], left: [texture], down: [texture]},
+            mode: "static",
+        };
+    })();
+
+    avatarAnimationCache[cacheKey] = loadPromise;
+    return loadPromise;
+};
+
+const setAvatarDirection = (avatar, direction) => {
+    const dir = direction || avatar.lastDirection || "right";
+    const frames = avatar.framesByDirection?.[dir] || avatar.framesByDirection?.right;
+    const sprite = avatar.sprite;
+
+    if (frames && sprite.textures !== frames) {
+        const wasPlaying = sprite.playing;
+        sprite.textures = frames;
+        sprite.gotoAndStop(0);
+        if (wasPlaying && sprite.play) sprite.play();
+    }
+
+    sprite.scale.x = sprite.baseScaleX;
+};
 
 const normalizeRoomName = (room) => {
     const cleaned = String(room || "room1").trim().replace(/^\/+/, "");
@@ -72,7 +157,183 @@ const createAvatarNameTag = (name) => {
     label.anchor.set(0.5);
     container.addChild(shadow, background, shine, label);
     container.pivot.set(width / 2, height);
+    container.__bubbleHeight = height;
     return container;
+};
+
+const createAvatarStatusBubble = (text) => {
+    const paddingX = 7;
+    const paddingY = 4;
+    const borderSize = 2;
+    const corner = 4;
+    const container = new PIXI.Container();
+    const label = new PIXI.Text({
+        text,
+        style: {
+            fontFamily: "monospace",
+            fontSize: 10,
+            fill: "#fff7ed",
+            fontWeight: "900",
+            align: "center",
+            wordWrap: true,
+            wordWrapWidth: 130,
+            lineHeight: 14,
+            stroke: {
+                color: "#111827",
+                width: 2,
+            },
+        },
+        textureStyle: {
+            scaleMode: "nearest",
+        },
+    });
+
+    const width = Math.ceil(label.width + paddingX * 2);
+    const height = Math.ceil(label.height + paddingY * 2);
+    const shadow = new PIXI.Graphics()
+        .rect(corner + 2, 2, width - corner * 2, height)
+        .rect(2, corner + 2, width, height - corner * 2)
+        .fill(0x111827);
+    shadow.alpha = 0.48;
+
+    const background = new PIXI.Graphics()
+        .rect(corner, 0, width - corner * 2, height)
+        .rect(0, corner, width, height - corner * 2)
+        .fill(0xf59e0b)
+        .rect(corner + borderSize, borderSize, width - (corner + borderSize) * 2, height - borderSize * 2)
+        .rect(borderSize, corner + borderSize, width - borderSize * 2, height - (corner + borderSize) * 2)
+        .fill(0x3b2a12);
+
+    label.x = width / 2;
+    label.y = height / 2;
+    label.anchor.set(0.5);
+    container.addChild(shadow, background, label);
+    container.pivot.set(width / 2, height);
+    container.__bubbleHeight = height;
+    container.__statusText = text;
+    return container;
+};
+
+const isActiveAvatarStatus = (status) =>
+    !!status?.label && (!status.expires_at || Number(status.expires_at) > Date.now());
+
+const labelRect = (display, padding = 3) => {
+    if (!display || display.destroyed) return null;
+    const width = Math.max(1, display.width || display.getLocalBounds?.()?.width || 1);
+    const height = Math.max(1, display.height || display.getLocalBounds?.()?.height || 1);
+    const pivotX = display.pivot?.x || 0;
+    const pivotY = display.pivot?.y || 0;
+    return {
+        x: display.x - pivotX - padding,
+        y: display.y - pivotY - padding,
+        width: width + padding * 2,
+        height: height + padding * 2,
+    };
+};
+
+const rectsOverlap = (a, b) =>
+    !!a && !!b
+    && a.x < b.x + b.width
+    && a.x + a.width > b.x
+    && a.y < b.y + b.height
+    && a.y + a.height > b.y;
+
+const positionAvatarLabels = (avatar) => {
+    if (!avatar?.sprite) return;
+    const nameText = avatar.nameText;
+    const statusText = avatar.statusText;
+
+    if (nameText) {
+        nameText.x = avatar.sprite.x;
+        nameText.y = avatar.sprite.y - avatar.sprite.height * NAME_OFFSET_MULT - NAME_OFFSET_PX;
+        nameText.zIndex = avatar.sprite.zIndex + 1;
+    }
+
+    if (statusText && nameText) {
+        statusText.x = avatar.sprite.x;
+        statusText.y = nameText.y - (nameText.__bubbleHeight || nameText.height || 18) - 5;
+        statusText.zIndex = avatar.sprite.zIndex + 2;
+    }
+};
+
+const resolveAvatarLabelVisibility = (worldContainer, avatars, localKey) => {
+    const candidates = [];
+    if (worldContainer.__objectPromptCollisionRect?.rect) {
+        candidates.push({
+            display: null,
+            rect: worldContainer.__objectPromptCollisionRect.rect,
+            priority: worldContainer.__objectPromptCollisionRect.priority || 95,
+            type: "object-prompt",
+            id: "nearest-object",
+        });
+    }
+
+    Object.entries(avatars).forEach(([id, avatar]) => {
+        if (!avatar?.sprite || avatar.sprite.destroyed) return;
+        const isLocal = id === localKey;
+
+        if (avatar.statusText) {
+            candidates.push({
+                display: avatar.statusText,
+                rect: labelRect(avatar.statusText, 4),
+                priority: isLocal ? 100 : 70,
+                type: "avatar-status",
+                id,
+            });
+        }
+
+        if (avatar.nameText) {
+            candidates.push({
+                display: avatar.nameText,
+                rect: labelRect(avatar.nameText, 3),
+                priority: isLocal ? 90 : 50,
+                type: "avatar-name",
+                id,
+            });
+        }
+    });
+
+    const accepted = [];
+    candidates
+        .filter((item) => item.rect)
+        .sort((a, b) => b.priority - a.priority)
+        .forEach((item) => {
+            const collides = accepted.some((acceptedItem) =>
+                acceptedItem.id !== item.id && rectsOverlap(item.rect, acceptedItem.rect)
+            );
+            if (item.display) item.display.visible = !collides;
+            if (!collides) accepted.push(item);
+        });
+
+    worldContainer.__labelCollisionRects = accepted.map(({rect, priority, type, id}) => ({
+        rect,
+        priority,
+        type,
+        id,
+    }));
+};
+
+const updateAvatarStatusBubble = (worldContainer, avatar, status) => {
+    const nextText = isActiveAvatarStatus(status) ? status.label : null;
+
+    if (!nextText) {
+        if (avatar.statusText) {
+            worldContainer.removeChild(avatar.statusText);
+            avatar.statusText.destroy({children: true});
+            avatar.statusText = null;
+        }
+        return;
+    }
+
+    if (!avatar.statusText || avatar.statusText.__statusText !== nextText) {
+        if (avatar.statusText) {
+            worldContainer.removeChild(avatar.statusText);
+            avatar.statusText.destroy({children: true});
+        }
+        avatar.statusText = createAvatarStatusBubble(nextText);
+        worldContainer.addChild(avatar.statusText);
+    }
+    positionAvatarLabels(avatar);
 };
 
 const destroyPixiApp = (app) => {
@@ -126,11 +387,7 @@ const VirtualSpacePixi = ({user}) => {
         const spawnPosition = randomSpawnPosition();
         const localUser = {
             user_id: user.user_id || user.id,
-            avatar: user.avatar_public_path && user.avatar_public_path.trim() !== ""
-                ? `/avatars${user.avatar_public_path}/walk.json`
-                : user.avatar && user.avatar.trim() !== ""
-                    ? user.avatar
-                    : "/avatars/default.png",
+            avatar: avatarPublicPath(user),
             x: spawnPosition.x,
             y: spawnPosition.y,
             name: user.name || "User",
@@ -187,6 +444,7 @@ const VirtualSpacePixi = ({user}) => {
                 if (filteredUsers[myKey]) {
                     // Do NOT overwrite local x/y — only update room
                     localUser.room = normalizeRoomName(filteredUsers[myKey].room || currentRoom);
+                    localUser.activity_status = filteredUsers[myKey].activity_status || null;
                     localUserRef.current = localUser;
                 }
             }
@@ -299,12 +557,9 @@ const VirtualSpacePixi = ({user}) => {
                     // Keep depth sorting correct for moving avatars (sort by feet Y)
                     a.sprite.zIndex = a.sprite.y;
 
-                    if (a.nameText) {
-                        a.nameText.x = a.sprite.x;
-                        a.nameText.y = a.sprite.y - a.sprite.height * NAME_OFFSET_MULT - NAME_OFFSET_PX;
-                        a.nameText.zIndex = a.sprite.zIndex + 1;
-                    }
+                    positionAvatarLabels(a);
                 }
+                resolveAvatarLabelVisibility(worldContainer, window.__avatars, avatarRuntime?.localKeyRef?.current);
             };
             app.ticker.add(smoothAvatarTicker);
 
@@ -354,7 +609,6 @@ const VirtualSpacePixi = ({user}) => {
 export default VirtualSpacePixi;
 
 export async function renderUsers(worldContainer, avatars, usersData, localKeyRef, TILE_SIZE) {
-    const atlasCache = {};
     // Hapus avatar yang sudah tidak ada di usersData
     Object.keys(avatars).forEach((id) => {
         if (!usersData[id]) {
@@ -364,76 +618,34 @@ export async function renderUsers(worldContainer, avatars, usersData, localKeyRe
             if (avatars[id].nameText) {
                 worldContainer.removeChild(avatars[id].nameText);
             }
+            if (avatars[id].statusText) {
+                worldContainer.removeChild(avatars[id].statusText);
+            }
             delete avatars[id];
         }
     });
 
     for (const [id, u] of Object.entries(usersData)) {
-        // Tentukan URL avatar
-        let avatarUrl;
-        if (u.avatar_public_path && u.avatar_public_path.trim() !== "") {
-            avatarUrl = `/avatars${u.avatar_public_path}/walk.json`;
-        } else if (u.avatar && u.avatar.trim() !== "") {
-            avatarUrl = u.avatar;
-        } else {
-            avatarUrl = "/avatars/default.png";
-        }
+        const avatarPath = avatarPublicPath(u);
 
         // Jika avatar untuk user ini belum ada → buat sprite & nameText
         if (!avatars[id]) {
             let sprite;
 
             try {
-                if (avatarUrl.endsWith(".json")) {
-                    // Gunakan cache atlas jika sudah pernah dimuat
-                    const atlas = atlasCache[avatarUrl] || await PIXI.Assets.load(avatarUrl);
-                    atlasCache[avatarUrl] = atlas;
+                const animation = await loadAvatarAnimation(avatarPath);
+                const initialDirection = u.direction || "right";
+                const initialFrames = animation.frames[initialDirection] || animation.frames.right;
 
-                    const frames = [];
-                    const animKeys = Object.keys(atlas.animations || {});
-                    const firstAnimKey = animKeys.length > 0 ? animKeys[0] : null;
-
-                    if (firstAnimKey) {
-                        for (const frameItem of atlas.animations[firstAnimKey]) {
-                            let texture;
-                            if (typeof frameItem === "string") {
-                                texture = atlas.textures[frameItem];
-                            } else if (frameItem instanceof PIXI.Texture) {
-                                texture = frameItem;
-                            } else if (frameItem?.frame) {
-                                // v8 style
-                                texture = new PIXI.Texture(
-                                    atlas.baseTexture ?? atlas.source?.baseTexture,
-                                    frameItem.frame
-                                );
-                            }
-                            if (texture) frames.push(texture);
-                        }
-
-                        if (frames.length > 0) {
-                            sprite = new PIXI.AnimatedSprite(frames);
-                            sprite.animationSpeed = 0.13;
-
-                            // Save idle frame (first frame of animation)
-                            sprite.idleTexture = frames[0];
-
-                            // Do NOT play yet — default idle
-                            sprite.gotoAndStop(0);
-                        } else {
-                            const texture = await PIXI.Assets.load("/avatars/default.png");
-                            sprite = new PIXI.Sprite(texture);
-                        }
-                    } else {
-                        const texture = await PIXI.Assets.load("/avatars/default.png");
-                        sprite = new PIXI.Sprite(texture);
-                    }
-                } else {
-                    const texture = await PIXI.Assets.load(avatarUrl);
-                    sprite = new PIXI.Sprite(texture);
-                }
+                sprite = new PIXI.AnimatedSprite(initialFrames);
+                sprite.animationSpeed = 0.13;
+                sprite.gotoAndStop(0);
 
                 // Ukuran Avatar
-                const scaleFactor = (TILE_SIZE * 3) / sprite.texture.width;
+                const targetAvatarWidth = animation.mode === "directional-sheet"
+                    ? TILE_SIZE * AVATAR_SHEET_RENDER_TILE_WIDTH
+                    : TILE_SIZE * 3;
+                const scaleFactor = targetAvatarWidth / sprite.texture.width;
                 sprite.scale.set(scaleFactor);
 
 // Top-down: x/y represents FEET so the head can go behind walls
@@ -465,12 +677,17 @@ export async function renderUsers(worldContainer, avatars, usersData, localKeyRe
                 avatars[id] = {
                     sprite,
                     nameText,
+                    statusText: null,
+                    framesByDirection: animation.frames,
+                    animationMode: animation.mode,
                     // Only remote avatars get targetX/targetY for smoothing
                     ...(isLocal ? {} : {targetX: u.x, targetY: u.y}),
                     lastDirection: u.direction || "right",
                 };
+                setAvatarDirection(avatars[id], u.direction || "right");
+                updateAvatarStatusBubble(worldContainer, avatars[id], u.activity_status);
             } catch (err) {
-                console.error("Failed to load avatar:", avatarUrl, err);
+                console.error("Failed to load avatar:", avatarPath, err);
                 continue;
             }
         } else {
@@ -482,6 +699,7 @@ export async function renderUsers(worldContainer, avatars, usersData, localKeyRe
                 avatar.targetX = u.x;
                 avatar.targetY = u.y;
             }
+            updateAvatarStatusBubble(worldContainer, avatar, u.activity_status);
 
             // 2) UPDATE ARAH SPRITE BERDASARKAN direction USER
             let dir = u.direction;
@@ -489,22 +707,12 @@ export async function renderUsers(worldContainer, avatars, usersData, localKeyRe
                 dir = avatar.lastDirection;
             }
 
-            if (id !== localKeyRef.current) {
-                // Remote user: pakai direction dari server
-                if (dir === "left") {
-                    avatar.sprite.scale.x = -avatar.sprite.baseScaleX;
-                } else if (dir === "right") {
-                    avatar.sprite.scale.x = avatar.sprite.baseScaleX;
-                }
-            } else {
+            if (id === localKeyRef.current) {
                 // Local user: kalau server belum sync, pakai lastDirection di localStorage
-                const localDir = dir || localStorage.getItem("lastDirection") || "right";
-                avatar.sprite.scale.x =
-                    localDir === "left"
-                        ? -avatar.sprite.baseScaleX
-                        : avatar.sprite.baseScaleX;
-                dir = localDir;
+                dir = dir || localStorage.getItem("lastDirection") || "right";
             }
+
+            setAvatarDirection(avatar, dir);
 
             avatar.lastDirection = dir;
 
@@ -525,6 +733,7 @@ export async function renderUsers(worldContainer, avatars, usersData, localKeyRe
 
     // Tetap pakai sorting by zIndex
     worldContainer.sortableChildren = true;
+    resolveAvatarLabelVisibility(worldContainer, avatars, localKeyRef.current);
 }
 
 export function initAvatarMovement(app, worldContainer, avatars, localUserRef, localKeyRef, checkCollision, TILE_SIZE, mapWidth, mapHeight, zoomFactor) {
@@ -576,8 +785,14 @@ export function initAvatarMovement(app, worldContainer, avatars, localUserRef, l
             const clampedDt = Math.min(dt, 1.2);
             const scaledStep = step * clampedDt;
 
-            if (keys["ArrowUp"]) newY -= scaledStep;
-            if (keys["ArrowDown"]) newY += scaledStep;
+            if (keys["ArrowUp"]) {
+                newY -= scaledStep;
+                direction = "up";
+            }
+            if (keys["ArrowDown"]) {
+                newY += scaledStep;
+                direction = "down";
+            }
             if (keys["ArrowLeft"]) {
                 newX -= scaledStep;
                 direction = "left";
@@ -634,17 +849,10 @@ export function initAvatarMovement(app, worldContainer, avatars, localUserRef, l
                 avatars[myKey].sprite.zIndex = avatars[myKey].sprite.y;
 
                 if (avatars[myKey].nameText && !avatars[myKey].nameText.destroyed) {
-                    avatars[myKey].nameText.x = localUser.x;
-                    avatars[myKey].nameText.y =
-                        localUser.y - avatars[myKey].sprite.height * NAME_OFFSET_MULT - NAME_OFFSET_PX;
-                    avatars[myKey].nameText.zIndex = avatars[myKey].sprite.zIndex + 1;
+                    positionAvatarLabels(avatars[myKey]);
                 }
 
-                if (direction === "left") {
-                    avatars[myKey].sprite.scale.x = -avatars[myKey].sprite.baseScaleX;
-                } else if (direction === "right") {
-                    avatars[myKey].sprite.scale.x = avatars[myKey].sprite.baseScaleX;
-                }
+                setAvatarDirection(avatars[myKey], direction);
 
                 const isMovingNow =
                     keys["ArrowUp"] || keys["ArrowDown"] || keys["ArrowLeft"] || keys["ArrowRight"];

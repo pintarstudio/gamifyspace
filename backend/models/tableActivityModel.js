@@ -227,39 +227,6 @@ export async function updateTopicVisibility(topicId, showTopic) {
     return result.rows[0] || null;
 }
 
-function buildSampleTopicCase(course, topic, caseNumber) {
-    const courseName = course?.course_name || "the selected course";
-    const topicName = topic?.topic_name || "the selected topic";
-    const topicDescription = topic?.topic_description;
-
-    return {
-        title: `${topicName} Case ${caseNumber}`,
-        prompt: [
-            caseNumber === 1
-                ? `Your group is advising a project team in ${courseName}. The team is facing a practical challenge related to ${topicName}.`
-                : `Your group is helping a new student team in ${courseName}. They must make a decision using concepts from ${topicName}.`,
-            topicDescription ? `Topic context: ${topicDescription}` : null,
-            caseNumber === 1
-                ? "Discuss the situation together, identify the main problem, list at least two possible solutions, and agree on the strongest recommendation with a short reason."
-                : "Discuss the situation together, explain the concept in your own words, outline the steps the team should follow, and give one example that supports your recommendation."
-        ].filter(Boolean).join("\n\n"),
-    };
-}
-
-export async function ensureSampleCasesForTopics(course, topics) {
-    for (const topic of topics) {
-        for (const caseNumber of [1, 2]) {
-            const sampleCase = buildSampleTopicCase(course, topic, caseNumber);
-            await pool.query(
-                `INSERT INTO topic_cases (topic_id, case_number, case_title, case_prompt)
-                 VALUES ($1, $2, $3, $4)
-                 ON CONFLICT (topic_id, case_number) DO NOTHING`,
-                [topic.topic_id, caseNumber, sampleCase.title, sampleCase.prompt]
-            );
-        }
-    }
-}
-
 export async function getCasesForTopic(topicId) {
     const result = await pool.query(
         `SELECT case_id, topic_id, case_number, case_title, case_prompt

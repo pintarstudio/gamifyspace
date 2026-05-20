@@ -158,7 +158,8 @@
     margin-bottom: 18px;
 }
 
-.member-strip img {
+.member-strip img,
+.member-strip .avatar-icon {
     background: #f0f3f6;
     border: 2px solid #ffffff;
     border-radius: 999px;
@@ -236,7 +237,8 @@
     min-height: 46px;
 }
 
-.table-member img {
+.table-member img,
+.table-member .avatar-icon {
     background: #ffffff;
     border-radius: 999px;
     height: 38px;
