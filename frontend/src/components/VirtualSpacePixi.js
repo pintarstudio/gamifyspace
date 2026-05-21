@@ -745,6 +745,14 @@ export function initAvatarMovement(app, worldContainer, avatars, localUserRef, l
     // Hindari multi-attach ketika initAvatarMovement dipanggil berkali-kali
     if (!window.__gs_keysBound) {
         window.addEventListener("keydown", (e) => {
+            const target = e.target;
+            const isTyping = target && (
+                target.tagName === "INPUT" ||
+                target.tagName === "TEXTAREA" ||
+                target.tagName === "SELECT" ||
+                target.isContentEditable
+            );
+            if (isTyping) return;
             // Cegah halaman scroll saat pakai Arrow keys
             if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " "].includes(e.key)) e.preventDefault();
             window.__gs_keys[e.key] = true;

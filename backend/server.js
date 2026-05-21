@@ -20,12 +20,14 @@ import individualActivityRoutes from "./routes/individualActivityRoutes.js";
 import virtualSpaceDashboardRoutes from "./routes/virtualSpaceDashboardRoutes.js";
 import adminRoutes from "./routes/adminRoutes.js";
 import roleRoutes from "./routes/roleRoutes.js";
+import chatRoutes from "./routes/chatRoutes.js";
 import {ensureAdminTables} from "./models/adminModel.js";
 import {ensureCourseSchema} from "./models/courseModel.js";
 import {ensureQuestionBankAdminTables} from "./models/adminQuestionBankModel.js";
 import {ensureGamificationTables} from "./models/gamificationModel.js";
 import {ensureCourseGroupSchema} from "./models/courseGroupModel.js";
 import {ensureRoleSchema} from "./models/roleModel.js";
+import {ensureChatSchema} from "./models/chatModel.js";
 
 const app = express();
 const server = http.createServer(app);
@@ -39,6 +41,7 @@ const allowedOrigins = [
 const io = new Server(server, {
     cors: {origin: allowedOrigins, methods: ["GET", "POST"]},
 });
+app.set("io", io);
 const PORT = process.env.PORT || 4000;
 const PgSession = pgSession(session);
 
@@ -59,6 +62,9 @@ ensureCourseGroupSchema().catch((error) => {
 });
 ensureRoleSchema().catch((error) => {
     console.error("Failed to initialize role schema:", error);
+});
+ensureChatSchema().catch((error) => {
+    console.error("Failed to initialize chat schema:", error);
 });
 
 // ====== MIDDLEWARE & ROUTES ======
@@ -99,6 +105,7 @@ app.use("/api/quiz", quizActivityRoutes);
 app.use("/api/individual", individualActivityRoutes);
 app.use("/api/virtualspace", virtualSpaceDashboardRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/chat", chatRoutes);
 app.get("/", (req, res) => {
     res.json({status: "ok", message: "GamifySpace backend active"});
 });
@@ -311,6 +318,30 @@ app.post("/api/activity-status/clear", (req, res) => {
 
 io.on("connection", (socket) => {
     console.log("User connected:", socket.id);
+
+    socket.on("chat:join", (data = {}) => {
+        const courseId = normalizeCourseId(data.course_id);
+        const userId = Number.parseInt(data.user_id, 10);
+        const roomIds = Array.isArray(data.room_ids) ? data.room_ids : [];
+        if (courseId) socket.join(`chat:course:${courseId}`);
+        if (Number.isFinite(userId) && userId > 0) socket.join(`chat:user:${userId}`);
+        roomIds.forEach((roomId) => {
+            const parsedRoomId = Number.parseInt(roomId, 10);
+            if (Number.isFinite(parsedRoomId) && parsedRoomId > 0) {
+                socket.join(`chat:room:${parsedRoomId}`);
+            }
+        });
+    });
+
+    socket.on("chat:join_room", (data = {}) => {
+        const roomId = Number.parseInt(data.room_id, 10);
+        if (Number.isFinite(roomId) && roomId > 0) socket.join(`chat:room:${roomId}`);
+    });
+
+    socket.on("chat:leave_room", (data = {}) => {
+        const roomId = Number.parseInt(data.room_id, 10);
+        if (Number.isFinite(roomId) && roomId > 0) socket.leave(`chat:room:${roomId}`);
+    });
 
     // Join room handler
     socket.on("join_room", ({user, room}) => {

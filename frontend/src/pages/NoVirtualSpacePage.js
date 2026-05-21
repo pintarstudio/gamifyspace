@@ -2,6 +2,7 @@ import React, {useEffect, useMemo, useState} from "react";
 import {useNavigate} from "react-router-dom";
 import {apiGet, apiPost} from "../api/apiClient";
 import AvatarIcon from "../components/AvatarIcon";
+import ChatLauncher from "../components/ChatLauncher";
 import UserHUD from "../components/UserHUD";
 import IndividualActivityPage from "./IndividualActivityPage";
 import TableActivityPage from "./TableActivityPage";
@@ -520,6 +521,8 @@ const NoVirtualSpacePage = ({user, setLoggedIn, setUser}) => {
                     )}
                 </section>
             </aside>
+
+            <ChatLauncher currentUser={currentUser}/>
 
             {renderHistoryModal()}
         </div>

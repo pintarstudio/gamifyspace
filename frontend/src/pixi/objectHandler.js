@@ -249,6 +249,14 @@ export function initObjects(app, worldContainer, roomData, user, localUserRef, z
 
     // Global keydown handler
     const keydownHandler = (e) => {
+        const target = e.target;
+        const isTyping = target && (
+            target.tagName === "INPUT" ||
+            target.tagName === "TEXTAREA" ||
+            target.tagName === "SELECT" ||
+            target.isContentEditable
+        );
+        if (isTyping) return;
         console.log("🟧 [objectHandler] Keydown detected:", e.key);
         if (e.key.toLowerCase() !== "s" || e.repeat) return;
 

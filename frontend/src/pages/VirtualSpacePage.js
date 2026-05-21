@@ -3,6 +3,7 @@ import React, {useEffect, useMemo, useState} from "react";
 import {useNavigate} from "react-router-dom";
 import {apiGet, apiPost} from "../api/apiClient";
 import AvatarIcon from "../components/AvatarIcon";
+import ChatLauncher from "../components/ChatLauncher";
 import VirtualSpacePixi from "../components/VirtualSpacePixi";
 import UserHUD from "../components/UserHUD";
 import "./VirtualSpacePage.css";
@@ -334,6 +335,8 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
                     )}
                 </section>
             </aside>
+
+            <ChatLauncher currentUser={currentUser}/>
 
             {(selectedActivity || detailLoading) && (
                 <div className="activity-modal" role="dialog" aria-modal="true">
