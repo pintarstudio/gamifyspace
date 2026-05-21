@@ -17,8 +17,20 @@ const isNoVirtualCode = (value) => {
     return String(parsed) === String(value).trim() && parsed >= 101 && parsed <= 150;
 };
 
-const TableActivityPage = ({embedded = false, noVirtual = false, onBack}) => {
-    const [searchParams] = useSearchParams();
+const isTypingTarget = (target) =>
+    target && (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.tagName === "SELECT" ||
+        target.isContentEditable
+    );
+
+const TableActivityPage = ({embedded = false, noVirtual = false, onBack, activitySearchParams = null, exitOnBack = false}) => {
+    const [routeSearchParams] = useSearchParams();
+    const searchParams = useMemo(
+        () => activitySearchParams ? new URLSearchParams(activitySearchParams) : routeSearchParams,
+        [activitySearchParams, routeSearchParams]
+    );
     const routeGroupId = searchParams.get("group_id") || (noVirtual ? "" : "1");
     const objectId = searchParams.get("object_id");
     const [entryCode, setEntryCode] = useState(noVirtual ? routeGroupId : "");
@@ -34,7 +46,9 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack}) => {
     const [submittingFeedback, setSubmittingFeedback] = useState(false);
     const [message, setMessage] = useState("");
     const [currentUser, setCurrentUser] = useState(null);
+    const [confirmExitOpen, setConfirmExitOpen] = useState(false);
     const activityStatusKeyRef = useRef(null);
+    const cancelExitButtonRef = useRef(null);
 
     const selectedTopic = useMemo(
         () => context?.topics?.find((topic) => String(topic.topic_id) === String(selectedTopicId)),
@@ -121,6 +135,41 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack}) => {
             window.removeEventListener("beforeunload", preventUnload);
         };
     }, [isGeneratingFeedback]);
+
+    useEffect(() => {
+        if (confirmExitOpen) {
+            window.setTimeout(() => cancelExitButtonRef.current?.focus(), 0);
+        }
+    }, [confirmExitOpen]);
+
+    useEffect(() => {
+        if (!embedded) return undefined;
+
+        const handleEscape = (event) => {
+            if (event.key !== "Escape" || isTypingTarget(event.target)) return;
+            event.preventDefault();
+
+            if (confirmExitOpen) {
+                setConfirmExitOpen(false);
+                return;
+            }
+
+            if (!activeSession?.is_member) {
+                onBack?.();
+                return;
+            }
+
+            if (isGeneratingFeedback) {
+                setMessage("Feedback sedang dibuat. Jangan refresh, tutup halaman, atau keluar dari group sampai proses selesai.");
+                return;
+            }
+
+            setConfirmExitOpen(true);
+        };
+
+        window.addEventListener("keydown", handleEscape);
+        return () => window.removeEventListener("keydown", handleEscape);
+    }, [activeSession?.is_member, confirmExitOpen, embedded, isGeneratingFeedback, onBack]);
 
     useEffect(() => {
         if (!activeSession?.session_id || !activeSession?.is_member) return undefined;
@@ -286,10 +335,10 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack}) => {
     };
 
     const handleExitGroup = async () => {
-        if (!activeSession?.session_id) return;
+        if (!activeSession?.session_id) return false;
         if (isGeneratingFeedback) {
             setMessage("Feedback sedang dibuat. Mohon tunggu sebelum keluar dari group.");
-            return;
+            return false;
         }
 
         setBusy(true);
@@ -307,6 +356,15 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack}) => {
             loadContext();
         }
         setBusy(false);
+        return true;
+    };
+
+    const handleEmbeddedBack = async () => {
+        if (exitOnBack && activeSession?.is_member) {
+            const exited = await handleExitGroup();
+            if (!exited) return;
+        }
+        onBack?.();
     };
 
     const handleSaveAnswer = async () => {
@@ -378,11 +436,6 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack}) => {
                             <h1>{activeSession.case_title}</h1>
                         </div>
                         <div className="table-case__actions">
-                            {embedded && (
-                                <button className="no-virtual-back" type="button" onClick={onBack}>
-                                    Back
-                                </button>
-                            )}
                             <span className="table-count">{activeSession.member_count}/{activeSession.max_members}</span>
                             <button className="table-button table-button--danger" onClick={handleExitGroup} disabled={busy || isGeneratingFeedback}>
                                 {isGeneratingFeedback ? "Please Wait" : "Exit Group"}
@@ -395,7 +448,7 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack}) => {
                             <span className="table-spinner" aria-hidden="true" />
                             <div>
                                 <h2>Getting Feedback</h2>
-                                <p>The system is analyzing the case and all submitted answers. Students cannot exit the group during this process.</p>
+                                <p>The system is analyzing the case and all submitted answers. Do not refresh or close this page. Students cannot exit the group during this process.</p>
                             </div>
                         </div>
                     )}
@@ -543,6 +596,25 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack}) => {
                     )}
 
                     {message && <p className="table-message">{message}</p>}
+                    {confirmExitOpen && (
+                        <div className="activity-exit-confirm" role="dialog" aria-modal="true" aria-labelledby="table-exit-confirm-title">
+                            <section className="activity-exit-confirm__panel">
+                                <h2 id="table-exit-confirm-title">Exit group activity?</h2>
+                                <p>Your current group session will be closed for you.</p>
+                                <div className="activity-exit-confirm__actions">
+                                    <button ref={cancelExitButtonRef} type="button" onClick={() => setConfirmExitOpen(false)}>
+                                        No, stay
+                                    </button>
+                                    <button className="is-danger" type="button" onClick={() => {
+                                        setConfirmExitOpen(false);
+                                        handleExitGroup();
+                                    }}>
+                                        Yes, exit
+                                    </button>
+                                </div>
+                            </section>
+                        </div>
+                    )}
                 </section>
             </main>
         );
@@ -556,7 +628,7 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack}) => {
     return (
         <main className={`table-app table-landing${embedded ? " table-app--embedded" : ""}`}>
             {embedded && (
-                <button className="no-virtual-back" type="button" onClick={onBack}>
+                <button className="no-virtual-back" type="button" onClick={handleEmbeddedBack}>
                     Back
                 </button>
             )}

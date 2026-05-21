@@ -3,6 +3,126 @@ import {useLocation, useNavigate} from "react-router-dom";
 import {apiDelete, apiGet, apiPatch, apiPost} from "../api/apiClient";
 import "./AdminPage.css";
 
+const COURSE_ITEM = {
+    label: "Course",
+    path: "/courseadmin",
+    resource: "courses",
+    idKey: "course_id",
+    canAdd: true,
+    canDelete: true,
+    description: "Create, update, or soft-delete course records.",
+    tableColumns: [
+        {key: "course_code", label: "Code"},
+        {key: "course_name", label: "Course Name"},
+        {key: "instructor_names", label: "Instructors"},
+        {key: "semester", label: "Semester"},
+        {key: "location", label: "Location"},
+    ],
+    fields: [
+        {key: "course_code", label: "Course Code", required: true},
+        {key: "course_name", label: "Course Name", required: true},
+        {key: "instructor_id", label: "Instructor 1", type: "select", reference: "instructors"},
+        {key: "instructor2_id", label: "Instructor 2", type: "select", reference: "instructors"},
+        {key: "semester", label: "Semester", type: "number"},
+        {key: "location", label: "Location"},
+    ],
+};
+
+const TOPIC_ITEM = {
+    label: "Topics",
+    path: "/topicadmin",
+    resource: "topics",
+    idKey: "topic_id",
+    canAdd: true,
+    canDelete: true,
+    description: "Create, update, or soft-delete topics for each active course.",
+    tableColumns: [
+        {key: "course_name", label: "Course"},
+        {key: "week", label: "Week"},
+        {key: "topic_name", label: "Topic Name"},
+        {key: "show_topic", label: "Visible", type: "boolean"},
+    ],
+    fields: [
+        {key: "course_id", label: "Course", type: "select", reference: "courses", required: true},
+        {key: "week", label: "Week", type: "number", placeholder: "1"},
+        {key: "topic_name", label: "Topic Name", required: true},
+        {key: "show_topic", label: "Show Topic", type: "checkbox"},
+    ],
+};
+
+const STUDENT_INSTRUCTOR_ITEM = {
+    label: "Student & Instructor",
+    path: "/studentadmin",
+    resource: "students",
+    idKey: "user_id",
+    canAdd: true,
+    canDelete: false,
+    description: "Assign students and instructors to courses, course groups, and roles.",
+    tableColumns: [
+        {key: "course_name", label: "Course"},
+        {key: "name", label: "Name"},
+        {key: "email", label: "Email"},
+        {key: "role_name", label: "Role"},
+        {key: "course_group_name", label: "Course Group"},
+        {
+            key: "virtual_space_enabled",
+            label: "Virtual Space",
+            type: "boolean",
+            trueLabel: "Enabled",
+            falseLabel: "Disabled",
+        },
+        {
+            key: "gamification_enabled",
+            label: "Gamification",
+            type: "boolean",
+            trueLabel: "Enabled",
+            falseLabel: "Disabled",
+        },
+    ],
+    fields: [
+        {key: "course_id", label: "Course", type: "select", reference: "courses", required: true},
+        {key: "name", label: "User Name", required: true},
+        {key: "email", label: "Email", required: true},
+        {key: "role_id", label: "Role", type: "select", reference: "roles", valueKey: "role_id", labelKey: "role_name", required: true},
+        {key: "course_group_id", label: "Course Group", type: "select", reference: "course_groups", dependsOn: "course_id", valueKey: "course_group_id", labelKey: "group_name", required: true},
+    ],
+};
+
+const USER_ADMIN_ITEM = {
+    label: "User Admin",
+    path: "/useradmin",
+    resource: "useradmins",
+    idKey: "useradmin_id",
+    canAdd: true,
+    canDelete: true,
+    description: "Manage accounts that can sign in to the GamifyIt admin backend.",
+    tableColumns: [
+        {key: "username", label: "Username"},
+        {key: "role", label: "Admin Role"},
+        {key: "user_name", label: "Linked User"},
+        {key: "user_email", label: "Email"},
+        {key: "is_disabled", label: "Status", type: "boolean", trueLabel: "Disabled", falseLabel: "Active"},
+        {key: "last_login", label: "Last Login"},
+    ],
+    fields: [
+        {key: "username", label: "Username", required: true},
+        {key: "password", label: "Password", type: "password", requiredOnCreate: true, placeholder: "Leave blank to keep current password"},
+        {
+            key: "role",
+            label: "Admin Role",
+            type: "select",
+            required: true,
+            defaultValue: "instructor",
+            options: [
+                {value: "admin", label: "Admin"},
+                {value: "instructor", label: "Instructor"},
+            ],
+        },
+        {key: "user_id", label: "Linked App User", type: "select", reference: "useradmin_users", valueKey: "user_id", labelKey: "name"},
+        {key: "is_disabled", label: "Disable Login", type: "checkbox", defaultValue: false, trueLabel: "Login disabled", falseLabel: "Login active"},
+    ],
+};
+
 const MENU_GROUPS = [
     {
         label: "Admin Config",
@@ -63,56 +183,16 @@ const MENU_GROUPS = [
                     {key: "role_name", label: "Role Name", required: true},
                 ],
             },
+            COURSE_ITEM,
+            TOPIC_ITEM,
+            STUDENT_INSTRUCTOR_ITEM,
+            USER_ADMIN_ITEM,
         ],
     },
     {
         label: "Course Master",
         key: "course-master",
         items: [
-            {
-                label: "Course",
-                path: "/courseadmin",
-                resource: "courses",
-                idKey: "course_id",
-                canAdd: true,
-                canDelete: true,
-                description: "Create, update, or soft-delete course records.",
-                tableColumns: [
-                    {key: "course_code", label: "Code"},
-                    {key: "course_name", label: "Course Name"},
-                    {key: "instructor_name", label: "Instructor"},
-                    {key: "semester", label: "Semester"},
-                    {key: "location", label: "Location"},
-                ],
-                fields: [
-                    {key: "course_code", label: "Course Code", required: true},
-                    {key: "course_name", label: "Course Name", required: true},
-                    {key: "instructor_id", label: "Instructor", type: "select", reference: "instructors"},
-                    {key: "semester", label: "Semester", type: "number"},
-                    {key: "location", label: "Location"},
-                ],
-            },
-            {
-                label: "Topics",
-                path: "/topicadmin",
-                resource: "topics",
-                idKey: "topic_id",
-                canAdd: true,
-                canDelete: true,
-                description: "Create, update, or soft-delete topics for each active course.",
-                tableColumns: [
-                    {key: "course_name", label: "Course"},
-                    {key: "week", label: "Week"},
-                    {key: "topic_name", label: "Topic Name"},
-                    {key: "show_topic", label: "Visible", type: "boolean"},
-                ],
-                fields: [
-                    {key: "course_id", label: "Course", type: "select", reference: "courses", required: true},
-                    {key: "week", label: "Week", type: "number", placeholder: "1"},
-                    {key: "topic_name", label: "Topic Name", required: true},
-                    {key: "show_topic", label: "Show Topic", type: "checkbox"},
-                ],
-            },
             {
                 label: "Course Groups",
                 path: "/coursegroupadmin",
@@ -147,43 +227,6 @@ const MENU_GROUPS = [
                         trueLabel: "XP and game layer enabled",
                         falseLabel: "XP and game layer disabled",
                     },
-                ],
-            },
-            {
-                label: "Managing User",
-                path: "/studentadmin",
-                resource: "students",
-                idKey: "user_id",
-                canAdd: true,
-                canDelete: false,
-                description: "Assign users to course groups and roles. Access mode and gamification come from the selected group.",
-                tableColumns: [
-                    {key: "course_name", label: "Course"},
-                    {key: "name", label: "Student"},
-                    {key: "email", label: "Email"},
-                    {key: "role_name", label: "Role"},
-                    {key: "course_group_name", label: "Course Group"},
-                    {
-                        key: "virtual_space_enabled",
-                        label: "Virtual Space",
-                        type: "boolean",
-                        trueLabel: "Enabled",
-                        falseLabel: "Disabled",
-                    },
-                    {
-                        key: "gamification_enabled",
-                        label: "Gamification",
-                        type: "boolean",
-                        trueLabel: "Enabled",
-                        falseLabel: "Disabled",
-                    },
-                ],
-                fields: [
-                    {key: "course_id", label: "Course", type: "select", reference: "courses", required: true},
-                    {key: "name", label: "User Name", required: true},
-                    {key: "email", label: "Email", required: true},
-                    {key: "role_id", label: "Role", type: "select", reference: "roles", valueKey: "role_id", labelKey: "role_name", required: true},
-                    {key: "course_group_id", label: "Course Group", type: "select", reference: "course_groups", dependsOn: "course_id", valueKey: "course_group_id", labelKey: "group_name", required: true},
                 ],
             },
             {
@@ -224,7 +267,15 @@ const MENU_GROUPS = [
 ];
 
 const DEFAULT_PATH = "/gamifyitadmin";
-const RESOURCE_ITEMS = MENU_GROUPS.flatMap((group) => group.items);
+const STANDALONE_ITEMS = [
+    {
+        label: "Change Password",
+        path: "/adminpassword",
+        custom: "changePassword",
+        description: "Change the password for your current admin backend account.",
+    },
+];
+const RESOURCE_ITEMS = [...MENU_GROUPS.flatMap((group) => group.items), ...STANDALONE_ITEMS];
 
 function getConfig(pathname) {
     return RESOURCE_ITEMS.find((item) => item.path === pathname) || null;
@@ -233,7 +284,7 @@ function getConfig(pathname) {
 function emptyForm(config) {
     if (!config) return {};
     return config.fields.reduce((acc, field) => {
-        acc[field.key] = field.type === "checkbox" ? field.defaultValue ?? true : "";
+        acc[field.key] = field.type === "checkbox" ? field.defaultValue ?? true : field.defaultValue ?? "";
         return acc;
     }, {});
 }
@@ -318,7 +369,7 @@ const AdminPage = () => {
     const [busy, setBusy] = useState(false);
     const [message, setMessage] = useState("");
     const [rows, setRows] = useState([]);
-    const [references, setReferences] = useState({instructors: [], courses: [], course_groups: [], roles: []});
+    const [references, setReferences] = useState({instructors: [], courses: [], course_groups: [], roles: [], useradmin_users: []});
     const [editingRow, setEditingRow] = useState(null);
     const [formData, setFormData] = useState({});
     const [openMenus, setOpenMenus] = useState({
@@ -329,6 +380,11 @@ const AdminPage = () => {
     const [loginForm, setLoginForm] = useState({
         username: "",
         password: "",
+    });
+    const [passwordForm, setPasswordForm] = useState({
+        current_password: "",
+        new_password: "",
+        confirm_password: "",
     });
     const [materials, setMaterials] = useState([]);
     const [materialForm, setMaterialForm] = useState({
@@ -481,6 +537,32 @@ const AdminPage = () => {
         navigate(DEFAULT_PATH);
     };
 
+    const handlePasswordChange = (event) => {
+        setPasswordForm({...passwordForm, [event.target.name]: event.target.value});
+    };
+
+    const handleChangePassword = async (event) => {
+        event.preventDefault();
+        setMessage("");
+        if (passwordForm.new_password !== passwordForm.confirm_password) {
+            setMessage("New password dan confirmation password tidak sama.");
+            return;
+        }
+        setBusy(true);
+        const data = await apiPost("/admin/change-password", {
+            current_password: passwordForm.current_password,
+            new_password: passwordForm.new_password,
+        });
+        if (data.message) setMessage(data.message);
+        if (data.loggedOut) {
+            setAdmin(null);
+            setRows([]);
+            setPasswordForm({current_password: "", new_password: "", confirm_password: ""});
+            navigate(DEFAULT_PATH);
+        }
+        setBusy(false);
+    };
+
     const toggleMenu = (key) => {
         setOpenMenus((current) => ({...current, [key]: !current[key]}));
     };
@@ -506,6 +588,9 @@ const AdminPage = () => {
                     && String(group.course_id) === String(value)
                 ));
                 if (!groupStillValid) next.course_group_id = "";
+            }
+            if (activeConfig?.resource === "useradmins" && field === "role" && value === "admin") {
+                next.user_id = "";
             }
             return next;
         });
@@ -533,7 +618,11 @@ const AdminPage = () => {
 
     const handleDelete = async (row) => {
         if (!activeConfig || !activeConfig.canDelete) return;
-        const label = row.group_name || row.course_name || row.topic_name || "this data";
+        if (activeConfig.resource === "useradmins" && String(row.username || "").toLowerCase() === "admin") {
+            setMessage("Default admin user tidak bisa dihapus.");
+            return;
+        }
+        const label = row.username || row.group_name || row.course_name || row.topic_name || "this data";
         if (!window.confirm(`Delete ${label}? This will soft-delete the data.`)) return;
 
         setBusy(true);
@@ -593,6 +682,9 @@ const AdminPage = () => {
         if (field.dependsOn && formData[field.dependsOn]) {
             options = options.filter((option) => String(option[field.dependsOn]) === String(formData[field.dependsOn]));
         }
+        if (field.reference === "useradmin_users" && formData.role === "instructor") {
+            options = options.filter((option) => String(option.role_name || "").toLowerCase() === "instructor");
+        }
         return options.map((option) => {
             const value = field.valueKey ? option[field.valueKey] : option.instructor_id ?? option.course_id;
             const label = field.labelKey
@@ -600,7 +692,11 @@ const AdminPage = () => {
                 : option.instructor_name || option.course_name;
             return (
                 <option key={value} value={value}>
-                    {field.reference === "course_groups" ? `${option.course_name} - ${label}` : label}
+                    {field.reference === "course_groups"
+                        ? `${option.course_name} - ${label}`
+                        : field.reference === "useradmin_users"
+                            ? `${label}${option.email ? ` (${option.email})` : ""}`
+                            : label}
                 </option>
             );
         });
@@ -623,6 +719,7 @@ const AdminPage = () => {
             && isInstructorSelected;
 
         if (field.type === "select") {
+            const options = field.options || null;
             return (
                 <select
                     value={value}
@@ -630,7 +727,9 @@ const AdminPage = () => {
                     required={isOptionalInstructorGroup ? false : field.required}
                 >
                     <option value="">Choose {field.label}</option>
-                    {renderReferenceOptions(field)}
+                    {options
+                        ? options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)
+                        : renderReferenceOptions(field)}
                 </select>
             );
         }
@@ -652,12 +751,12 @@ const AdminPage = () => {
 
         return (
             <input
-            type={field.type || "text"}
-            value={value ?? ""}
-            placeholder={field.placeholder || ""}
-            onChange={(event) => updateForm(field.key, event.target.value)}
-            required={field.required}
-        />
+                type={field.type || "text"}
+                value={value ?? ""}
+                placeholder={field.placeholder || ""}
+                onChange={(event) => updateForm(field.key, event.target.value)}
+                required={field.required || (field.requiredOnCreate && !editingRow)}
+            />
         );
     };
 
@@ -1005,6 +1104,60 @@ const AdminPage = () => {
             </section>
         );
     };
+
+    const renderChangePassword = () => (
+        <>
+            <div className="admin-page-header">
+                <div>
+                    <h1>Change Password</h1>
+                    <p>Update the password for the account currently signed in.</p>
+                </div>
+            </div>
+            {message && <div className="admin-inline-message">{message}</div>}
+            <form className="admin-data-form" onSubmit={handleChangePassword}>
+                <div className="admin-form-grid">
+                    <label>
+                        Current Password
+                        <input
+                            name="current_password"
+                            type="password"
+                            value={passwordForm.current_password}
+                            onChange={handlePasswordChange}
+                            autoComplete="current-password"
+                            required
+                        />
+                    </label>
+                    <label>
+                        New Password
+                        <input
+                            name="new_password"
+                            type="password"
+                            minLength={8}
+                            value={passwordForm.new_password}
+                            onChange={handlePasswordChange}
+                            autoComplete="new-password"
+                            required
+                        />
+                    </label>
+                    <label>
+                        Confirm New Password
+                        <input
+                            name="confirm_password"
+                            type="password"
+                            minLength={8}
+                            value={passwordForm.confirm_password}
+                            onChange={handlePasswordChange}
+                            autoComplete="new-password"
+                            required
+                        />
+                    </label>
+                </div>
+                <button type="submit" disabled={busy}>
+                    Change Password
+                </button>
+            </form>
+        </>
+    );
 
     const renderBankForm = () => {
         if (!activeConfig?.bankType || Object.keys(bankForm).length === 0) return null;
@@ -1558,6 +1711,9 @@ const AdminPage = () => {
                     <div className="admin-account">
                         <span>{admin.username}</span>
                         <strong>{admin.role}</strong>
+                        <button type="button" onClick={() => navigate("/adminpassword")} disabled={busy}>
+                            Change Password
+                        </button>
                         <button type="button" onClick={handleLogout} disabled={busy}>
                             Logout
                         </button>
@@ -1577,6 +1733,8 @@ const AdminPage = () => {
                         renderQuestionBank()
                     ) : activeConfig.custom === "bankManager" ? (
                         renderBankManager()
+                    ) : activeConfig.custom === "changePassword" ? (
+                        renderChangePassword()
                     ) : (
                         <>
                             <div className="admin-page-header">
@@ -1668,7 +1826,7 @@ const AdminPage = () => {
                                                     <button type="button" onClick={() => openEditForm(row)}>
                                                         Edit
                                                     </button>
-                                                    {activeConfig.canDelete && (
+                                                    {activeConfig.canDelete && !(activeConfig.resource === "useradmins" && String(row.username || "").toLowerCase() === "admin") && (
                                                         <button type="button" onClick={() => handleDelete(row)}>
                                                             Delete
                                                         </button>

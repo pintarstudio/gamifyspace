@@ -3,7 +3,6 @@ import {
     addQuizMember,
     createQuizSession,
     ensureQuizActivityTables,
-    ensureSampleQuizQuestionsForTopics,
     exitQuizMember,
     getActiveQuizSession,
     getQuizAnswers,
@@ -284,7 +283,6 @@ export async function getQuizContext(req, res) {
             getTopicsForCourse(user.course_id),
             getActiveQuizSession(user.course_id, tableId),
         ]);
-        await ensureSampleQuizQuestionsForTopics(topics);
 
         res.json({
             course,
@@ -328,7 +326,6 @@ export async function startQuizLobby(req, res) {
         if (!course) return res.status(400).json({message: "Course tidak ditemukan"});
         if (!topic) return res.status(400).json({message: "Pilih topic terlebih dahulu"});
 
-        await ensureSampleQuizQuestionsForTopics([topic]);
         const questions = await getQuizQuestionsForTopic(topic.topic_id);
         if (questions.length < QUESTION_COUNT) {
             return res.status(409).json({message: "Question bank belum cukup untuk topic ini"});

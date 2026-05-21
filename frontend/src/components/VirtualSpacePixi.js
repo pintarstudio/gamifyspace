@@ -350,12 +350,27 @@ const destroyPixiApp = (app) => {
     }
 };
 
-const VirtualSpacePixi = ({user}) => {
+const VirtualSpacePixi = ({user, onOpenActivity, activityPanelOpen = false}) => {
     const pixiContainer = useRef(null);
     const [currentRoom, setCurrentRoom] = useState("room1.json");
     const [roomData, setRoomData] = useState(null);
     const localUserRef = useRef(null);
+    const activityPanelOpenRef = useRef(activityPanelOpen);
+    const onOpenActivityRef = useRef(onOpenActivity);
     // console.log("User", user);
+
+    useEffect(() => {
+        activityPanelOpenRef.current = activityPanelOpen;
+        window.__virtualActivityModalOpen = activityPanelOpen;
+
+        return () => {
+            window.__virtualActivityModalOpen = false;
+        };
+    }, [activityPanelOpen]);
+
+    useEffect(() => {
+        onOpenActivityRef.current = onOpenActivity;
+    }, [onOpenActivity]);
 
     // Handle room switching
     const handleRoomChange = (newRoom) => {
@@ -565,7 +580,10 @@ const VirtualSpacePixi = ({user}) => {
 
             // Objects
             //console.log("🧭 Calling initObjects...");
-            initObjects(app, worldContainer, roomData, user, localUserRef, zoomFactor, handleRoomChange);
+            initObjects(app, worldContainer, roomData, user, localUserRef, zoomFactor, handleRoomChange, {
+                onOpenActivity: (launch) => onOpenActivityRef.current?.(launch),
+                isInteractionDisabled: () => activityPanelOpenRef.current,
+            });
             socket.emit("request_update_users", {
                 course_id: user.course_id,
                 room: normalizeRoomName(localUserRef.current?.room || currentRoom || "room1"),
@@ -741,10 +759,20 @@ export function initAvatarMovement(app, worldContainer, avatars, localUserRef, l
     let lastDirection = localUserRef.current?.direction || "right";
     if (!window.__gs_keys) window.__gs_keys = {};
     const keys = window.__gs_keys;
+    const clearMovementKeys = () => {
+        keys.ArrowUp = false;
+        keys.ArrowDown = false;
+        keys.ArrowLeft = false;
+        keys.ArrowRight = false;
+    };
 
     // Hindari multi-attach ketika initAvatarMovement dipanggil berkali-kali
     if (!window.__gs_keysBound) {
         window.addEventListener("keydown", (e) => {
+            if (window.__virtualActivityModalOpen) {
+                clearMovementKeys();
+                return;
+            }
             const target = e.target;
             const isTyping = target && (
                 target.tagName === "INPUT" ||
@@ -766,6 +794,14 @@ export function initAvatarMovement(app, worldContainer, avatars, localUserRef, l
     const movementTicker = () => {
         // >>> Perbaikan utama: ambil localUser sebelum dipakai
         if (!app.renderer || worldContainer.destroyed) return;
+        if (window.__virtualActivityModalOpen) {
+            clearMovementKeys();
+            const myKey = localKeyRef.current;
+            if (myKey && avatars[myKey]?.sprite && !avatars[myKey].sprite.destroyed) {
+                avatars[myKey].sprite.gotoAndStop?.(0);
+            }
+            return;
+        }
         const localUser = localUserRef.current;
         if (!localUser) return;
         let moved = false;

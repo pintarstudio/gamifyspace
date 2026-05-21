@@ -9,6 +9,7 @@ import QuizActivityPage from "./pages/QuizActivityPage";
 import IndividualActivityPage from "./pages/IndividualActivityPage";
 import NotFoundPage from "./pages/NotFoundPage";
 import AdminPage from "./pages/AdminPage";
+import InstructorLoginPage from "./pages/InstructorLoginPage";
 import {apiGet} from "./api/apiClient";
 
 const defaultStudentPath = (user) => user?.use_no_virtual_space ? "/novirtualspace" : "/virtualspace";
@@ -59,6 +60,14 @@ function App() {
                         loggedIn
                             ? <Navigate to={defaultStudentPath(user)}/>
                             : <LoginPage setLoggedIn={setLoggedIn} setUser={setUser}/>
+                    }
+                />
+                <Route
+                    path="/instructor"
+                    element={
+                        loggedIn
+                            ? <Navigate to="/virtualspace"/>
+                            : <InstructorLoginPage setLoggedIn={setLoggedIn} setUser={setUser}/>
                     }
                 />
                 <Route
@@ -130,6 +139,8 @@ function App() {
                 <Route path="/topicadmin" element={<AdminPage/>}/>
                 <Route path="/coursegroupadmin" element={<AdminPage/>}/>
                 <Route path="/studentadmin" element={<AdminPage/>}/>
+                <Route path="/useradmin" element={<AdminPage/>}/>
+                <Route path="/adminpassword" element={<AdminPage/>}/>
                 <Route path="/questionbankadmin" element={<AdminPage/>}/>
                 <Route path="/quizbankadmin" element={<AdminPage/>}/>
                 <Route path="/individualbankadmin" element={<AdminPage/>}/>

@@ -19,7 +19,7 @@
     position: fixed;
     right: max(18px, env(safe-area-inset-right));
     width: 56px;
-    z-index: 80;
+    z-index: 2200;
 }
 
 .chat-launcher::before {
@@ -78,7 +78,7 @@
 .chat-drawer {
     inset: 0;
     position: fixed;
-    z-index: 100;
+    z-index: 2300;
 }
 
 .chat-drawer__backdrop {
@@ -793,7 +793,7 @@
     padding: 10px 12px;
     position: fixed;
     right: 22px;
-    z-index: 120;
+    z-index: 2320;
 }
 
 @media (max-width: 720px) {

@@ -139,7 +139,7 @@ const buildInteractionUrl = (baseUrl, params) => {
  * @param {number} zoomFactor
  * @param {Function} handleRoomChange
  */
-export function initObjects(app, worldContainer, roomData, user, localUserRef, zoomFactor, handleRoomChange) {
+export function initObjects(app, worldContainer, roomData, user, localUserRef, zoomFactor, handleRoomChange, options = {}) {
     const objectLayer = roomData.layers.find(
         (l) => l.type === "objectgroup" && l.name === "interactables"
     );
@@ -211,7 +211,7 @@ export function initObjects(app, worldContainer, roomData, user, localUserRef, z
             const hasInteraction = !!guideMessage || !!urlProp || !!actionProp || !!targetRoomProp;
 
             const hintText = hasInteraction ? createPixelBubble({
-                text: guideMessage ? "Press s to ask" : "Press S to start activity",
+                text: guideMessage ? "Press Space to ask" : "Press Space to start activity",
                 fontSize: guideMessage ? 11 : 12,
                 maxWidth: guideMessage ? 120 : 190,
                 fill: guideMessage ? guideColors.fill : 0x1f2937,
@@ -258,7 +258,10 @@ export function initObjects(app, worldContainer, roomData, user, localUserRef, z
         );
         if (isTyping) return;
         console.log("🟧 [objectHandler] Keydown detected:", e.key);
-        if (e.key.toLowerCase() !== "s" || e.repeat) return;
+        const isInteractionKey = e.code === "Space" || e.key === " " || e.key === "Spacebar";
+        if (!isInteractionKey || e.repeat) return;
+
+        if (options.isInteractionDisabled?.()) return;
 
         const activeObject = objects.find((o) => o.hintText?.visible);
         if (!activeObject) return;
@@ -315,6 +318,35 @@ export function initObjects(app, worldContainer, roomData, user, localUserRef, z
         });
 
         if (!finalUrl) return;
+
+        if (options.onOpenActivity) {
+            const openedInApp = options.onOpenActivity({
+                key: `${objectName}:${objectId}:${groupId || ""}:${tableId || ""}:${activeObject.urlProp || ""}`,
+                objectName,
+                objectId,
+                groupId,
+                tableId,
+                url: finalUrl,
+            });
+
+            if (openedInApp) {
+                activeActivityPopupContext = {
+                    key: `${objectName}:${objectId}:${groupId || ""}:${tableId || ""}:${activeObject.urlProp || ""}`,
+                    objectName,
+                    objectId,
+                };
+                socket.emit("interact_obj", {
+                    user_id: userId,
+                    object_name: objectName,
+                    object_id: objectId,
+                    group_id: groupId,
+                    table_id: tableId,
+                    action: "openmodal",
+                    url: finalUrl,
+                });
+                return;
+            }
+        }
 
         if (activeActivityPopup && !activeActivityPopup.closed) {
             const nextPopupContext = {

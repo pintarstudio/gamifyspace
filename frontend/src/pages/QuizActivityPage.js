@@ -12,6 +12,14 @@ import "./QuizActivityPage.css";
 
 const getMessage = (data, fallback) => data?.message || fallback;
 
+const isTypingTarget = (target) =>
+    target && (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.tagName === "SELECT" ||
+        target.isContentEditable
+    );
+
 const isNoVirtualCode = (value) => {
     const parsed = Number.parseInt(value, 10);
     return String(parsed) === String(value).trim() && parsed >= 101 && parsed <= 150;
@@ -39,8 +47,12 @@ function buildWrongFeedbackMap(session) {
     return grouped;
 }
 
-const QuizActivityPage = ({embedded = false, noVirtual = false, onBack}) => {
-    const [searchParams] = useSearchParams();
+const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activitySearchParams = null, exitOnBack = false}) => {
+    const [routeSearchParams] = useSearchParams();
+    const searchParams = useMemo(
+        () => activitySearchParams ? new URLSearchParams(activitySearchParams) : routeSearchParams,
+        [activitySearchParams, routeSearchParams]
+    );
     const routeTableId = searchParams.get("table_id") || searchParams.get("group_id") || searchParams.get("object_id") || (noVirtual ? "" : "1");
     const [entryCode, setEntryCode] = useState(noVirtual ? routeTableId : "");
     const [selectedEntryGroupId, setSelectedEntryGroupId] = useState(noVirtual && isNoVirtualCode(routeTableId) ? routeTableId : "");
@@ -57,8 +69,10 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack}) => {
     const [message, setMessage] = useState("");
     const [now, setNow] = useState(Date.now());
     const [currentUser, setCurrentUser] = useState(null);
+    const [confirmExitOpen, setConfirmExitOpen] = useState(false);
     const timeoutPulseRef = useRef("");
     const activityStatusKeyRef = useRef(null);
+    const cancelExitButtonRef = useRef(null);
 
     const selectedTopic = useMemo(
         () => context?.topics?.find((topic) => String(topic.topic_id) === String(selectedTopicId)),
@@ -111,6 +125,19 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack}) => {
         const timerId = window.setInterval(() => setNow(Date.now()), 500);
         return () => window.clearInterval(timerId);
     }, []);
+
+    useEffect(() => {
+        if (!savingResult) return undefined;
+
+        const preventUnload = (event) => {
+            event.preventDefault();
+            event.returnValue = "";
+            return "";
+        };
+
+        window.addEventListener("beforeunload", preventUnload);
+        return () => window.removeEventListener("beforeunload", preventUnload);
+    }, [savingResult]);
 
     useEffect(() => {
         if (!activeSession?.quiz_session_id || !activeSession?.is_member || activeSession.status === "saved") return undefined;
@@ -218,6 +245,43 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack}) => {
             if (data.session) setActiveSession(data.session);
         });
     }, [activeSession, localTimeLeft]);
+
+    useEffect(() => {
+        if (confirmExitOpen) {
+            window.setTimeout(() => cancelExitButtonRef.current?.focus(), 0);
+        }
+    }, [confirmExitOpen]);
+
+    useEffect(() => {
+        if (!embedded) return undefined;
+
+        const handleEscape = (event) => {
+            if (event.key !== "Escape" || isTypingTarget(event.target)) return;
+            event.preventDefault();
+
+            if (confirmExitOpen) {
+                setConfirmExitOpen(false);
+                return;
+            }
+
+            if (!activeSession?.is_member) {
+                onBack?.();
+                return;
+            }
+
+            if (savingResult) {
+                setMessage("Hasil quiz sedang disimpan. Jangan refresh, tutup halaman, atau keluar sampai proses selesai.");
+                return;
+            }
+
+            if (["lobby", "in_progress"].includes(activeSession.status)) {
+                setConfirmExitOpen(true);
+            }
+        };
+
+        window.addEventListener("keydown", handleEscape);
+        return () => window.removeEventListener("keydown", handleEscape);
+    }, [activeSession, confirmExitOpen, embedded, onBack, savingResult]);
 
     const handleCreateQuiz = async () => {
         const nextGroupId = noVirtual ? entryCode.trim() : groupId;
@@ -336,7 +400,7 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack}) => {
     };
 
     const handleExitQuiz = async () => {
-        if (!activeSession?.quiz_session_id) return;
+        if (!activeSession?.quiz_session_id) return false;
 
         setBusy(true);
         setMessage("");
@@ -352,6 +416,15 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack}) => {
             loadContext();
         }
         setBusy(false);
+        return true;
+    };
+
+    const handleEmbeddedBack = async () => {
+        if (exitOnBack && activeSession?.quiz_session_id && activeSession.status !== "saved") {
+            const exited = await handleExitQuiz();
+            if (!exited) return;
+        }
+        onBack?.();
     };
 
     const handleAnswer = async (answerIndex) => {
@@ -423,13 +496,18 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack}) => {
                             <h1>Live Quiz</h1>
                         </div>
                         <div className="quiz-header__meta">
-                            {embedded && (
-                                <button className="no-virtual-back" type="button" onClick={onBack}>
-                                    Back
-                                </button>
-                            )}
                             <span>{progressText}</span>
                             <span>{activeSession.member_count}/{activeSession.max_members}</span>
+                            {activeSession.status === "in_progress" && (
+                                <button
+                                    className="quiz-button quiz-button--danger"
+                                    onClick={handleExitQuiz}
+                                    disabled={busy}
+                                    type="button"
+                                >
+                                    Exit Quiz
+                                </button>
+                            )}
                         </div>
                     </div>
 
@@ -553,7 +631,14 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack}) => {
                                         {busy ? "Saving Result..." : "Save Result"}
                                     </button>
                                 ) : (
-                                    <span className="quiz-saved">Saved</span>
+                                    <>
+                                        <span className="quiz-saved">Saved</span>
+                                        {embedded && (
+                                            <button className="quiz-button quiz-button--primary" onClick={onBack} type="button">
+                                                Close
+                                            </button>
+                                        )}
+                                    </>
                                 )}
                                 {activeSession.wrong_answer_feedback_error && (
                                     <p className="quiz-feedback-error">{activeSession.wrong_answer_feedback_error}</p>
@@ -565,7 +650,7 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack}) => {
                                     <span className="quiz-spinner" aria-hidden="true" />
                                     <div>
                                         <h2>Getting AI Feedback</h2>
-                                        <p>Please keep this window open while wrong-answer feedback is generated and the result is saved.</p>
+                                        <p>Please keep this window open while wrong-answer feedback is generated and the result is saved. Do not refresh or close this page.</p>
                                     </div>
                                 </div>
                             )}
@@ -634,6 +719,25 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack}) => {
                     )}
 
                     {message && <p className="quiz-message">{message}</p>}
+                    {confirmExitOpen && (
+                        <div className="activity-exit-confirm" role="dialog" aria-modal="true" aria-labelledby="quiz-exit-confirm-title">
+                            <section className="activity-exit-confirm__panel">
+                                <h2 id="quiz-exit-confirm-title">Exit quiz?</h2>
+                                <p>Your current quiz session will be closed for you.</p>
+                                <div className="activity-exit-confirm__actions">
+                                    <button ref={cancelExitButtonRef} type="button" onClick={() => setConfirmExitOpen(false)}>
+                                        No, stay
+                                    </button>
+                                    <button className="is-danger" type="button" onClick={() => {
+                                        setConfirmExitOpen(false);
+                                        handleExitQuiz();
+                                    }}>
+                                        Yes, exit
+                                    </button>
+                                </div>
+                            </section>
+                        </div>
+                    )}
                 </section>
             </main>
         );
@@ -646,7 +750,7 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack}) => {
     return (
         <main className={`quiz-app quiz-landing${embedded ? " quiz-app--embedded" : ""}`}>
             {embedded && (
-                <button className="no-virtual-back" type="button" onClick={onBack}>
+                <button className="no-virtual-back" type="button" onClick={handleEmbeddedBack}>
                     Back
                 </button>
             )}

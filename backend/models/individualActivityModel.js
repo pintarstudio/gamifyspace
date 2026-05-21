@@ -14,49 +14,6 @@ function clampInt(value, min, max, fallback = min) {
     return Math.max(min, Math.min(max, parsed));
 }
 
-function activityLabel(activityType) {
-    if (activityType === "pre_test") return "Pre-test";
-    if (activityType === "post_test") return "Post-test";
-    return "Individual Exercise";
-}
-
-function buildChoices(topicName, questionNumber, activityType) {
-    const label = activityLabel(activityType).toLowerCase();
-    return [
-        `Apply the main idea of ${topicName} to the situation.`,
-        `Ignore the context and choose a random step.`,
-        `Memorize only the term without using it.`,
-        `Avoid explaining the reasoning behind the answer.`,
-    ].map((choice, index) => index === 0 ? choice : `${choice} (${label} distractor ${questionNumber})`);
-}
-
-function buildMcQuestion(topic, questionNumber, activityType) {
-    const topicName = topic?.topic_name || "this topic";
-    const typeName = activityLabel(activityType);
-
-    return {
-        question_text: `${typeName} ${questionNumber}: Which answer best shows understanding of ${topicName}?`,
-        choices: buildChoices(topicName, questionNumber, activityType),
-        correct_answer_index: 0,
-        explanation: `The correct answer applies the core idea of ${topicName} to the given learning context.`,
-    };
-}
-
-function buildCaseStudy(topic, caseNumber) {
-    const topicName = topic?.topic_name || "this topic";
-
-    return {
-        case_title: `${topicName} Individual Case ${caseNumber}`,
-        case_prompt: [
-            `You are solving an individual scenario about ${topicName}.`,
-            caseNumber === 1
-                ? `A student team is confused about how to use ${topicName} in a real assignment.`
-                : `A project has a problem that can be improved by applying ${topicName} carefully.`,
-            "Explain the main issue, choose a practical solution, and justify your answer with clear reasoning and an example.",
-        ].join("\n\n"),
-    };
-}
-
 async function createIndividualTables() {
     await ensureGamificationTables();
 
@@ -192,45 +149,6 @@ export async function updateIndividualTopicSettings(topicId, settings) {
         ]
     );
     return result.rows[0] || null;
-}
-
-export async function ensureSampleIndividualQuestionsForTopics(topics) {
-    for (const topic of topics || []) {
-        for (let questionNumber = 1; questionNumber <= 15; questionNumber += 1) {
-            const question = buildMcQuestion(topic, questionNumber, "exercise");
-            await pool.query(
-                `INSERT INTO individual_questions
-                     (topic_id, activity_type, question_kind, question_number, question_text, choices, correct_answer_index, explanation)
-                 VALUES ($1, 'exercise', 'multiple_choice', $2, $3, $4::jsonb, $5, $6)
-                 ON CONFLICT (topic_id, activity_type, question_kind, question_number) DO NOTHING`,
-                [topic.topic_id, questionNumber, question.question_text, JSON.stringify(question.choices), question.correct_answer_index, question.explanation]
-            );
-        }
-
-        for (let caseNumber = 1; caseNumber <= 2; caseNumber += 1) {
-            const caseStudy = buildCaseStudy(topic, caseNumber);
-            await pool.query(
-                `INSERT INTO individual_questions
-                     (topic_id, activity_type, question_kind, question_number, case_title, case_prompt)
-                 VALUES ($1, 'exercise', 'case_study', $2, $3, $4)
-                 ON CONFLICT (topic_id, activity_type, question_kind, question_number) DO NOTHING`,
-                [topic.topic_id, caseNumber, caseStudy.case_title, caseStudy.case_prompt]
-            );
-        }
-
-        for (const activityType of ["pre_test", "post_test"]) {
-            for (let questionNumber = 1; questionNumber <= 10; questionNumber += 1) {
-                const question = buildMcQuestion(topic, questionNumber, activityType);
-                await pool.query(
-                    `INSERT INTO individual_questions
-                         (topic_id, activity_type, question_kind, question_number, question_text, choices, correct_answer_index, explanation)
-                     VALUES ($1, $2, 'multiple_choice', $3, $4, $5::jsonb, $6, $7)
-                     ON CONFLICT (topic_id, activity_type, question_kind, question_number) DO NOTHING`,
-                    [topic.topic_id, activityType, questionNumber, question.question_text, JSON.stringify(question.choices), question.correct_answer_index, question.explanation]
-                );
-            }
-        }
-    }
 }
 
 export async function getIndividualQuestions({topicId, activityType, questionKind}) {

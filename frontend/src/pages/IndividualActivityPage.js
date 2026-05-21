@@ -12,6 +12,14 @@ import "./IndividualActivityPage.css";
 const choiceLabel = (index) => ["A", "B", "C", "D"][index] || String(index + 1);
 const getMessage = (data, fallback) => data?.message || fallback;
 
+const isTypingTarget = (target) =>
+    target && (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.tagName === "SELECT" ||
+        target.isContentEditable
+    );
+
 function activityTitle(activityType, questionKind) {
     if (activityType === "pre_test") return "Pre-test";
     if (activityType === "post_test") return "Post-test";
@@ -23,8 +31,12 @@ function feedbackForAnswer(session, answer) {
         .find((item) => String(item.question_id) === String(answer.question_id));
 }
 
-const IndividualActivityPage = ({embedded = false, onBack}) => {
-    const [searchParams] = useSearchParams();
+const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams = null, exitOnBack = false}) => {
+    const [routeSearchParams] = useSearchParams();
+    const searchParams = useMemo(
+        () => activitySearchParams ? new URLSearchParams(activitySearchParams) : routeSearchParams,
+        [activitySearchParams, routeSearchParams]
+    );
     const objectId = searchParams.get("object_id") || "computer";
     const showAdminControls = searchParams.get("admin") === "1";
 
@@ -39,7 +51,9 @@ const IndividualActivityPage = ({embedded = false, onBack}) => {
     const [message, setMessage] = useState("");
     const [completionNotice, setCompletionNotice] = useState("");
     const [currentUser, setCurrentUser] = useState(null);
+    const [confirmExitOpen, setConfirmExitOpen] = useState(false);
     const activityStatusKeyRef = useRef(null);
+    const cancelExitButtonRef = useRef(null);
 
     const selectedTopic = useMemo(
         () => context?.topics?.find((topic) => String(topic.topic_id) === String(selectedTopicId)),
@@ -129,6 +143,56 @@ const IndividualActivityPage = ({embedded = false, onBack}) => {
             if (activityStatusKeyRef.current === activityKey) activityStatusKeyRef.current = null;
         };
     }, [currentUser, activeSession?.status, activeSession?.session_id, activeSession?.activity_type, activeSession?.object_id, objectId]);
+
+    useEffect(() => {
+        if (!completionNotice) return undefined;
+
+        const preventUnload = (event) => {
+            event.preventDefault();
+            event.returnValue = "";
+            return "";
+        };
+
+        window.addEventListener("beforeunload", preventUnload);
+        return () => window.removeEventListener("beforeunload", preventUnload);
+    }, [completionNotice]);
+
+    useEffect(() => {
+        if (confirmExitOpen) {
+            window.setTimeout(() => cancelExitButtonRef.current?.focus(), 0);
+        }
+    }, [confirmExitOpen]);
+
+    useEffect(() => {
+        if (!embedded) return undefined;
+
+        const handleEscape = (event) => {
+            if (event.key !== "Escape" || isTypingTarget(event.target)) return;
+            event.preventDefault();
+
+            if (confirmExitOpen) {
+                setConfirmExitOpen(false);
+                return;
+            }
+
+            if (!activeSession) {
+                onBack?.();
+                return;
+            }
+
+            if (activeSession.status !== "in_progress") return;
+
+            if (completionNotice) {
+                setMessage("Aktivitas sedang disimpan. Jangan refresh, tutup halaman, atau keluar sampai proses selesai.");
+                return;
+            }
+
+            setConfirmExitOpen(true);
+        };
+
+        window.addEventListener("keydown", handleEscape);
+        return () => window.removeEventListener("keydown", handleEscape);
+    }, [activeSession, completionNotice, confirmExitOpen, embedded, onBack]);
 
     const handleStart = async () => {
         if (!selectedTopicId) {
@@ -225,7 +289,7 @@ const IndividualActivityPage = ({embedded = false, onBack}) => {
     };
 
     const handleExit = async () => {
-        if (!activeSession?.session_id) return;
+        if (!activeSession?.session_id) return false;
         setBusy(true);
         const data = await apiPost(`/individual/sessions/${activeSession.session_id}/exit`, {});
         const status = activityStatusForIndividual(activeSession.activity_type);
@@ -234,6 +298,15 @@ const IndividualActivityPage = ({embedded = false, onBack}) => {
         setActiveSession(null);
         setMessage(getMessage(data, "Aktivitas dibatalkan."));
         setBusy(false);
+        return true;
+    };
+
+    const handleEmbeddedBack = async () => {
+        if (exitOnBack && activeSession?.status === "in_progress") {
+            const exited = await handleExit();
+            if (!exited) return;
+        }
+        onBack?.();
     };
 
     const handleAdminToggle = async (topic, key) => {
@@ -270,11 +343,6 @@ const IndividualActivityPage = ({embedded = false, onBack}) => {
                         <h1>{activityTitle(activeSession.activity_type, activeSession.question_kind)}</h1>
                     </div>
                     <div className="individual-header__actions">
-                        {embedded && (
-                            <button className="no-virtual-back" type="button" onClick={onBack}>
-                                Back
-                            </button>
-                        )}
                         <span>{progress}</span>
                         <button className="individual-button individual-button--danger" onClick={handleExit} disabled={busy}>
                             {busy ? "Please Wait" : "Exit"}
@@ -287,7 +355,7 @@ const IndividualActivityPage = ({embedded = false, onBack}) => {
                         <span className="individual-spinner" aria-hidden="true" />
                         <div>
                             <h2>{completionNotice}</h2>
-                            <p>Please keep this window open while the activity is being saved.</p>
+                            <p>Please keep this window open while the activity is being saved. Do not refresh or close this page.</p>
                         </div>
                     </section>
                 )}
@@ -342,6 +410,25 @@ const IndividualActivityPage = ({embedded = false, onBack}) => {
                 )}
 
                 {message && <p className="individual-message">{message}</p>}
+                {confirmExitOpen && (
+                    <div className="activity-exit-confirm" role="dialog" aria-modal="true" aria-labelledby="individual-exit-confirm-title">
+                        <section className="activity-exit-confirm__panel">
+                            <h2 id="individual-exit-confirm-title">Exit activity?</h2>
+                            <p>Your current individual activity will be closed.</p>
+                            <div className="activity-exit-confirm__actions">
+                                <button ref={cancelExitButtonRef} type="button" onClick={() => setConfirmExitOpen(false)}>
+                                    No, stay
+                                </button>
+                                <button className="is-danger" type="button" onClick={() => {
+                                    setConfirmExitOpen(false);
+                                    handleExit();
+                                }}>
+                                    Yes, exit
+                                </button>
+                            </div>
+                        </section>
+                    </div>
+                )}
             </main>
         );
     }
@@ -353,8 +440,8 @@ const IndividualActivityPage = ({embedded = false, onBack}) => {
         return (
             <main className={`individual-app individual-results${embedded ? " individual-app--embedded" : ""}`}>
                 {embedded && (
-                    <button className="no-virtual-back" type="button" onClick={onBack}>
-                        Back
+                    <button className="individual-button individual-button--primary" type="button" onClick={onBack}>
+                        Close
                     </button>
                 )}
                 <section className="individual-panel individual-result-hero">
@@ -453,7 +540,7 @@ const IndividualActivityPage = ({embedded = false, onBack}) => {
     return (
         <main className={`individual-app individual-landing${embedded ? " individual-app--embedded" : ""}`}>
             {embedded && (
-                <button className="no-virtual-back" type="button" onClick={onBack}>
+                <button className="no-virtual-back" type="button" onClick={handleEmbeddedBack}>
                     Back
                 </button>
             )}

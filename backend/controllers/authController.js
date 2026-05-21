@@ -2,8 +2,9 @@
 import {findActiveCourseById, findCourseByName} from "../models/courseModel.js";
 import {createDemoUser, findUserByCourseNameEmail, findUserByEmail, findUserById, updateUserRole} from "../models/userModel.js";
 import {createSession, deactivateSession} from "../models/sessionModel.js";
-import {getDefaultAvatar} from "../models/avatarModel.js";
-import {findRoleById, STUDENT_ROLE_ID} from "../models/roleModel.js";
+import {findAvatarById, getDefaultAvatar} from "../models/avatarModel.js";
+import {findRoleById, INSTRUCTOR_ROLE_ID, STUDENT_ROLE_ID} from "../models/roleModel.js";
+import {findAdminByUsername, updateAdminLastLogin, verifyAdminPassword} from "../models/adminModel.js";
 import {v4 as uuidv4} from "uuid";
 
 const normalizeLookupText = (value) =>
@@ -163,6 +164,76 @@ export async function resolveDemoLogin(req, res) {
             });
         }
         res.status(500).json({message: "Gagal memuat data demo login"});
+    }
+}
+
+export async function instructorLogin(req, res) {
+    try {
+        const username = String(req.body.username || "").trim();
+        const password = String(req.body.password || "");
+        const avatarId = req.body.avatar_id;
+
+        if (!username || !password) {
+            return res.status(400).json({message: "Username dan password wajib diisi"});
+        }
+        if (!avatarId) {
+            return res.status(400).json({message: "Avatar wajib dipilih"});
+        }
+
+        const admin = await findAdminByUsername(username);
+        if (!admin || admin.role !== "instructor" || !verifyAdminPassword(password, admin.password_hash)) {
+            return res.status(401).json({message: "Username atau password instructor tidak sesuai"});
+        }
+        if (admin.is_disabled) {
+            return res.status(403).json({message: "Akun instructor tidak aktif"});
+        }
+        if (!admin.user_id) {
+            return res.status(403).json({message: "Akun instructor belum terhubung dengan data user. Silakan hubungi admin."});
+        }
+
+        const [user, avatar] = await Promise.all([
+            findUserById(admin.user_id),
+            findAvatarById(avatarId),
+        ]);
+        if (!user || String(user.role_id) !== String(INSTRUCTOR_ROLE_ID)) {
+            return res.status(403).json({message: "Data user bukan instructor atau sudah tidak aktif"});
+        }
+        if (!avatar) {
+            return res.status(400).json({message: "Avatar tidak ditemukan"});
+        }
+
+        const course = await findActiveCourseById(user.course_id);
+        if (!course) {
+            return res.status(404).json({message: "Course instructor tidak ditemukan"});
+        }
+
+        const session_id = uuidv4();
+        await createSession(session_id, user.user_id, course.course_id, avatar.avatar_id);
+        await updateAdminLastLogin(admin.useradmin_id);
+
+        req.session.session_id = session_id;
+        req.session.user = {...user, avatar_public_path: avatar.avatar_public_path};
+
+        res.json({
+            message: "Login instructor berhasil",
+            user: {
+                ...user,
+                course_id: course.course_id,
+                course_name: course.course_name,
+                course_group_id: user.course_group_id,
+                course_group_name: user.course_group_name,
+                role_id: user.role_id,
+                role_name: user.role_name,
+                gamification_enabled: !!user.gamification_enabled,
+                use_no_virtual_space: false,
+                virtual_space_enabled: true,
+                avatar_id: avatar.avatar_id,
+                avatar_public_path: avatar.avatar_public_path,
+            },
+        });
+    } catch (error) {
+        console.error("Instructor login error:", error);
+        res.status(500).json({message: "Gagal login instructor"});
     }
 }
 

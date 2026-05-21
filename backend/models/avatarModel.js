@@ -16,3 +16,15 @@ export async function getDefaultAvatar() {
     );
     return result.rows[0] || null;
 }
+
+export async function findAvatarById(avatarId) {
+    const result = await pool.query(
+        `SELECT avatar_id, avatar_name, avatar_public_path
+         FROM avatars
+         WHERE avatar_id = $1
+           AND deleted_at IS NULL
+         LIMIT 1`,
+        [avatarId]
+    );
+    return result.rows[0] || null;
+}

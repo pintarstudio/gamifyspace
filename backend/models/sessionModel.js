@@ -1,5 +1,6 @@
 // backend/models/sessionModel.js
 import {pool} from "../db/index.js";
+import {INSTRUCTOR_ROLE_ID} from "./roleModel.js";
 
 export async function createSession(session_id, user_id, course_id, avatar_id) {
     await pool.query(
@@ -27,9 +28,15 @@ export async function findSession(session_id) {
              cg.group_name AS course_group_name,
              u.role_id,
              r.role_name,
-             COALESCE(cg.gamification_enabled, FALSE) AS gamification_enabled,
-             NOT COALESCE(cg.virtual_space_enabled, FALSE) AS use_no_virtual_space,
-             COALESCE(cg.virtual_space_enabled, FALSE) AS virtual_space_enabled,
+	             COALESCE(cg.gamification_enabled, FALSE) AS gamification_enabled,
+	             CASE
+	                 WHEN u.role_id = ${INSTRUCTOR_ROLE_ID} THEN FALSE
+	                 ELSE NOT COALESCE(cg.virtual_space_enabled, FALSE)
+	             END AS use_no_virtual_space,
+	             CASE
+	                 WHEN u.role_id = ${INSTRUCTOR_ROLE_ID} THEN TRUE
+	                 ELSE COALESCE(cg.virtual_space_enabled, FALSE)
+	             END AS virtual_space_enabled,
              a.avatar_name,
              a.avatar_public_path
          FROM sessions s

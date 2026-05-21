@@ -4,7 +4,7 @@ import {
     ensureCourseGroupSchema,
     getDefaultCourseGroupForCourse,
 } from "./courseGroupModel.js";
-import {ensureRoleSchema, STUDENT_ROLE_ID} from "./roleModel.js";
+import {ensureRoleSchema, INSTRUCTOR_ROLE_ID, STUDENT_ROLE_ID} from "./roleModel.js";
 
 export async function ensureUserAccessModeColumn() {
     await ensureCourseGroupSchema();
@@ -19,9 +19,15 @@ export async function findUserById(id) {
              c.course_name,
              cg.group_name AS course_group_name,
              r.role_name,
-             COALESCE(cg.gamification_enabled, FALSE) AS gamification_enabled,
-             NOT COALESCE(cg.virtual_space_enabled, FALSE) AS use_no_virtual_space,
-             COALESCE(cg.virtual_space_enabled, FALSE) AS virtual_space_enabled
+	             COALESCE(cg.gamification_enabled, FALSE) AS gamification_enabled,
+	             CASE
+	                 WHEN u.role_id = ${INSTRUCTOR_ROLE_ID} THEN FALSE
+	                 ELSE NOT COALESCE(cg.virtual_space_enabled, FALSE)
+	             END AS use_no_virtual_space,
+	             CASE
+	                 WHEN u.role_id = ${INSTRUCTOR_ROLE_ID} THEN TRUE
+	                 ELSE COALESCE(cg.virtual_space_enabled, FALSE)
+	             END AS virtual_space_enabled
          FROM users u
          JOIN courses c
            ON c.course_id = u.course_id
@@ -53,9 +59,15 @@ export async function getAllUsersByCourseId(course_id = null) {
                  cg.group_name AS course_group_name,
                  u.role_id,
                  r.role_name,
-                 COALESCE(cg.gamification_enabled, FALSE) AS gamification_enabled,
-                 NOT COALESCE(cg.virtual_space_enabled, FALSE) AS use_no_virtual_space,
-                 COALESCE(cg.virtual_space_enabled, FALSE) AS virtual_space_enabled
+	                 COALESCE(cg.gamification_enabled, FALSE) AS gamification_enabled,
+	                 CASE
+	                     WHEN u.role_id = ${INSTRUCTOR_ROLE_ID} THEN FALSE
+	                     ELSE NOT COALESCE(cg.virtual_space_enabled, FALSE)
+	                 END AS use_no_virtual_space,
+	                 CASE
+	                     WHEN u.role_id = ${INSTRUCTOR_ROLE_ID} THEN TRUE
+	                     ELSE COALESCE(cg.virtual_space_enabled, FALSE)
+	                 END AS virtual_space_enabled
              FROM users u
              JOIN courses c
                ON c.course_id = u.course_id
@@ -82,9 +94,15 @@ export async function getAllUsersByCourseId(course_id = null) {
                  cg.group_name AS course_group_name,
                  u.role_id,
                  r.role_name,
-                 COALESCE(cg.gamification_enabled, FALSE) AS gamification_enabled,
-                 NOT COALESCE(cg.virtual_space_enabled, FALSE) AS use_no_virtual_space,
-                 COALESCE(cg.virtual_space_enabled, FALSE) AS virtual_space_enabled
+	                 COALESCE(cg.gamification_enabled, FALSE) AS gamification_enabled,
+	                 CASE
+	                     WHEN u.role_id = ${INSTRUCTOR_ROLE_ID} THEN FALSE
+	                     ELSE NOT COALESCE(cg.virtual_space_enabled, FALSE)
+	                 END AS use_no_virtual_space,
+	                 CASE
+	                     WHEN u.role_id = ${INSTRUCTOR_ROLE_ID} THEN TRUE
+	                     ELSE COALESCE(cg.virtual_space_enabled, FALSE)
+	                 END AS virtual_space_enabled
              FROM users u
              JOIN courses c
                ON c.course_id = u.course_id
@@ -114,9 +132,15 @@ export async function findUserByCourseNameEmail({course_id, name, email}) {
              cg.group_name AS course_group_name,
              u.role_id,
              r.role_name,
-             COALESCE(cg.gamification_enabled, FALSE) AS gamification_enabled,
-             NOT COALESCE(cg.virtual_space_enabled, FALSE) AS use_no_virtual_space,
-             COALESCE(cg.virtual_space_enabled, FALSE) AS virtual_space_enabled
+	             COALESCE(cg.gamification_enabled, FALSE) AS gamification_enabled,
+	             CASE
+	                 WHEN u.role_id = ${INSTRUCTOR_ROLE_ID} THEN FALSE
+	                 ELSE NOT COALESCE(cg.virtual_space_enabled, FALSE)
+	             END AS use_no_virtual_space,
+	             CASE
+	                 WHEN u.role_id = ${INSTRUCTOR_ROLE_ID} THEN TRUE
+	                 ELSE COALESCE(cg.virtual_space_enabled, FALSE)
+	             END AS virtual_space_enabled
          FROM users u
          JOIN courses c
            ON c.course_id = u.course_id
@@ -149,9 +173,15 @@ export async function findUserByEmail(email) {
              cg.group_name AS course_group_name,
              u.role_id,
              r.role_name,
-             COALESCE(cg.gamification_enabled, FALSE) AS gamification_enabled,
-             NOT COALESCE(cg.virtual_space_enabled, FALSE) AS use_no_virtual_space,
-             COALESCE(cg.virtual_space_enabled, FALSE) AS virtual_space_enabled
+	             COALESCE(cg.gamification_enabled, FALSE) AS gamification_enabled,
+	             CASE
+	                 WHEN u.role_id = ${INSTRUCTOR_ROLE_ID} THEN FALSE
+	                 ELSE NOT COALESCE(cg.virtual_space_enabled, FALSE)
+	             END AS use_no_virtual_space,
+	             CASE
+	                 WHEN u.role_id = ${INSTRUCTOR_ROLE_ID} THEN TRUE
+	                 ELSE COALESCE(cg.virtual_space_enabled, FALSE)
+	             END AS virtual_space_enabled
          FROM users u
          JOIN courses c
            ON c.course_id = u.course_id

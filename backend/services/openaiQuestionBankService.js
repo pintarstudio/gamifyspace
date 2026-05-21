@@ -4,19 +4,27 @@ const DEFAULT_QUESTION_MODEL = "gpt-5.4-nano";
 const materialDigestSchema = {
     type: "object",
     additionalProperties: false,
-    required: ["summary", "key_concepts", "common_misconceptions", "important_excerpts"],
+    required: ["summary", "key_concepts", "common_misconceptions", "important_excerpts", "question_targets"],
     properties: {
         summary: {type: "string"},
         key_concepts: {
             type: "array",
+            maxItems: 15,
             items: {type: "string"},
         },
         common_misconceptions: {
             type: "array",
+            maxItems: 10,
             items: {type: "string"},
         },
         important_excerpts: {
             type: "array",
+            maxItems: 10,
+            items: {type: "string"},
+        },
+        question_targets: {
+            type: "array",
+            maxItems: 15,
             items: {type: "string"},
         },
     },
@@ -48,6 +56,8 @@ const questionDraftSchema = {
                     question_text: {type: "string"},
                     choices: {
                         type: "array",
+                        minItems: 4,
+                        maxItems: 4,
                         items: {type: "string"},
                     },
                     correct_answer_index: {type: "integer"},
@@ -104,9 +114,10 @@ function firstText(...values) {
 function normalizeDigest(digest) {
     return {
         summary: trimWords(digest.summary, 450),
-        key_concepts: (digest.key_concepts || []).slice(0, 12).map((item) => trimWords(item, 28)),
-        common_misconceptions: (digest.common_misconceptions || []).slice(0, 8).map((item) => trimWords(item, 28)),
-        important_excerpts: (digest.important_excerpts || []).slice(0, 8).map((item) => trimWords(item, 45)),
+        key_concepts: (digest.key_concepts || []).slice(0, 15).map((item) => trimWords(item, 30)),
+        common_misconceptions: (digest.common_misconceptions || []).slice(0, 10).map((item) => trimWords(item, 30)),
+        important_excerpts: (digest.important_excerpts || []).slice(0, 10).map((item) => trimWords(item, 45)),
+        question_targets: (digest.question_targets || []).slice(0, 15).map((item) => trimWords(item, 30)),
     };
 }
 
@@ -147,51 +158,72 @@ function normalizeDrafts(items, bankType, startNumber) {
 }
 
 async function postStructuredResponse({name, schema, system, user, maxOutputTokens}) {
-    const response = await fetch(OPENAI_RESPONSES_URL, {
-        method: "POST",
-        headers: {
-            "Authorization": `Bearer ${requireApiKey()}`,
-            "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-            model: getQuestionModel(),
-            input: [
-                {role: "system", content: system},
-                {role: "user", content: user},
-            ],
-            text: {
-                format: {
-                    type: "json_schema",
-                    name,
-                    schema,
-                    strict: true,
-                },
+    const tokenBudgets = [
+        maxOutputTokens,
+        Math.min(8000, Math.max(maxOutputTokens + 2000, Math.ceil(maxOutputTokens * 2.5))),
+    ];
+    let lastError = null;
+
+    for (const tokenBudget of tokenBudgets) {
+        const response = await fetch(OPENAI_RESPONSES_URL, {
+            method: "POST",
+            headers: {
+                "Authorization": `Bearer ${requireApiKey()}`,
+                "Content-Type": "application/json",
             },
-            max_output_tokens: maxOutputTokens,
-        }),
-    });
+            body: JSON.stringify({
+                model: getQuestionModel(),
+                input: [
+                    {role: "system", content: system},
+                    {role: "user", content: user},
+                ],
+                text: {
+                    format: {
+                        type: "json_schema",
+                        name,
+                        schema,
+                        strict: true,
+                    },
+                },
+                max_output_tokens: tokenBudget,
+            }),
+        });
 
-    const responseBody = await response.json().catch(() => ({}));
-    if (!response.ok) {
-        const error = new Error(responseBody?.error?.message || "OpenAI question bank request failed");
-        error.code = "OPENAI_QUESTION_BANK_FAILED";
-        error.status = response.status;
-        throw error;
+        const responseBody = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            const error = new Error(responseBody?.error?.message || "OpenAI question bank request failed");
+            error.code = "OPENAI_QUESTION_BANK_FAILED";
+            error.status = response.status;
+            throw error;
+        }
+
+        if (responseBody?.status === "incomplete" || responseBody?.incomplete_details) {
+            lastError = new Error(
+                responseBody?.incomplete_details?.reason === "max_output_tokens"
+                    ? "OpenAI question bank response was cut off by max_output_tokens"
+                    : "OpenAI question bank response was incomplete"
+            );
+            lastError.code = "OPENAI_QUESTION_BANK_INCOMPLETE";
+            continue;
+        }
+
+        const outputText = extractResponseText(responseBody);
+        if (!outputText) {
+            const error = new Error("OpenAI question bank response did not include output text");
+            error.code = "OPENAI_QUESTION_BANK_EMPTY";
+            throw error;
+        }
+
+        try {
+            return JSON.parse(outputText);
+        } catch (error) {
+            error.code = "OPENAI_QUESTION_BANK_PARSE_FAILED";
+            error.outputLength = outputText.length;
+            lastError = error;
+        }
     }
 
-    const outputText = extractResponseText(responseBody);
-    if (!outputText) {
-        const error = new Error("OpenAI question bank response did not include output text");
-        error.code = "OPENAI_QUESTION_BANK_EMPTY";
-        throw error;
-    }
-
-    try {
-        return JSON.parse(outputText);
-    } catch (error) {
-        error.code = "OPENAI_QUESTION_BANK_PARSE_FAILED";
-        throw error;
-    }
+    throw lastError;
 }
 
 export async function generateMaterialDigest({topicName, materialTitle, contentText}) {
@@ -202,14 +234,22 @@ export async function generateMaterialDigest({topicName, materialTitle, contentT
             "You create compact course-material digests for question generation.",
             "Use only the supplied material. Do not add outside knowledge.",
             "Keep the digest concise and grounded in the material.",
+            "The question_targets field must describe what instructor-review questions should assess.",
             "Return only JSON matching the schema.",
         ].join(" "),
         user: JSON.stringify({
             topic_name: topicName,
             material_title: materialTitle,
             material_text: contentText,
+            digest_limits: {
+                summary: "350 to 450 words",
+                key_concepts: "maximum 15 items, each item 20 to 30 words",
+                common_misconceptions: "maximum 10 items, each item 20 to 30 words",
+                important_excerpts: "maximum 10 items, each item 30 to 45 words",
+                question_targets: "maximum 15 items, each item 15 to 30 words",
+            },
         }),
-        maxOutputTokens: 1200,
+        maxOutputTokens: 5000,
     });
 
     return {
@@ -229,6 +269,7 @@ function buildSourceFromMaterials(materials) {
                 key_concepts: material.digest_json.key_concepts,
                 common_misconceptions: material.digest_json.common_misconceptions,
                 important_excerpts: material.digest_json.important_excerpts,
+                question_targets: material.digest_json.question_targets || [],
             })),
             raw_excerpts: materialList
                 .filter((material) => !material.digest_json)

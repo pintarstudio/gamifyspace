@@ -68,10 +68,20 @@
       <change afterPath="$PROJECT_DIR$/frontend/src/utils/socketClient.js" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/frontend/src/utils/validate.js" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/controllers/adminController.js" beforeDir="false" afterPath="$PROJECT_DIR$/backend/controllers/adminController.js" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/backend/controllers/authController.js" beforeDir="false" afterPath="$PROJECT_DIR$/backend/controllers/authController.js" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/backend/controllers/individualActivityController.js" beforeDir="false" afterPath="$PROJECT_DIR$/backend/controllers/individualActivityController.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/controllers/quizActivityController.js" beforeDir="false" afterPath="$PROJECT_DIR$/backend/controllers/quizActivityController.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/models/adminModel.js" beforeDir="false" afterPath="$PROJECT_DIR$/backend/models/adminModel.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/models/avatarModel.js" beforeDir="false" afterPath="$PROJECT_DIR$/backend/models/avatarModel.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/models/courseModel.js" beforeDir="false" afterPath="$PROJECT_DIR$/backend/models/courseModel.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/models/individualActivityModel.js" beforeDir="false" afterPath="$PROJECT_DIR$/backend/models/individualActivityModel.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/models/quizActivityModel.js" beforeDir="false" afterPath="$PROJECT_DIR$/backend/models/quizActivityModel.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/models/sessionModel.js" beforeDir="false" afterPath="$PROJECT_DIR$/backend/models/sessionModel.js" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/backend/models/userModel.js" beforeDir="false" afterPath="$PROJECT_DIR$/backend/models/userModel.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/services/openaiFeedbackService.js" beforeDir="false" afterPath="$PROJECT_DIR$/backend/services/openaiFeedbackService.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/routes/adminRoutes.js" beforeDir="false" afterPath="$PROJECT_DIR$/backend/routes/adminRoutes.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/routes/authRoutes.js" beforeDir="false" afterPath="$PROJECT_DIR$/backend/routes/authRoutes.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/server.js" beforeDir="false" afterPath="$PROJECT_DIR$/backend/server.js" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/frontend/package-lock.json" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/package-lock.json" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/frontend/package.json" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/package.json" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/frontend/public/index.html" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/public/index.html" afterDir="false" />
@@ -93,7 +103,7 @@
     </option>
   </component>
   <component name="Git.Settings">
-    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$/frontend" />
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
   <component name="ProjectColorInfo">{
   &quot;associatedIndex&quot;: 6
@@ -168,7 +178,7 @@
       <workItem from="1776915226058" duration="185000" />
       <workItem from="1776915841076" duration="3302000" />
       <workItem from="1777861296650" duration="649000" />
-      <workItem from="1778283557635" duration="18606000" />
+      <workItem from="1778283557635" duration="19871000" />
     </task>
     <servers />
   </component>

@@ -8,6 +8,7 @@ import {
     getAdminReferences,
     listAdminResource,
     updateAdminLastLogin,
+    updateAdminPassword,
     updateAdminResource,
     verifyAdminPassword,
 } from "../models/adminModel.js";
@@ -78,6 +79,9 @@ function validatePayload(resource, payload, mode = "create") {
     if (resource === "courses") {
         if (!payload.course_code) return "Course code wajib diisi";
         if (!payload.course_name) return "Course name wajib diisi";
+        if (payload.instructor_id && payload.instructor2_id && String(payload.instructor_id) === String(payload.instructor2_id)) {
+            return "Instructor 1 dan Instructor 2 harus berbeda";
+        }
         return null;
     }
 
@@ -101,6 +105,16 @@ function validatePayload(resource, payload, mode = "create") {
         if (String(payload.role_id) !== String(INSTRUCTOR_ROLE_ID) && !payload.course_group_id) {
             return "Course group wajib dipilih";
         }
+        return null;
+    }
+
+    if (resource === "useradmins") {
+        if (!payload.username) return "Username wajib diisi";
+        if (!payload.role || !["admin", "instructor"].includes(String(payload.role).toLowerCase())) {
+            return "Role user admin wajib admin atau instructor";
+        }
+        if (mode === "create" && !payload.password) return "Password wajib diisi";
+        if (payload.password && String(payload.password).length < 8) return "Password minimal 8 karakter";
         return null;
     }
 
@@ -199,6 +213,32 @@ export async function logoutAdmin(req, res) {
         res.json({message: "Logout berhasil"});
     } catch (error) {
         res.status(500).json({message: "Gagal logout admin"});
+    }
+}
+
+export async function changeAdminPassword(req, res) {
+    try {
+        const admin = await getCurrentAdmin(req);
+        if (!admin) return res.status(401).json({message: "Admin belum login"});
+
+        const currentPassword = String(req.body.current_password || "");
+        const newPassword = String(req.body.new_password || "");
+        if (!currentPassword || !newPassword) {
+            return res.status(400).json({message: "Current password dan new password wajib diisi"});
+        }
+        if (newPassword.length < 8) {
+            return res.status(400).json({message: "New password minimal 8 karakter"});
+        }
+        if (!verifyAdminPassword(currentPassword, admin.password_hash)) {
+            return res.status(401).json({message: "Current password tidak sesuai"});
+        }
+
+        await updateAdminPassword(admin.useradmin_id, newPassword);
+        req.session.admin_useradmin_id = null;
+        res.json({message: "Password berhasil diganti. Silakan login kembali.", loggedOut: true});
+    } catch (error) {
+        console.error("Admin change password error:", error);
+        res.status(500).json({message: "Gagal mengganti password"});
     }
 }
 
@@ -391,6 +431,11 @@ export async function generateTopicMaterialDigest(req, res) {
         }
         if (error.code === "OPENAI_API_KEY_MISSING") {
             return res.status(500).json({message: "OpenAI API key belum dikonfigurasi"});
+        }
+        if (error.code === "OPENAI_QUESTION_BANK_INCOMPLETE" || error.code === "OPENAI_QUESTION_BANK_PARSE_FAILED") {
+            return res.status(502).json({
+                message: "OpenAI mengembalikan digest yang tidak lengkap. Silakan coba lagi, atau kurangi panjang material jika masih gagal.",
+            });
         }
         res.status(502).json({message: "Gagal membuat digest dari OpenAI"});
     }

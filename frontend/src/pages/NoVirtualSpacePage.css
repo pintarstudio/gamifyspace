@@ -145,14 +145,40 @@
 }
 
 .no-virtual-back {
-    background: #ffffff;
-    border: 1px solid #cfd8e3;
+    align-items: center;
+    background: #facc15;
+    border: 2px solid #111827;
     border-radius: 8px;
-    color: #27313a;
+    box-shadow: 0 3px 0 #111827;
+    color: #111827;
     cursor: pointer;
+    display: inline-flex;
+    gap: 8px;
     font-weight: 900;
-    padding: 10px 14px;
+    min-height: 42px;
+    padding: 9px 14px;
     width: auto;
+}
+
+.no-virtual-back::before {
+    content: "←";
+    font-size: 18px;
+    line-height: 1;
+}
+
+.no-virtual-back:hover {
+    background: #fde047;
+    transform: translateY(-1px);
+}
+
+.no-virtual-back:active {
+    box-shadow: 0 1px 0 #111827;
+    transform: translateY(2px);
+}
+
+.no-virtual-back:focus-visible {
+    outline: 3px solid #2563eb;
+    outline-offset: 3px;
 }
 
 .no-virtual-code-form {

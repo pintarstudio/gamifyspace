@@ -16,7 +16,17 @@ async function createCourseSchema() {
 
     await pool.query(`
         ALTER TABLE courses
+        ADD COLUMN IF NOT EXISTS instructor2_id INTEGER
+    `);
+
+    await pool.query(`
+        ALTER TABLE courses
         ALTER COLUMN instructor_id DROP NOT NULL
+    `);
+
+    await pool.query(`
+        ALTER TABLE courses
+        ALTER COLUMN instructor2_id DROP NOT NULL
     `);
 
     await pool.query(`
@@ -113,6 +123,23 @@ async function createCourseSchema() {
     `);
 
     await pool.query(`
+        UPDATE courses c
+        SET instructor2_id = NULL,
+            updated_at = NOW()
+        WHERE c.instructor2_id IS NOT NULL
+          AND (
+              c.instructor2_id = c.instructor_id
+              OR NOT EXISTS (
+                  SELECT 1
+                  FROM users u
+                  WHERE u.user_id = c.instructor2_id
+                    AND u.role_id = ${INSTRUCTOR_ROLE_ID}
+                    AND u.deleted_at IS NULL
+              )
+          )
+    `);
+
+    await pool.query(`
         DO $$
         BEGIN
             IF NOT EXISTS (
@@ -124,6 +151,23 @@ async function createCourseSchema() {
                 ALTER TABLE courses
                 ADD CONSTRAINT courses_instructor_id_users_fkey
                 FOREIGN KEY (instructor_id) REFERENCES users(user_id)
+                ON DELETE SET NULL;
+            END IF;
+        END $$;
+    `);
+
+    await pool.query(`
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1
+                FROM pg_constraint
+                WHERE conname = 'courses_instructor2_id_users_fkey'
+                  AND conrelid = 'courses'::regclass
+            ) THEN
+                ALTER TABLE courses
+                ADD CONSTRAINT courses_instructor2_id_users_fkey
+                FOREIGN KEY (instructor2_id) REFERENCES users(user_id)
                 ON DELETE SET NULL;
             END IF;
         END $$;
@@ -157,9 +201,13 @@ export async function ensureCourseSchema() {
 export async function getAllCourses() {
     await ensureCourseSchema();
     const result = await pool.query(`
-        SELECT c.*, u.name AS instructor_name
+        SELECT c.*,
+               u1.name AS instructor_name,
+               u2.name AS instructor2_name,
+               CONCAT_WS(', ', u1.name, u2.name) AS instructor_names
         FROM courses c
-        LEFT JOIN users u ON u.user_id = c.instructor_id
+        LEFT JOIN users u1 ON u1.user_id = c.instructor_id
+        LEFT JOIN users u2 ON u2.user_id = c.instructor2_id
         WHERE c.deleted_at IS NULL
         ORDER BY c.course_name ASC
     `);
@@ -169,9 +217,13 @@ export async function getAllCourses() {
 export async function findCourseByName(courseName) {
     await ensureCourseSchema();
     const result = await pool.query(
-        `SELECT c.*, u.name AS instructor_name
+        `SELECT c.*,
+                u1.name AS instructor_name,
+                u2.name AS instructor2_name,
+                CONCAT_WS(', ', u1.name, u2.name) AS instructor_names
          FROM courses c
-         LEFT JOIN users u ON u.user_id = c.instructor_id
+         LEFT JOIN users u1 ON u1.user_id = c.instructor_id
+         LEFT JOIN users u2 ON u2.user_id = c.instructor2_id
          WHERE c.deleted_at IS NULL
            AND LOWER(TRIM(c.course_name)) = LOWER(TRIM($1))
          LIMIT 1`,
@@ -183,9 +235,13 @@ export async function findCourseByName(courseName) {
 export async function findActiveCourseById(courseId) {
     await ensureCourseSchema();
     const result = await pool.query(
-        `SELECT c.*, u.name AS instructor_name
+        `SELECT c.*,
+                u1.name AS instructor_name,
+                u2.name AS instructor2_name,
+                CONCAT_WS(', ', u1.name, u2.name) AS instructor_names
          FROM courses c
-         LEFT JOIN users u ON u.user_id = c.instructor_id
+         LEFT JOIN users u1 ON u1.user_id = c.instructor_id
+         LEFT JOIN users u2 ON u2.user_id = c.instructor2_id
          WHERE c.course_id = $1
            AND c.deleted_at IS NULL
          LIMIT 1`,

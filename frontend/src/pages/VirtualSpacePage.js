@@ -1,11 +1,15 @@
 // src/pages/VirtualSpacePage.js
-import React, {useEffect, useMemo, useState} from "react";
+import React, {useCallback, useEffect, useMemo, useState} from "react";
 import {useNavigate} from "react-router-dom";
 import {apiGet, apiPost} from "../api/apiClient";
 import AvatarIcon from "../components/AvatarIcon";
 import ChatLauncher from "../components/ChatLauncher";
 import VirtualSpacePixi from "../components/VirtualSpacePixi";
 import UserHUD from "../components/UserHUD";
+import IndividualActivityPage from "./IndividualActivityPage";
+import TableActivityPage from "./TableActivityPage";
+import QuizActivityPage from "./QuizActivityPage";
+import {ACTIVITY_STATUS, clearActivityStatus, setActivityStatus} from "../utils/activityStatus";
 import "./VirtualSpacePage.css";
 
 const choiceLabel = (index) => ["A", "B", "C", "D"][index] || String(index + 1);
@@ -40,14 +44,27 @@ const rankToneClass = (index) => {
     return index < 10 ? "course-leaderboard__rank--top-ten" : "";
 };
 
+const formatMonitorTime = (dateValue) => {
+    if (!dateValue) return "";
+    return new Intl.DateTimeFormat("en", {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+    }).format(new Date(dateValue));
+};
+
 const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
     const [currentUser, setCurrentUser] = useState(user);
     const [dashboard, setDashboard] = useState(null);
+    const [instructorDashboard, setInstructorDashboard] = useState(null);
     const [selectedActivity, setSelectedActivity] = useState(null);
+    const [activeMapActivity, setActiveMapActivity] = useState(null);
     const [detailLoading, setDetailLoading] = useState(false);
     const [activeDashboardTab, setActiveDashboardTab] = useState(null);
     const [expandedLeaderboardGroups, setExpandedLeaderboardGroups] = useState({});
     const navigate = useNavigate();
+    const isInstructor = String(currentUser?.role_name || "").toLowerCase() === "instructor"
+        || String(currentUser?.role_id || "") === "2";
 
     useEffect(() => {
         if (!user) {
@@ -64,7 +81,7 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
     }, [user, navigate, setUser]);
 
     useEffect(() => {
-        if (!currentUser) return undefined;
+        if (!currentUser || isInstructor) return undefined;
 
         let active = true;
         const loadDashboard = () => {
@@ -87,7 +104,29 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
             window.clearInterval(intervalId);
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [currentUser?.user_id]);
+    }, [currentUser?.user_id, isInstructor]);
+
+    useEffect(() => {
+        if (!currentUser || !isInstructor) return undefined;
+
+        let active = true;
+        const loadInstructorDashboard = () => {
+            apiGet("/instructor/dashboard").then((data) => {
+                if (!active) return;
+                setInstructorDashboard(data);
+            }).catch((error) => {
+                console.error("Unable to load instructor dashboard:", error);
+            });
+        };
+
+        loadInstructorDashboard();
+        const intervalId = window.setInterval(loadInstructorDashboard, 5000);
+
+        return () => {
+            active = false;
+            window.clearInterval(intervalId);
+        };
+    }, [currentUser, isInstructor]);
 
     const handleLogout = async () => {
         // kirim event ke server agar broadcast "user_left"
@@ -134,14 +173,96 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
         currentUser?.room,
     ]);
 
-    if (!currentUser) return <p style={{textAlign: "center"}}>Memuat ruang...</p>;
-
     const openActivity = async (activity) => {
         setDetailLoading(true);
         const data = await apiGet(`/virtualspace/activities/${activity.activity_key || activity.session_id}`);
         setSelectedActivity(data.activity || null);
         setDetailLoading(false);
     };
+
+    const openMapActivity = useCallback((launch) => {
+        if (activeMapActivity) return false;
+
+        try {
+            const url = new URL(launch.url, window.location.origin);
+            const path = url.pathname.replace(/\/$/, "");
+            const activityTypeByPath = {
+                "/individual": "individual",
+                "/table": "table",
+                "/quiz": "quiz",
+            };
+            const activityType = activityTypeByPath[path];
+            if (!activityType) return false;
+
+            const pendingStatus = activityType === "table"
+                ? ACTIVITY_STATUS.group_discussion
+                : activityType === "quiz" ? ACTIVITY_STATUS.quiz : null;
+            const pendingGroupKey = launch.groupId || url.searchParams.get("group_id") || launch.objectId || "map";
+            const pendingActivityKey = pendingStatus ? `${pendingStatus.type}:pending:${pendingGroupKey}` : null;
+
+            setActiveMapActivity({
+                ...launch,
+                activityType,
+                pendingActivityKey,
+                searchParams: url.searchParams.toString(),
+            });
+
+            if (pendingStatus && currentUser) {
+                setActivityStatus({
+                    user: currentUser,
+                    status: pendingStatus,
+                    activityKey: pendingActivityKey,
+                    metadata: {
+                        object_id: launch.objectId,
+                        object_name: launch.objectName,
+                        group_id: launch.groupId,
+                        table_id: launch.tableId,
+                    },
+                    isPending: true,
+                });
+            }
+            return true;
+        } catch (error) {
+            console.error("Unable to open activity in modal:", error);
+            return false;
+        }
+    }, [activeMapActivity, currentUser]);
+
+    const closeMapActivity = useCallback(() => {
+        setActiveMapActivity((current) => {
+            if (current?.pendingActivityKey && currentUser) {
+                clearActivityStatus({
+                    user: currentUser,
+                    activityKey: current.pendingActivityKey,
+                });
+            }
+            return null;
+        });
+    }, [currentUser]);
+
+    const renderMapActivity = () => {
+        if (!activeMapActivity) return null;
+
+        const activityProps = {
+            embedded: true,
+            activitySearchParams: activeMapActivity.searchParams,
+            exitOnBack: true,
+            onBack: closeMapActivity,
+        };
+
+        if (activeMapActivity.activityType === "individual") {
+            return <IndividualActivityPage {...activityProps} />;
+        }
+        if (activeMapActivity.activityType === "table") {
+            return <TableActivityPage {...activityProps} />;
+        }
+        if (activeMapActivity.activityType === "quiz") {
+            return <QuizActivityPage {...activityProps} />;
+        }
+        return null;
+    };
+
+    if (!currentUser) return <p style={{textAlign: "center"}}>Memuat ruang...</p>;
     const showGameLayer = !!currentUser.gamification_enabled;
     const groupLeaderboard = dashboard?.leaderboard || [];
     const quizLeaderboard = dashboard?.quiz_leaderboard || [];
@@ -155,6 +276,165 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
     const currentDashboardTab = activeDashboardTab && visibleTabs.some((tab) => tab.id === activeDashboardTab)
         ? activeDashboardTab
         : (showGameLayer ? "leaderboard" : "individual");
+    const instructorSummary = instructorDashboard?.summary || {};
+    const instructorGroups = instructorDashboard?.groups || [];
+    const instructorStudents = instructorDashboard?.students || [];
+    const activeInstructorStudents = instructorStudents.filter((student) => student.status === "active");
+    const idleInstructorStudents = instructorStudents.filter((student) => student.status === "idle");
+    const offlineInstructorStudents = instructorStudents.filter((student) => student.status === "offline");
+
+    const renderInstructorStudentRows = (students) => (
+        <div className="instructor-student-list">
+            {students.length > 0 ? (
+                students.map((student) => (
+                    <article className="instructor-student-row" key={student.user_id}>
+                        <AvatarIcon path={student.avatar_public_path} alt={student.name} />
+                        <div className="instructor-student-row__main">
+                            <strong>{student.name}</strong>
+                            <span>{student.course_group_name || "No group"} · {student.room || "No room"}</span>
+                            <small>
+                                {student.activity_label || "Idle"}
+                                {student.activity?.detail ? ` · ${student.activity.detail}` : ""}
+                            </small>
+                        </div>
+                        <span className={`instructor-status instructor-status--${student.status}`}>
+                            {student.status}
+                        </span>
+                    </article>
+                ))
+            ) : (
+                <p className="panel-empty">No students here yet.</p>
+            )}
+        </div>
+    );
+
+    const renderInstructorSessions = (title, sessions, type) => (
+        <section className="instructor-monitor-section">
+            <div className="side-panel__title">
+                <h2>{title}</h2>
+                <span>{sessions.length}</span>
+            </div>
+            <div className="instructor-session-list">
+                {sessions.length > 0 ? (
+                    sessions.map((session) => {
+                        const sessionKey = session.session_id || session.quiz_session_id;
+                        const members = session.members || [];
+                        return (
+                            <article className="instructor-session-card" key={`${type}-${sessionKey}`}>
+                                <strong>
+                                    {session.topic_name || "Topic"}
+                                    {session.case_title ? ` · ${session.case_title}` : ""}
+                                </strong>
+                                <span>
+                                    {type === "quiz"
+                                        ? `${session.status} · Question ${Math.min((session.current_question_index || 0) + 1, session.total_questions || 1)} of ${session.total_questions || 1}`
+                                        : type === "individual"
+                                            ? `${session.name} · ${session.course_group_name || "No group"}`
+                                            : `${members.length} members`}
+                                </span>
+                                {members.length > 0 && (
+                                    <small>{members.map((member) => member.name).join(", ")}</small>
+                                )}
+                            </article>
+                        );
+                    })
+                ) : (
+                    <p className="panel-empty">No active sessions.</p>
+                )}
+            </div>
+        </section>
+    );
+
+    const renderInstructorDashboard = () => (
+        <section className="side-panel instructor-dashboard-panel">
+            <div className="instructor-dashboard-header">
+                <div>
+                    <h2>Instructor Monitor</h2>
+                    <span>{instructorDashboard?.course?.course_name || currentUser?.course_name || "Course"}</span>
+                </div>
+                <small>{instructorDashboard?.generated_at ? `Updated ${formatMonitorTime(instructorDashboard.generated_at)}` : "Loading..."}</small>
+            </div>
+
+            <div className="instructor-summary-grid">
+                <article>
+                    <strong>{instructorSummary.total_students || 0}</strong>
+                    <span>Students</span>
+                </article>
+                <article>
+                    <strong>{instructorSummary.online_students || 0}</strong>
+                    <span>Online</span>
+                </article>
+                <article>
+                    <strong>{instructorSummary.active_students || 0}</strong>
+                    <span>Active</span>
+                </article>
+                <article>
+                    <strong>{instructorSummary.idle_students || 0}</strong>
+                    <span>Idle</span>
+                </article>
+            </div>
+
+            <section className="instructor-monitor-section">
+                <div className="side-panel__title">
+                    <h2>Groups</h2>
+                    <span>{instructorSummary.active_sessions || 0} live</span>
+                </div>
+                <div className="instructor-group-grid">
+                    {instructorGroups.length > 0 ? (
+                        instructorGroups.map((group) => (
+                            <article className="instructor-group-card" key={group.course_group_id}>
+                                <div>
+                                    <strong>Group {group.group_name}</strong>
+                                    <span>{group.student_count || 0} students</span>
+                                </div>
+                                <dl>
+                                    <div><dt>Online</dt><dd>{group.online_count || 0}</dd></div>
+                                    <div><dt>Active</dt><dd>{group.active_count || 0}</dd></div>
+                                    <div><dt>Idle</dt><dd>{group.idle_count || 0}</dd></div>
+                                    <div><dt>Sessions</dt><dd>{group.active_sessions_count || 0}</dd></div>
+                                </dl>
+                                <small>
+                                    {group.virtual_space_enabled ? "Virtualspace on" : "No virtualspace"}
+                                    {" · "}
+                                    {group.gamification_enabled ? "Gamification on" : "Gamification off"}
+                                </small>
+                            </article>
+                        ))
+                    ) : (
+                        <p className="panel-empty">No course groups configured.</p>
+                    )}
+                </div>
+            </section>
+
+            <section className="instructor-monitor-section">
+                <div className="side-panel__title">
+                    <h2>Doing Something</h2>
+                    <span>{activeInstructorStudents.length}</span>
+                </div>
+                {renderInstructorStudentRows(activeInstructorStudents)}
+            </section>
+
+            <section className="instructor-monitor-section">
+                <div className="side-panel__title">
+                    <h2>Online Idle</h2>
+                    <span>{idleInstructorStudents.length}</span>
+                </div>
+                {renderInstructorStudentRows(idleInstructorStudents)}
+            </section>
+
+            <section className="instructor-monitor-section">
+                <div className="side-panel__title">
+                    <h2>Offline</h2>
+                    <span>{offlineInstructorStudents.length}</span>
+                </div>
+                {renderInstructorStudentRows(offlineInstructorStudents)}
+            </section>
+
+            {renderInstructorSessions("Group Cases", instructorDashboard?.active_sessions?.table || [], "table")}
+            {renderInstructorSessions("Quiz Sessions", instructorDashboard?.active_sessions?.quiz || [], "quiz")}
+            {renderInstructorSessions("Individual Sessions", instructorDashboard?.active_sessions?.individual || [], "individual")}
+        </section>
+    );
 
     const renderActivityList = (activities, emptyText) => (
         <div className="activity-list">
@@ -278,7 +558,11 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
     return (
         <div className="virtual-shell">
             <main className="virtual-map-panel" aria-label="Virtual space map">
-                <VirtualSpacePixi user={pixiUser} />
+                <VirtualSpacePixi
+                    user={pixiUser}
+                    onOpenActivity={openMapActivity}
+                    activityPanelOpen={!!activeMapActivity}
+                />
             </main>
 
             <aside className="virtual-sidebar" aria-label="Activity dashboard">
@@ -288,6 +572,7 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
                     summary={dashboard?.hud}
                 />
 
+                {isInstructor ? renderInstructorDashboard() : (
                 <section className="side-panel dashboard-tabs-panel">
                     <div className="dashboard-tabs" role="tablist" aria-label="Dashboard sections">
                         {visibleTabs.map((tab) => (
@@ -334,9 +619,19 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
                         </div>
                     )}
                 </section>
+                )}
             </aside>
 
             <ChatLauncher currentUser={currentUser}/>
+
+            {activeMapActivity && (
+                <div className="virtual-activity-modal" role="dialog" aria-modal="false" aria-label="Activity">
+                    <div className="virtual-activity-modal__backdrop" />
+                    <section className="virtual-activity-modal__panel">
+                        {renderMapActivity()}
+                    </section>
+                </div>
+            )}
 
             {(selectedActivity || detailLoading) && (
                 <div className="activity-modal" role="dialog" aria-modal="true">

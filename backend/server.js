@@ -21,6 +21,7 @@ import virtualSpaceDashboardRoutes from "./routes/virtualSpaceDashboardRoutes.js
 import adminRoutes from "./routes/adminRoutes.js";
 import roleRoutes from "./routes/roleRoutes.js";
 import chatRoutes from "./routes/chatRoutes.js";
+import instructorRoutes from "./routes/instructorRoutes.js";
 import {ensureAdminTables} from "./models/adminModel.js";
 import {ensureCourseSchema} from "./models/courseModel.js";
 import {ensureQuestionBankAdminTables} from "./models/adminQuestionBankModel.js";
@@ -105,6 +106,7 @@ app.use("/api/quiz", quizActivityRoutes);
 app.use("/api/individual", individualActivityRoutes);
 app.use("/api/virtualspace", virtualSpaceDashboardRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/instructor", instructorRoutes);
 app.use("/api/chat", chatRoutes);
 app.get("/", (req, res) => {
     res.json({status: "ok", message: "GamifySpace backend active"});
@@ -483,6 +485,25 @@ function getUsersInRoom(scopedRoom) {
     }
     return filtered;
 }
+
+function getCoursePresenceUsers(courseId) {
+    const normalizedCourseId = normalizeCourseId(courseId);
+    if (!normalizedCourseId) return [];
+
+    const latestByUser = new Map();
+    for (const [socketId, user] of Object.entries(users)) {
+        if (String(user.course_id) !== String(normalizedCourseId)) continue;
+        latestByUser.set(String(user.user_id), {
+            socket_id: socketId,
+            ...serializeUserForRoom(user),
+        });
+    }
+    return [...latestByUser.values()];
+}
+
+app.set("presenceStore", {
+    getCourseUsers: getCoursePresenceUsers,
+});
 
 server.listen(PORT, '0.0.0.0', () => {
     console.log(`✅ Server berjalan di port ${PORT}`);

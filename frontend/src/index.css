@@ -12,6 +12,72 @@ code {
     monospace;
 }
 
+.activity-exit-confirm {
+    align-items: center;
+    background: rgba(17, 24, 39, 0.54);
+    box-sizing: border-box;
+    display: flex;
+    inset: 0;
+    justify-content: center;
+    padding: 20px;
+    position: fixed;
+    z-index: 2600;
+}
+
+.activity-exit-confirm__panel {
+    background: #ffffff;
+    border: 1px solid #d8e1ea;
+    border-radius: 8px;
+    box-shadow: 0 22px 70px rgba(17, 24, 39, 0.28);
+    box-sizing: border-box;
+    color: #172033;
+    display: grid;
+    gap: 12px;
+    max-width: 420px;
+    padding: 20px;
+    width: min(100%, 420px);
+}
+
+.activity-exit-confirm__panel h2 {
+    font-size: 20px;
+    margin: 0;
+}
+
+.activity-exit-confirm__panel p {
+    color: #5f6975;
+    line-height: 1.45;
+    margin: 0;
+}
+
+.activity-exit-confirm__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: flex-end;
+}
+
+.activity-exit-confirm__actions button {
+    background: #eef2f5;
+    border: 1px solid #cfd8e3;
+    border-radius: 8px;
+    color: #27313a;
+    cursor: pointer;
+    font-weight: 900;
+    min-height: 40px;
+    padding: 9px 13px;
+}
+
+.activity-exit-confirm__actions button:focus-visible {
+    outline: 3px solid #2563eb;
+    outline-offset: 2px;
+}
+
+.activity-exit-confirm__actions .is-danger {
+    background: #fff1f2;
+    border-color: #fda4af;
+    color: #9f1239;
+}
+
 .login-container {
     align-items: center;
     background:

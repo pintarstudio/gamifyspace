@@ -8,6 +8,7 @@ export function initAvatarMovement(app, worldContainer, avatars, localUserRef, l
     // Hindari multi-attach ketika initAvatarMovement dipanggil berkali-kali
     if (!window.__gs_keysBound) {
         window.addEventListener("keydown", (e) => {
+            if (window.__virtualActivityModalOpen) return;
             const target = e.target;
             const isTyping = target && (
                 target.tagName === "INPUT" ||
@@ -27,6 +28,7 @@ export function initAvatarMovement(app, worldContainer, avatars, localUserRef, l
     }
 
     app.ticker.add(() => {
+        if (window.__virtualActivityModalOpen) return;
         // >>> Perbaikan utama: ambil localUser sebelum dipakai
         const localUser = localUserRef.current;
         if (!localUser) return;

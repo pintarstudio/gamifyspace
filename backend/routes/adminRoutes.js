@@ -1,5 +1,6 @@
 import express from "express";
 import {
+    changeAdminPassword,
     createAdminResourceData,
     bulkAssignCourseGroupStudents,
     createQuestionBankItem,
@@ -26,6 +27,7 @@ const router = express.Router();
 router.get("/session", getAdminSession);
 router.post("/login", loginAdmin);
 router.post("/logout", logoutAdmin);
+router.post("/change-password", changeAdminPassword);
 router.get("/references", getAdminReferenceData);
 router.get("/resources/:resource", getAdminResource);
 router.patch("/course-groups/students", bulkAssignCourseGroupStudents);

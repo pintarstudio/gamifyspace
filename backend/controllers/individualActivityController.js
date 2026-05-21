@@ -6,7 +6,6 @@ import {
     createIndividualSession,
     ensureIndividualActivityTables,
     ensureIndividualSettingsForTopics,
-    ensureSampleIndividualQuestionsForTopics,
     getActiveIndividualSession,
     getIndividualAnswers,
     getIndividualQuestions,
@@ -227,7 +226,6 @@ export async function getIndividualContext(req, res) {
         ]);
 
         await ensureIndividualSettingsForTopics(topics);
-        await ensureSampleIndividualQuestionsForTopics(topics);
         const settingsMap = await getIndividualSettingsForTopics(topics);
         const activity = activeSession ? await loadIndividualSession(activeSession, user) : null;
 
@@ -292,7 +290,6 @@ export async function startIndividualSession(req, res) {
             return res.status(403).json({message: "Post-test belum dibuka untuk topic ini"});
         }
 
-        await ensureSampleIndividualQuestionsForTopics([topic]);
         const questions = await getIndividualQuestions({topicId: topic.topic_id, activityType, questionKind});
         const expectedCount = questionKind === "case_study" ? 1 : MC_QUESTION_COUNT;
         if (questions.length < expectedCount) {
