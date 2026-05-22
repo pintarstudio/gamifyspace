@@ -487,6 +487,10 @@ const AdminPage = () => {
                 .some((value) => String(value || "").toLowerCase().includes(search));
         });
     }, [activeConfig, rows, studentBulk]);
+    const visibleMenuGroups = useMemo(() => {
+        const isAdmin = String(admin?.role || "").toLowerCase() === "admin";
+        return MENU_GROUPS.filter((group) => isAdmin || group.key !== "admin-config");
+    }, [admin?.role]);
 
     useEffect(() => {
         let active = true;
@@ -1880,7 +1884,7 @@ const AdminPage = () => {
                     <span>Admin Console</span>
                 </div>
                 <nav>
-                    {MENU_GROUPS.map((group) => (
+                    {visibleMenuGroups.map((group) => (
                         <section key={group.key}>
                             <button
                                 className="admin-menu-parent"

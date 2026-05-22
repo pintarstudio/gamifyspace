@@ -491,6 +491,7 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack, activit
                         <textarea
                             value={answerText}
                             onChange={(event) => setAnswerText(event.target.value)}
+                            onContextMenu={blockClipboard}
                             onCopy={blockClipboard}
                             onCut={blockClipboard}
                             onDrop={blockClipboard}

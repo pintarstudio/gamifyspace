@@ -244,6 +244,7 @@
     line-height: 1.35;
     margin: 0;
     overflow-wrap: anywhere;
+    white-space: pre-wrap;
 }
 
 .chat-reactions {

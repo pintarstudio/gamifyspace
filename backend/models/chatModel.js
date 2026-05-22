@@ -8,7 +8,11 @@ export const CHAT_ALLOWED_EMOJIS = ["👍", "🎉", "😂", "❤️", "🔥", "�
 let chatReadyPromise = null;
 
 function normalizeText(value, maxLength = CHAT_MESSAGE_MAX_LENGTH) {
-    const text = stripUnsupportedEmoji(String(value || "")).replace(/\s+/g, " ").trim();
+    const text = stripUnsupportedEmoji(String(value || ""))
+        .replace(/\r\n?/g, "\n")
+        .replace(/[^\S\n]+/g, " ")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
     if (!text) return "";
     return text.slice(0, maxLength);
 }

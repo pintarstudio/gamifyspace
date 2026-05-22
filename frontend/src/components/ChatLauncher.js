@@ -101,11 +101,22 @@ export default function ChatLauncher({currentUser}) {
         updateText(`${current}${emoji}`, setter);
     };
 
+    const handleComposerKeyDown = (event, sendAction) => {
+        if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
+        event.preventDefault();
+        sendAction();
+    };
+
     const showToast = useCallback((text) => {
         setToast(text);
         if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
         toastTimerRef.current = window.setTimeout(() => setToast(""), 3600);
     }, []);
+
+    const blockMessageClipboard = (event) => {
+        event.preventDefault();
+        showToast("Copy, cut, paste, and drop are disabled in chat messages.");
+    };
 
     const loadBootstrap = useCallback(async ({silent = false} = {}) => {
         if (!currentUser?.user_id) return;
@@ -507,7 +518,13 @@ export default function ChatLauncher({currentUser}) {
                     <textarea
                         maxLength={maxLength}
                         onChange={(event) => updateText(event.target.value, setBroadcastText)}
-                        placeholder="Broadcast to all students"
+                        onContextMenu={blockMessageClipboard}
+                        onCopy={blockMessageClipboard}
+                        onCut={blockMessageClipboard}
+                        onDrop={blockMessageClipboard}
+                        onKeyDown={(event) => handleComposerKeyDown(event, sendBroadcast)}
+                        onPaste={blockMessageClipboard}
+                        placeholder="Broadcast to all students. Enter to send, Shift+Enter for newline."
                         value={broadcastText}
                     />
                     <div className="chat-emoji-row" aria-label="Broadcast emoji picker">
@@ -687,7 +704,13 @@ export default function ChatLauncher({currentUser}) {
                                 <textarea
                                     maxLength={maxLength}
                                     onChange={(event) => updateText(event.target.value, setMessageText)}
-                                    placeholder="Message this chat"
+                                    onContextMenu={blockMessageClipboard}
+                                    onCopy={blockMessageClipboard}
+                                    onCut={blockMessageClipboard}
+                                    onDrop={blockMessageClipboard}
+                                    onKeyDown={(event) => handleComposerKeyDown(event, sendMessage)}
+                                    onPaste={blockMessageClipboard}
+                                    placeholder="Message this chat. Enter to send, Shift+Enter for newline."
                                     value={messageText}
                                 />
                                 <div className="chat-emoji-row" aria-label="Message emoji picker">
