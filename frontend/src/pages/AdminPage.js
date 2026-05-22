@@ -267,6 +267,13 @@ const MENU_GROUPS = [
 ];
 
 const DEFAULT_PATH = "/gamifyitadmin";
+const BANK_PAGE_SIZE = 15;
+const OPENAI_MODEL_OPTIONS = [
+    {value: "gpt-5.4-mini", label: "GPT-5.4 Mini - balanced"},
+    {value: "gpt-5.4-nano", label: "GPT-5.4 Nano - fastest/cheapest"},
+    {value: "gpt-5.4", label: "GPT-5.4 - higher quality"},
+    {value: "gpt-5.5", label: "GPT-5.5 - best quality"},
+];
 const STANDALONE_ITEMS = [
     {
         label: "Change Password",
@@ -360,6 +367,56 @@ function getIndividualTypeFromRow(row) {
     return "exercise_multiple_choice";
 }
 
+const QUESTION_BANK_TARGETS = [
+    {
+        value: "quiz_question_bank",
+        label: "Quiz Question Bank",
+        bank_type: "quiz_question_bank",
+        count: 5,
+    },
+    {
+        value: "exercise_multiple_choice",
+        label: "Individual Exercise Question Bank",
+        bank_type: "individual_questions",
+        individual_question_type: "exercise_multiple_choice",
+        count: 5,
+    },
+    {
+        value: "pre_test_multiple_choice",
+        label: "Pre-test Question Bank",
+        bank_type: "individual_questions",
+        individual_question_type: "pre_test_multiple_choice",
+        count: 20,
+    },
+    {
+        value: "post_test_multiple_choice",
+        label: "Post-test Question Bank",
+        bank_type: "individual_questions",
+        individual_question_type: "post_test_multiple_choice",
+        count: 20,
+    },
+    {
+        value: "exercise_case_study",
+        label: "Individual Case Study Bank",
+        bank_type: "individual_questions",
+        individual_question_type: "exercise_case_study",
+        count: 15,
+    },
+    {
+        value: "topic_cases",
+        label: "Group Case Studies",
+        bank_type: "topic_cases",
+        count: 15,
+    },
+];
+
+function getQuestionBankTarget(settings) {
+    if (settings.bank_type === "individual_questions") {
+        return settings.individual_question_type || "exercise_multiple_choice";
+    }
+    return settings.bank_type || "quiz_question_bank";
+}
+
 const AdminPage = () => {
     const navigate = useNavigate();
     const location = useLocation();
@@ -400,13 +457,17 @@ const AdminPage = () => {
         activity_type: "exercise",
         question_kind: "multiple_choice",
         individual_question_type: "exercise_multiple_choice",
+        openai_model: "gpt-5.4-mini",
         count: 5,
     });
     const [drafts, setDrafts] = useState([]);
     const [draftMeta, setDraftMeta] = useState(null);
     const [bankRows, setBankRows] = useState([]);
+    const [bankPage, setBankPage] = useState(1);
     const [bankForm, setBankForm] = useState({});
     const [editingBankRow, setEditingBankRow] = useState(null);
+    const [bankFilters, setBankFilters] = useState({activity_type: "", question_kind: ""});
+    const [showScrollTop, setShowScrollTop] = useState(false);
     const [selectedStudentIds, setSelectedStudentIds] = useState([]);
     const [studentBulk, setStudentBulk] = useState({
         course_id: "",
@@ -450,10 +511,21 @@ const AdminPage = () => {
     }, [admin]);
 
     useEffect(() => {
+        const handleScroll = () => {
+            setShowScrollTop(window.scrollY > 650);
+        };
+        handleScroll();
+        window.addEventListener("scroll", handleScroll, {passive: true});
+        return () => window.removeEventListener("scroll", handleScroll);
+    }, []);
+
+    useEffect(() => {
         setEditingRow(null);
         setFormData({});
         setEditingBankRow(null);
         setBankForm({});
+        setBankPage(1);
+        setBankFilters({activity_type: "", question_kind: ""});
         setSelectedStudentIds([]);
         setStudentBulk({course_id: "", course_group_id: "", search: "", target_course_group_id: ""});
         setMessage("");
@@ -474,6 +546,7 @@ const AdminPage = () => {
             apiGet(`/admin/question-bank/${activeConfig.bankType}`)
                 .then((data) => {
                     setBankRows(data.rows || []);
+                    setBankPage(1);
                     if (data.message) setMessage(data.message);
                 })
                 .finally(() => setBusy(false));
@@ -505,6 +578,7 @@ const AdminPage = () => {
         setBusy(true);
         const data = await apiGet(`/admin/question-bank/${bankType}`);
         setBankRows(data.rows || []);
+        setBankPage(1);
         if (data.message) setMessage(data.message);
         setBusy(false);
     };
@@ -565,6 +639,10 @@ const AdminPage = () => {
 
     const toggleMenu = (key) => {
         setOpenMenus((current) => ({...current, [key]: !current[key]}));
+    };
+
+    const scrollToTop = () => {
+        window.scrollTo({top: 0, behavior: "smooth"});
     };
 
     const openAddForm = () => {
@@ -830,8 +908,35 @@ const AdminPage = () => {
         if (key === "individual_question_type") {
             next.activity_type = getActivityFromType(value);
             next.question_kind = getQuestionKindFromType(value);
-            next.count = getQuestionKindFromType(value) === "case_study" ? Math.min(Number(next.count) || 1, 2) : next.count;
+            next.count = getQuestionKindFromType(value) === "case_study" ? Math.min(Number(next.count) || 1, 15) : next.count;
         }
+        setQuestionSettings(next);
+        setDrafts([]);
+        setDraftMeta(null);
+    };
+
+    const updateQuestionBankTarget = (value) => {
+        const target = QUESTION_BANK_TARGETS.find((item) => item.value === value) || QUESTION_BANK_TARGETS[0];
+        const next = {
+            ...questionSettings,
+            bank_type: target.bank_type,
+            count: target.count,
+        };
+
+        if (target.bank_type === "individual_questions") {
+            next.individual_question_type = target.individual_question_type;
+            next.activity_type = getActivityFromType(target.individual_question_type);
+            next.question_kind = getQuestionKindFromType(target.individual_question_type);
+        } else if (target.bank_type === "topic_cases") {
+            next.activity_type = "exercise";
+            next.question_kind = "case_study";
+            next.individual_question_type = "exercise_case_study";
+        } else {
+            next.activity_type = "exercise";
+            next.question_kind = "multiple_choice";
+            next.individual_question_type = "exercise_multiple_choice";
+        }
+
         setQuestionSettings(next);
         setDrafts([]);
         setDraftMeta(null);
@@ -882,6 +987,10 @@ const AdminPage = () => {
             choices[choiceIndex] = value;
             return {...item, choices};
         }));
+    };
+
+    const removeDraft = (index) => {
+        setDrafts((current) => current.filter((_, itemIndex) => itemIndex !== index));
     };
 
     const saveDrafts = async () => {
@@ -1016,9 +1125,17 @@ const AdminPage = () => {
         setBusy(false);
     };
 
-    const renderChoicesPreview = (choices = []) => (
+    const renderChoicesPreview = (choices = [], correctAnswerIndex = null) => (
         <ol className="admin-choice-preview">
-            {(choices || []).map((choice, index) => <li key={index}>{choice}</li>)}
+            {(choices || []).map((choice, index) => {
+                const isCorrect = Number(correctAnswerIndex) === index;
+                return (
+                    <li className={isCorrect ? "is-correct" : ""} key={index}>
+                        <span>{choice}</span>
+                        {isCorrect && <b>Correct</b>}
+                    </li>
+                );
+            })}
         </ol>
     );
 
@@ -1212,7 +1329,7 @@ const AdminPage = () => {
                                 <input
                                     type="number"
                                     min="1"
-                                    max={bankType === "topic_cases" ? 2 : undefined}
+                                    max={bankType === "topic_cases" ? 15 : undefined}
                                     value={bankType === "topic_cases" ? bankForm.case_number : bankForm.question_number}
                                     onChange={(event) => updateBankForm(bankType === "topic_cases" ? "case_number" : "question_number", event.target.value)}
                                     required
@@ -1296,6 +1413,17 @@ const AdminPage = () => {
 
     const renderBankManager = () => {
         const config = BANK_CONFIGS[activeConfig.bankType];
+        const isIndividualBank = activeConfig.bankType === "individual_questions";
+        const filteredBankRows = isIndividualBank
+            ? bankRows.filter((row) => (
+                (!bankFilters.activity_type || row.activity_type === bankFilters.activity_type)
+                && (!bankFilters.question_kind || row.question_kind === bankFilters.question_kind)
+            ))
+            : bankRows;
+        const totalPages = Math.max(1, Math.ceil(filteredBankRows.length / BANK_PAGE_SIZE));
+        const safePage = Math.min(bankPage, totalPages);
+        const pageStart = (safePage - 1) * BANK_PAGE_SIZE;
+        const pageRows = filteredBankRows.slice(pageStart, pageStart + BANK_PAGE_SIZE);
         return (
             <>
                 <div className="admin-page-header">
@@ -1307,6 +1435,61 @@ const AdminPage = () => {
                 </div>
                 {message && <div className="admin-inline-message">{message}</div>}
                 {renderBankForm()}
+                {isIndividualBank && (
+                    <div className="admin-bank-filters">
+                        <label>
+                            Activity
+                            <select
+                                value={bankFilters.activity_type}
+                                onChange={(event) => {
+                                    setBankFilters((current) => ({...current, activity_type: event.target.value}));
+                                    setBankPage(1);
+                                }}
+                            >
+                                <option value="">All Activities</option>
+                                <option value="exercise">Exercise</option>
+                                <option value="pre_test">Pre-test</option>
+                                <option value="post_test">Post-test</option>
+                            </select>
+                        </label>
+                        <label>
+                            Type
+                            <select
+                                value={bankFilters.question_kind}
+                                onChange={(event) => {
+                                    setBankFilters((current) => ({...current, question_kind: event.target.value}));
+                                    setBankPage(1);
+                                }}
+                            >
+                                <option value="">All Types</option>
+                                <option value="multiple_choice">Multiple Choice</option>
+                                <option value="case_study">Case Study</option>
+                            </select>
+                        </label>
+                    </div>
+                )}
+                <div className="admin-pagination">
+                    <span>
+                        Showing {filteredBankRows.length === 0 ? 0 : pageStart + 1}-{Math.min(pageStart + BANK_PAGE_SIZE, filteredBankRows.length)} of {filteredBankRows.length}
+                    </span>
+                    <div>
+                        <button
+                            type="button"
+                            onClick={() => setBankPage((current) => Math.max(1, current - 1))}
+                            disabled={safePage <= 1}
+                        >
+                            Previous
+                        </button>
+                        <b>Page {safePage} of {totalPages}</b>
+                        <button
+                            type="button"
+                            onClick={() => setBankPage((current) => Math.min(totalPages, current + 1))}
+                            disabled={safePage >= totalPages}
+                        >
+                            Next
+                        </button>
+                    </div>
+                </div>
                 <div className="admin-table-wrap">
                     <table className="admin-data-table">
                         <thead>
@@ -1317,7 +1500,7 @@ const AdminPage = () => {
                         </tr>
                         </thead>
                         <tbody>
-                        {bankRows.map((row) => (
+                        {pageRows.map((row) => (
                             <tr key={row[config.idKey]}>
                                 {config.columns.map((column) => (
                                     <td key={column.key}>
@@ -1325,7 +1508,7 @@ const AdminPage = () => {
                                     </td>
                                 ))}
                                 <td>
-                                    {row.choices?.length ? renderChoicesPreview(row.choices) : (row.case_prompt || row.explanation || "-")}
+                                    {row.choices?.length ? renderChoicesPreview(row.choices, row.correct_answer_index) : (row.case_prompt || row.explanation || "-")}
                                 </td>
                                 <td>
                                     <div className="admin-row-actions">
@@ -1334,7 +1517,7 @@ const AdminPage = () => {
                                 </td>
                             </tr>
                         ))}
-                        {bankRows.length === 0 && (
+                        {filteredBankRows.length === 0 && (
                             <tr>
                                 <td colSpan={config.columns.length + 2}>
                                     {busy ? "Loading data..." : "No data found."}
@@ -1469,26 +1652,23 @@ const AdminPage = () => {
                         <label>
                             Bank
                             <select
-                                value={questionSettings.bank_type}
-                                onChange={(event) => updateQuestionSettings("bank_type", event.target.value)}
+                                value={getQuestionBankTarget(questionSettings)}
+                                onChange={(event) => updateQuestionBankTarget(event.target.value)}
                             >
-                                <option value="quiz_question_bank">Quiz Question Bank</option>
-                                <option value="individual_questions">Individual Questions</option>
-                                <option value="topic_cases">Group Case Studies</option>
+                                {QUESTION_BANK_TARGETS.map((target) => (
+                                    <option key={target.value} value={target.value}>
+                                        {target.label}
+                                    </option>
+                                ))}
                             </select>
                         </label>
                         {questionSettings.bank_type === "individual_questions" && (
                             <label>
-                                Individual Question Type
-                                <select
-                                    value={questionSettings.individual_question_type}
-                                    onChange={(event) => updateQuestionSettings("individual_question_type", event.target.value)}
-                                >
-                                    <option value="exercise_multiple_choice">Exercise - Multiple Choice</option>
-                                    <option value="exercise_case_study">Exercise - Case Study</option>
-                                    <option value="pre_test_multiple_choice">Pre-test - Multiple Choice</option>
-                                    <option value="post_test_multiple_choice">Post-test - Multiple Choice</option>
-                                </select>
+                                Saved As
+                                <input
+                                    value={`${getActivityFromType(questionSettings.individual_question_type)} / ${getQuestionKindFromType(questionSettings.individual_question_type)}`}
+                                    readOnly
+                                />
                             </label>
                         )}
                         <label>
@@ -1496,11 +1676,24 @@ const AdminPage = () => {
                             <input value={questionType === "case_study" ? "Case Study" : "Multiple Choice"} readOnly />
                         </label>
                         <label>
+                            OpenAI Model
+                            <select
+                                value={questionSettings.openai_model}
+                                onChange={(event) => updateQuestionSettings("openai_model", event.target.value)}
+                            >
+                                {OPENAI_MODEL_OPTIONS.map((model) => (
+                                    <option key={model.value} value={model.value}>
+                                        {model.label}
+                                    </option>
+                                ))}
+                            </select>
+                        </label>
+                        <label>
                             Count
                             <input
                                 type="number"
                                 min="1"
-                                max={isCaseBank ? 2 : 10}
+                                max={isCaseBank ? 15 : 20}
                                 value={questionSettings.count}
                                 onChange={(event) => updateQuestionSettings("count", event.target.value)}
                             />
@@ -1528,8 +1721,18 @@ const AdminPage = () => {
                         {drafts.map((draft, index) => (
                             <article key={index} className="admin-draft-card">
                                 <header>
-                                    <span>Draft {index + 1}</span>
-                                    <b>{draft.question_type === "case_study" ? "Case Study" : "Multiple Choice"}</b>
+                                    <div>
+                                        <span>Draft {index + 1}</span>
+                                        <b>{draft.question_type === "case_study" ? "Case Study" : "Multiple Choice"}</b>
+                                    </div>
+                                    <button
+                                        className="admin-draft-remove"
+                                        type="button"
+                                        onClick={() => removeDraft(index)}
+                                        disabled={busy}
+                                    >
+                                        Remove Draft
+                                    </button>
                                 </header>
                                 {isCaseBank ? (
                                     <>
@@ -1538,7 +1741,7 @@ const AdminPage = () => {
                                             <input
                                                 type="number"
                                                 min="1"
-                                                max="2"
+                                                max="15"
                                                 value={draft.case_number}
                                                 onChange={(event) => updateDraft(index, "case_number", event.target.value)}
                                             />
@@ -1849,6 +2052,16 @@ const AdminPage = () => {
                     )}
                 </section>
             </section>
+            {showScrollTop && (
+                <button
+                    className="admin-scroll-top"
+                    type="button"
+                    onClick={scrollToTop}
+                    aria-label="Scroll to top"
+                >
+                    ↑ Top
+                </button>
+            )}
         </main>
     );
 };

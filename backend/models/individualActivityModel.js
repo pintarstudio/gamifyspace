@@ -5,6 +5,12 @@ export const INDIVIDUAL_ACTIVITY_TYPE = "individual_exercise";
 export const ACTIVITY_TYPES = ["exercise", "pre_test", "post_test"];
 export const QUESTION_KINDS = ["multiple_choice", "case_study"];
 export const MC_QUESTION_COUNT = 10;
+export const ASSESSMENT_QUESTION_COUNT = 20;
+
+export function getIndividualQuestionCount(activityType, questionKind) {
+    if (questionKind === "case_study") return 1;
+    return ["pre_test", "post_test"].includes(activityType) ? ASSESSMENT_QUESTION_COUNT : MC_QUESTION_COUNT;
+}
 
 let individualReadyPromise = null;
 
@@ -152,7 +158,7 @@ export async function updateIndividualTopicSettings(topicId, settings) {
 }
 
 export async function getIndividualQuestions({topicId, activityType, questionKind}) {
-    const limit = questionKind === "case_study" ? 1 : MC_QUESTION_COUNT;
+    const limit = getIndividualQuestionCount(activityType, questionKind);
     const result = await pool.query(
         `SELECT *
          FROM individual_questions
@@ -249,7 +255,7 @@ export async function saveIndividualMcAnswer({session, question, userId, answerI
     const normalizedAnswerIndex = Number.isFinite(Number(answerIndex)) ? Number(answerIndex) : null;
     const isCorrect = normalizedAnswerIndex !== null && Number(question.correct_answer_index) === normalizedAnswerIndex;
     const isAssessment = ["pre_test", "post_test"].includes(session.activity_type);
-    const score = isAssessment && isCorrect ? 10 : 0;
+    const score = isAssessment && isCorrect ? Math.round(100 / getIndividualQuestionCount(session.activity_type, session.question_kind)) : 0;
     const xp = awardXp && session.activity_type === "exercise" && isCorrect ? 10 : 0;
 
     const result = await pool.query(

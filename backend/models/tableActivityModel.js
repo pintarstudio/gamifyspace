@@ -52,7 +52,7 @@ export async function ensureTableActivityTables() {
         CREATE TABLE IF NOT EXISTS topic_cases (
             case_id SERIAL PRIMARY KEY,
             topic_id INTEGER NOT NULL,
-            case_number INTEGER NOT NULL CHECK (case_number BETWEEN 1 AND 2),
+            case_number INTEGER NOT NULL,
             case_title TEXT NOT NULL,
             case_prompt TEXT NOT NULL,
             is_active BOOLEAN NOT NULL DEFAULT TRUE,
@@ -60,6 +60,11 @@ export async function ensureTableActivityTables() {
             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             UNIQUE (topic_id, case_number)
         )
+    `);
+
+    await pool.query(`
+        ALTER TABLE topic_cases
+        DROP CONSTRAINT IF EXISTS topic_cases_case_number_check
     `);
 
     await pool.query(`

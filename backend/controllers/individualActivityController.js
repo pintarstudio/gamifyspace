@@ -8,11 +8,13 @@ import {
     ensureIndividualSettingsForTopics,
     getActiveIndividualSession,
     getIndividualAnswers,
+    getIndividualQuestionCount,
     getIndividualQuestions,
     getIndividualQuestionsByIds,
     getIndividualSessionById,
     getIndividualSettingsForTopics,
     MC_QUESTION_COUNT,
+    ASSESSMENT_QUESTION_COUNT,
     saveIndividualCaseAnswer,
     saveIndividualMcAnswer,
     advanceIndividualSession,
@@ -243,6 +245,7 @@ export async function getIndividualContext(req, res) {
             }),
             gamification_enabled: !!user.gamification_enabled,
             mc_question_count: MC_QUESTION_COUNT,
+            assessment_question_count: ASSESSMENT_QUESTION_COUNT,
             active_session: activity
                 ? normalizeSession(activity.session, activity.questions, activity.answers, user)
                 : null,
@@ -291,7 +294,7 @@ export async function startIndividualSession(req, res) {
         }
 
         const questions = await getIndividualQuestions({topicId: topic.topic_id, activityType, questionKind});
-        const expectedCount = questionKind === "case_study" ? 1 : MC_QUESTION_COUNT;
+        const expectedCount = getIndividualQuestionCount(activityType, questionKind);
         if (questions.length < expectedCount) {
             return res.status(409).json({message: "Question bank belum cukup untuk aktivitas ini"});
         }

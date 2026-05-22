@@ -521,6 +521,64 @@ export async function leaveStudentGroupRoom(user, roomId) {
     return {room, member_count: remaining.rows[0]?.member_count || 0};
 }
 
+export async function leaveStudentGroupRoomsForLogout(user) {
+    await ensureChatSchema();
+    if (!assertStudent(user)) return [];
+
+    const client = await pool.connect();
+    try {
+        await client.query("BEGIN");
+        const removed = await client.query(
+            `DELETE FROM chat_room_members crm
+             USING chat_rooms cr
+             WHERE crm.chat_room_id = cr.chat_room_id
+               AND crm.user_id = $1
+               AND cr.course_id = $2
+               AND cr.room_type = 'group'
+               AND cr.deleted_at IS NULL
+             RETURNING
+                 cr.chat_room_id,
+                 cr.course_id,
+                 cr.course_group_id,
+                 cr.room_type,
+                 cr.room_name,
+                 cr.created_by,
+                 cr.created_at,
+                 cr.updated_at,
+                 cr.deleted_at`,
+            [user.user_id, user.course_id]
+        );
+
+        const leftRooms = [];
+        for (const room of removed.rows) {
+            const remaining = await client.query(
+                `SELECT COUNT(*)::int AS member_count
+                 FROM chat_room_members
+                 WHERE chat_room_id = $1`,
+                [room.chat_room_id]
+            );
+            const memberCount = remaining.rows[0]?.member_count || 0;
+            if (memberCount === 0) {
+                await client.query(
+                    `UPDATE chat_rooms
+                     SET deleted_at = NOW(), updated_at = NOW()
+                     WHERE chat_room_id = $1`,
+                    [room.chat_room_id]
+                );
+            }
+            leftRooms.push({room, member_count: memberCount});
+        }
+
+        await client.query("COMMIT");
+        return leftRooms;
+    } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+    } finally {
+        client.release();
+    }
+}
+
 export async function inviteStudentToGroupRoom(user, roomId, invitedUserId) {
     await ensureChatSchema();
     if (!assertStudent(user)) {
@@ -729,6 +787,19 @@ export async function findRoomForUser(user, roomId) {
 export async function getMessagesForRoom(user, roomId, options = {}) {
     const room = await findRoomForUser(user, roomId);
     const limit = Math.min(Math.max(Number.parseInt(options.limit, 10) || 50, 1), 100);
+    let visibleSince = null;
+
+    if (room.room_type === "group" && assertStudent(user)) {
+        const membershipResult = await pool.query(
+            `SELECT created_at
+             FROM chat_room_members
+             WHERE chat_room_id = $1
+               AND user_id = $2
+             LIMIT 1`,
+            [room.chat_room_id, user.user_id]
+        );
+        visibleSince = membershipResult.rows[0]?.created_at || null;
+    }
 
     const [messagesResult, membersResult, readResult] = await Promise.all([
         pool.query(
@@ -756,6 +827,7 @@ export async function getMessagesForRoom(user, roomId, options = {}) {
                  FROM chat_messages
                  WHERE chat_room_id = $1
                    AND deleted_at IS NULL
+                   AND ($4::timestamptz IS NULL OR created_at >= $4::timestamptz)
                  ORDER BY created_at DESC
                  LIMIT $2
              ) cm
@@ -768,6 +840,7 @@ export async function getMessagesForRoom(user, roomId, options = {}) {
                      FROM chat_messages
                      WHERE chat_room_id = $1
                        AND deleted_at IS NULL
+                       AND ($4::timestamptz IS NULL OR created_at >= $4::timestamptz)
                      ORDER BY created_at DESC
                      LIMIT $2
                  )
@@ -779,7 +852,7 @@ export async function getMessagesForRoom(user, roomId, options = {}) {
                    AND my_reactions.user_id = $3
              GROUP BY cm.chat_message_id, cm.chat_room_id, cm.sender_user_id, sender.name, cm.message_text, cm.created_at
              ORDER BY cm.created_at ASC`,
-            [room.chat_room_id, limit, user.user_id]
+            [room.chat_room_id, limit, user.user_id, visibleSince]
         ),
         pool.query(
             `SELECT u.user_id, u.name, NULL::text AS avatar_public_path
@@ -797,8 +870,9 @@ export async function getMessagesForRoom(user, roomId, options = {}) {
                AND crm.user_id = $2
                AND cm.deleted_at IS NULL
                AND cm.created_at > crm.last_read_at
+               AND ($3::timestamptz IS NULL OR cm.created_at >= $3::timestamptz)
                AND cm.sender_user_id <> $2`,
-            [room.chat_room_id, user.user_id]
+            [room.chat_room_id, user.user_id, visibleSince]
         ),
     ]);
 

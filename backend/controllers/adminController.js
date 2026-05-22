@@ -474,6 +474,7 @@ export async function generateQuestionBankDrafts(req, res) {
             activityType,
             questionKind,
             startNumber,
+            model: req.body.openai_model,
         });
 
         res.json({
@@ -509,7 +510,7 @@ export async function saveQuestionBankDrafts(req, res) {
             questionKind,
             items: req.body.items,
         });
-        res.json({message: `${saved.length} question berhasil disimpan`, saved});
+        res.json({message: `${saved.length} item berhasil disimpan`, saved});
     } catch (error) {
         console.error("Admin question save error:", error);
         res.status(500).json({message: "Gagal menyimpan question bank"});

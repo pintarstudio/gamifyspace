@@ -230,6 +230,16 @@ export async function getNextQuestionNumber({bankType, topicId, activityType, qu
         return Number(result.rows[0]?.next_number || 1);
     }
 
+    if (bankType === "topic_cases") {
+        const result = await pool.query(
+            `SELECT COALESCE(MAX(case_number), 0) + 1 AS next_number
+             FROM topic_cases
+             WHERE topic_id = $1`,
+            [topicId]
+        );
+        return Number(result.rows[0]?.next_number || 1);
+    }
+
     return 1;
 }
 
@@ -315,7 +325,7 @@ export async function saveGeneratedQuestions({bankType, topicId, activityType, q
                  RETURNING case_id`,
                 [
                     topicId,
-                    Math.max(1, Math.min(2, intValue(item.case_number))),
+                    Math.max(1, intValue(item.case_number)),
                     nullableText(item.case_title),
                     nullableText(item.case_prompt),
                 ]
@@ -540,7 +550,7 @@ export async function upsertQuestionBankItem(bankType, payload, id = null) {
     if (bankType === "topic_cases") {
         const values = [
             topicId,
-            Math.max(1, Math.min(2, intValue(payload.case_number))),
+            Math.max(1, intValue(payload.case_number)),
             nullableText(payload.case_title),
             nullableText(payload.case_prompt),
         ];

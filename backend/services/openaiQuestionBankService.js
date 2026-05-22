@@ -72,8 +72,11 @@ const questionDraftSchema = {
     },
 };
 
-function getQuestionModel() {
-    return process.env.OPENAI_QUESTION_MODEL || process.env.OPENAI_FEEDBACK_MODEL || DEFAULT_QUESTION_MODEL;
+function getQuestionModel(modelOverride = "") {
+    return String(modelOverride || "").trim()
+        || process.env.OPENAI_QUESTION_MODEL
+        || process.env.OPENAI_FEEDBACK_MODEL
+        || DEFAULT_QUESTION_MODEL;
 }
 
 function extractResponseText(responseBody) {
@@ -149,7 +152,9 @@ function normalizeDrafts(items, bankType, startNumber) {
             choices,
             correct_answer_index: Math.max(0, Math.min(3, Number.parseInt(item.correct_answer_index, 10) || 0)),
             explanation: trimWords(item.explanation, 80),
-            case_number: Math.max(1, Math.min(2, Number.parseInt(item.case_number, 10) || index + 1)),
+            case_number: isCaseBank
+                ? Math.max(1, Number.parseInt(startNumber, 10) + index)
+                : Math.max(1, Number.parseInt(item.case_number, 10) || index + 1),
             case_title: trimWords(item.case_title, 20),
             case_prompt: trimWords(item.case_prompt, 220),
             source_excerpt: trimWords(item.source_excerpt, 80),
@@ -157,7 +162,8 @@ function normalizeDrafts(items, bankType, startNumber) {
     });
 }
 
-async function postStructuredResponse({name, schema, system, user, maxOutputTokens}) {
+async function postStructuredResponse({name, schema, system, user, maxOutputTokens, model}) {
+    const selectedModel = getQuestionModel(model);
     const tokenBudgets = [
         maxOutputTokens,
         Math.min(8000, Math.max(maxOutputTokens + 2000, Math.ceil(maxOutputTokens * 2.5))),
@@ -172,7 +178,7 @@ async function postStructuredResponse({name, schema, system, user, maxOutputToke
                 "Content-Type": "application/json",
             },
             body: JSON.stringify({
-                model: getQuestionModel(),
+                model: selectedModel,
                 input: [
                     {role: "system", content: system},
                     {role: "user", content: user},
@@ -288,9 +294,10 @@ function buildSourceFromMaterials(materials) {
     };
 }
 
-export async function generateQuestionDrafts({bankType, topicName, materials, material, count, activityType, questionKind, startNumber}) {
+export async function generateQuestionDrafts({bankType, topicName, materials, material, count, activityType, questionKind, startNumber, model}) {
+    const selectedModel = getQuestionModel(model);
     const isCase = bankType === "topic_cases" || bankType === "individual_case" || questionKind === "case_study";
-    const safeCount = isCase ? Math.max(1, Math.min(2, Number.parseInt(count, 10) || 1)) : Math.max(1, Math.min(10, Number.parseInt(count, 10) || 5));
+    const safeCount = isCase ? Math.max(1, Math.min(15, Number.parseInt(count, 10) || 1)) : Math.max(1, Math.min(20, Number.parseInt(count, 10) || 5));
     const materialList = materials?.length ? materials : [material].filter(Boolean);
     const source = buildSourceFromMaterials(materialList);
 
@@ -299,10 +306,17 @@ export async function generateQuestionDrafts({bankType, topicName, materials, ma
         schema: questionDraftSchema,
         system: [
             "You generate instructor-review drafts for a learning question bank.",
+            "Write all generated student-facing content in Bahasa Indonesia, including question_text, choices, explanation, case_title, case_prompt, and source_excerpt.",
+            "Keep technical terms in their original language when they are standard course terminology, but explain surrounding wording in Bahasa Indonesia.",
             "Use only the provided course material or digest. Do not add outside facts.",
             "Every item must include a source_excerpt copied or closely paraphrased from the provided material.",
             "For multiple-choice items, question_text is mandatory and must contain the full question stem shown to students. Never leave question_text empty for multiple-choice items.",
             "Multiple-choice items must have exactly four choices and one correct_answer_index from 0 to 3.",
+            "For multiple-choice items, make distractors plausible for students who partially understand the material; avoid absurd or obviously false options.",
+            "Keep all multiple-choice options similar in length, specificity, and grammatical style so the correct answer is not visually obvious.",
+            "Avoid using 'all of the above', 'none of the above', or combined options such as 'both A and B' as a default pattern. Use them only when they genuinely improve the question and are strongly supported by the material.",
+            "Prefer questions that test understanding, application, or conceptual distinction instead of simple keyword matching.",
+            "Before returning JSON, silently check that the correct option is not obviously longer or more detailed, distractors are plausible, and choices are mutually exclusive.",
             "For case-study items, use case_title, case_prompt, and case_number; leave question_text empty only for case-study items.",
             "Return only JSON matching the schema.",
         ].join(" "),
@@ -316,11 +330,12 @@ export async function generateQuestionDrafts({bankType, topicName, materials, ma
             start_number: startNumber,
             source,
         }),
-        maxOutputTokens: isCase ? 1100 : Math.min(2600, 500 + safeCount * 240),
+        maxOutputTokens: isCase ? Math.min(6200, 700 + safeCount * 320) : Math.min(6200, 700 + safeCount * 260),
+        model: selectedModel,
     });
 
     return {
         items: normalizeDrafts(parsed.items, bankType, startNumber).slice(0, safeCount),
-        model: getQuestionModel(),
+        model: selectedModel,
     };
 }

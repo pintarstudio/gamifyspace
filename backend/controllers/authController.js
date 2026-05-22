@@ -5,6 +5,7 @@ import {createSession, deactivateSession} from "../models/sessionModel.js";
 import {findAvatarById, getDefaultAvatar} from "../models/avatarModel.js";
 import {findRoleById, INSTRUCTOR_ROLE_ID, STUDENT_ROLE_ID} from "../models/roleModel.js";
 import {findAdminByUsername, updateAdminLastLogin, verifyAdminPassword} from "../models/adminModel.js";
+import {leaveStudentGroupRoomsForLogout} from "../models/chatModel.js";
 import {v4 as uuidv4} from "uuid";
 
 const normalizeLookupText = (value) =>
@@ -15,6 +16,30 @@ const normalizeLookupText = (value) =>
 
 const isSameLookupText = (left, right) =>
     normalizeLookupText(left).toLowerCase() === normalizeLookupText(right).toLowerCase();
+
+const chatCourseRoom = (courseId) => `chat:course:${courseId}`;
+const chatUserRoom = (userId) => `chat:user:${userId}`;
+const chatRoom = (roomId) => `chat:room:${roomId}`;
+
+function emitChatLogoutLeaves(req, user, leftRooms) {
+    const io = req.app?.get("io");
+    if (!io || !user || leftRooms.length === 0) return;
+
+    leftRooms.forEach(({room, member_count}) => {
+        const payload = {
+            room_id: room.chat_room_id,
+            room_name: room.room_name,
+            course_id: user.course_id,
+            user_id: user.user_id,
+            user_name: user.name,
+            member_count,
+            reason: "logout",
+        };
+        [chatCourseRoom(user.course_id), chatRoom(room.chat_room_id), chatUserRoom(user.user_id)].forEach((target) => {
+            io.to(target).emit("chat:room:left", payload);
+        });
+    });
+}
 
 export async function login(req, res) {
     try {
@@ -240,6 +265,11 @@ export async function instructorLogin(req, res) {
 export async function logout(req, res) {
     try {
         if (req.session.session_id) {
+            const user = req.session.user;
+            if (String(user?.role_id) === String(STUDENT_ROLE_ID)) {
+                const leftRooms = await leaveStudentGroupRoomsForLogout(user);
+                emitChatLogoutLeaves(req, user, leftRooms);
+            }
             await deactivateSession(req.session.session_id);
             req.session.destroy(() => {
             });

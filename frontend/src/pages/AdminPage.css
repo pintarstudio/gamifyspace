@@ -225,6 +225,28 @@
     min-width: 0;
 }
 
+.admin-scroll-top {
+    background: #172033;
+    border: 2px solid #9be15d;
+    border-radius: 999px;
+    bottom: 24px;
+    box-shadow: 0 12px 28px rgba(23, 32, 51, 0.24);
+    color: #ffffff;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 950;
+    min-height: 44px;
+    padding: 10px 15px;
+    position: fixed;
+    right: 24px;
+    width: auto;
+    z-index: 50;
+}
+
+.admin-scroll-top:hover {
+    background: #223047;
+}
+
 .admin-topbar {
     align-items: center;
     background: #ffffff;
@@ -524,6 +546,74 @@
     color: #b23a48;
 }
 
+.admin-bank-filters {
+    align-items: end;
+    background: #ffffff;
+    border: 1px solid #dbe4ee;
+    border-radius: 8px;
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(2, minmax(180px, 260px));
+    padding: 14px;
+}
+
+.admin-bank-filters label {
+    color: #4b5563;
+    display: grid;
+    font-size: 12px;
+    font-weight: 900;
+    gap: 7px;
+    text-transform: uppercase;
+}
+
+.admin-bank-filters select {
+    background: #f8fafc;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    color: #172033;
+    font-size: 14px;
+    font-weight: 800;
+    min-height: 40px;
+    padding: 8px 10px;
+}
+
+.admin-pagination {
+    align-items: center;
+    display: flex;
+    gap: 12px;
+    justify-content: space-between;
+}
+
+.admin-pagination span,
+.admin-pagination b {
+    color: #4b5563;
+    font-size: 13px;
+    font-weight: 900;
+}
+
+.admin-pagination div {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.admin-pagination button {
+    background: #eef4f1;
+    border: 0;
+    border-radius: 8px;
+    color: #2d6a4f;
+    cursor: pointer;
+    font-weight: 900;
+    padding: 8px 10px;
+    width: auto;
+}
+
+.admin-pagination button:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+
 .admin-question-bank {
     display: grid;
     gap: 18px;
@@ -695,8 +785,16 @@
     align-items: center;
     border-bottom: 1px solid #dbe4ee;
     display: flex;
+    gap: 12px;
     justify-content: space-between;
     padding-bottom: 10px;
+}
+
+.admin-draft-card header div {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
 }
 
 .admin-draft-card header span {
@@ -712,6 +810,17 @@
     font-size: 11px;
     padding: 6px 10px;
     text-transform: uppercase;
+}
+
+.admin-draft-review .admin-draft-remove {
+    background: #fff1f2;
+    color: #b23a48;
+    flex: 0 0 auto;
+}
+
+.admin-draft-review .admin-draft-remove:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
 }
 
 .admin-draft-card label {
@@ -730,12 +839,34 @@
 }
 
 .admin-choice-preview {
+    display: grid;
+    gap: 5px;
     margin: 0;
     padding-left: 18px;
 }
 
 .admin-choice-preview li {
     margin: 2px 0;
+    padding: 5px 7px;
+}
+
+.admin-choice-preview li.is-correct {
+    background: #e7f7df;
+    border: 1px solid #b7dfaa;
+    border-radius: 8px;
+    color: #1f6b3a;
+    font-weight: 950;
+}
+
+.admin-choice-preview li.is-correct b {
+    background: #2d6a4f;
+    border-radius: 999px;
+    color: #ffffff;
+    display: inline-flex;
+    font-size: 10px;
+    margin-left: 8px;
+    padding: 3px 7px;
+    text-transform: uppercase;
 }
 
 .admin-bank-form {
@@ -745,6 +876,10 @@
 
 @media (max-width: 920px) {
     .admin-shell {
+        grid-template-columns: 1fr;
+    }
+
+    .admin-bank-filters {
         grid-template-columns: 1fr;
     }
 

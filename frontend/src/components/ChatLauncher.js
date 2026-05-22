@@ -7,9 +7,13 @@ const INSTRUCTOR_ROLE_ID = 2;
 const POLL_MS = 30000;
 const CHAT_UNAVAILABLE_MESSAGE = "Chat is unavailable. Please restart the backend and try again.";
 
-function formatTime(value) {
+function formatTime(value, {withDate = false} = {}) {
     if (!value) return "";
-    return new Date(value).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
+    const date = new Date(value);
+    const timeText = date.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
+    if (!withDate) return timeText;
+    const dateText = date.toLocaleDateString("en-US", {weekday: "short", day: "2-digit", month: "short"});
+    return `${dateText} ${timeText}`;
 }
 
 function getErrorMessage(data, fallback) {
@@ -432,7 +436,7 @@ export default function ChatLauncher({currentUser}) {
         </div>
     );
 
-    const renderMessages = (messages, {readOnly = false, allowReactions = false} = {}) => (
+    const renderMessages = (messages, {readOnly = false, allowReactions = false, showDate = false} = {}) => (
         <div className="chat-message-list">
             {messages.length > 0 ? messages.map((message) => (
                 <article
@@ -441,7 +445,7 @@ export default function ChatLauncher({currentUser}) {
                 >
                     <div className="chat-message__meta">
                         <strong>{message.sender_name}</strong>
-                        <span>{formatTime(message.created_at)}</span>
+                        <span>{formatTime(message.created_at, {withDate: showDate})}</span>
                     </div>
                     <p>{message.message_text}</p>
                     {allowReactions && (
@@ -526,7 +530,7 @@ export default function ChatLauncher({currentUser}) {
                     </div>
                 </div>
             )}
-            {renderMessages(bootstrap.broadcast?.messages || [], {readOnly: true, allowReactions: true})}
+            {renderMessages(bootstrap.broadcast?.messages || [], {readOnly: true, allowReactions: true, showDate: true})}
         </section>
     );
 
