@@ -1,0 +1,5 @@
+[dotenv@17.2.3] injecting env (10) from .env -- tip: 🔄 add secrets lifecycle management: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔐 prevent committing .env to code: https://dotenvx.com/precommit
+✅ Server berjalan di port 4000
+🌐 Akses dari komputer lain di jaringan ini: http://<IP-lokal-Mac>:4000
+User connected: -pnDdnGFVuaAzVKuAAAB

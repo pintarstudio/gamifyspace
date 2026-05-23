@@ -4,23 +4,23 @@ import {API_URL} from "../api/apiClient";
 export const ACTIVITY_STATUS = {
     individual_exercise: {
         type: "individual_exercise",
-        label: "Doing exercise",
+        label: "sedang mengerjakan latihan",
     },
     individual_pre_test: {
         type: "individual_pre_test",
-        label: "Taking pre-test",
+        label: "sedang mengerjakan pre-test",
     },
     individual_post_test: {
         type: "individual_post_test",
-        label: "Taking post-test",
+        label: "sedang mengerjakan post-test",
     },
     group_discussion: {
         type: "group_discussion",
-        label: "In group discussion",
+        label: "sedang diskusi group",
     },
     quiz: {
         type: "quiz",
-        label: "In quiz",
+        label: "sedang mengikuti quiz",
     },
 };
 
@@ -37,8 +37,8 @@ export const isActivityStatusActive = (status) =>
 
 export const activeActivityMessage = (status) =>
     status?.label
-        ? `You are already in an activity: ${status.label}. Finish or exit it first.`
-        : "You are already in an activity. Finish or exit it first.";
+        ? `Kamu masih berada dalam aktivitas: ${status.label}. Selesaikan aktivitas itu terlebih dahulu.`
+        : "Kamu masih berada dalam aktivitas. Selesaikan aktivitas itu terlebih dahulu.";
 
 const emitWithAck = (eventName, payload) =>
     new Promise((resolve) => {

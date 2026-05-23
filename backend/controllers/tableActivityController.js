@@ -7,8 +7,11 @@ import {
     addMemberToSession,
     beginFeedbackGeneration,
     createGroupSession,
+    endGroupSessionWithoutSubmission,
     ensureTableActivityTables,
     exitSessionMember,
+    GROUP_ACTIVITY_DURATION_SECONDS,
+    GROUP_START_DELAY_SECONDS,
     getActiveGroupSession,
     getCourseById,
     getSessionAnswers,
@@ -20,6 +23,7 @@ import {
     markFeedbackGenerationFailed,
     saveSessionAnswer,
     selectAvailableCaseForStudent,
+    startGroupSessionWork,
     submitSessionAnswers,
     touchSessionMember,
 } from "../models/tableActivityModel.js";
@@ -48,16 +52,80 @@ function normalizeGroupId(groupId) {
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
 }
 
+function sameCourseGroup(session, user) {
+    return String(session?.course_group_id || "") === String(user?.course_group_id || "");
+}
+
+function groupSessionRoom(sessionId) {
+    const parsed = Number.parseInt(sessionId, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? `group:session:${parsed}` : null;
+}
+
+function emitGroupEvent(req, sessionId, eventName = "group:session_updated", payload = {}) {
+    const room = groupSessionRoom(sessionId);
+    const io = req.app.get("io");
+    if (!room || !io) return;
+
+    io.to(room).emit(eventName, {
+        session_id: Number.parseInt(sessionId, 10),
+        server_time_ms: Date.now(),
+        ...payload,
+    });
+}
+
+function getGroupTimer(session) {
+    if (!session) {
+        return {
+            duration_seconds: GROUP_ACTIVITY_DURATION_SECONDS,
+            seconds_spent: 0,
+            seconds_left: GROUP_ACTIVITY_DURATION_SECONDS,
+            timer_expires_at: null,
+            is_time_up: false,
+        };
+    }
+
+    const durationSeconds = Number(session.duration_seconds) || GROUP_ACTIVITY_DURATION_SECONDS;
+    const startedAt = session.work_started_at ? new Date(session.work_started_at).getTime() : null;
+    const elapsedSeconds = startedAt ? Math.max(0, Math.floor((Date.now() - startedAt) / 1000)) : 0;
+    const isRunning = !!session.is_active && !session.submitted_at && !!startedAt;
+    const secondsSpent = isRunning
+        ? Math.min(durationSeconds, elapsedSeconds)
+        : Math.min(durationSeconds, Math.max(0, Number(session.seconds_spent || 0)));
+    const secondsLeft = isRunning
+        ? Math.max(0, durationSeconds - secondsSpent)
+        : Math.max(0, Number(session.seconds_left || 0));
+
+    return {
+        duration_seconds: durationSeconds,
+        seconds_spent: secondsSpent,
+        seconds_left: secondsLeft,
+        timer_expires_at: startedAt ? new Date(startedAt + durationSeconds * 1000).toISOString() : null,
+        is_time_up: isRunning && secondsLeft <= 0,
+    };
+}
+
+function isGroupSessionTimeUp(session) {
+    return getGroupTimer(session).is_time_up;
+}
+
+function isGroupSessionPendingStart(session) {
+    if (!session?.work_started_at) return false;
+    return Date.now() < new Date(session.work_started_at).getTime();
+}
+
 function normalizeSession(session, members, answers, userId, feedbackGroups = [], gamification = null) {
     if (!session) return null;
 
     const safeMembers = members || [];
     const safeAnswers = answers || [];
     const myAnswer = safeAnswers.find((answer) => String(answer.user_id) === String(userId));
+    const timer = getGroupTimer(session);
 
     return {
+        server_time_ms: Date.now(),
         session_id: session.session_id,
         course_id: session.course_id,
+        course_group_id: session.course_group_id,
         topic_id: session.topic_id,
         case_id: session.case_id,
         group_id: session.group_id,
@@ -67,6 +135,8 @@ function normalizeSession(session, members, answers, userId, feedbackGroups = []
         answer_text: session.answer_text || "",
         is_active: session.is_active,
         is_submitted: !!session.submitted_at,
+        is_started: !!session.work_started_at,
+        work_started_at: session.work_started_at || null,
         submitted_by: session.submitted_by,
         submitted_at: session.submitted_at,
         feedback_text: session.feedback_text || "",
@@ -77,17 +147,28 @@ function normalizeSession(session, members, answers, userId, feedbackGroups = []
         feedback_status: session.feedback_status || "idle",
         feedback_started_at: session.feedback_started_at || null,
         feedback_error: session.feedback_error || null,
+        group_start_delay_seconds: GROUP_START_DELAY_SECONDS,
         is_starter: String(session.created_by) === String(userId),
         is_generating_feedback: session.feedback_status === "generating",
-        can_submit: String(session.created_by) === String(userId)
+        can_start_work: String(session.created_by) === String(userId)
+            && !session.work_started_at
             && !session.submitted_at
-            && session.feedback_status !== "generating",
-        can_edit_answers: !session.submitted_at && session.feedback_status !== "generating",
+            && session.feedback_status !== "generating"
+            && safeMembers.length >= 2,
+        can_submit: safeMembers.some((member) => String(member.user_id) === String(userId))
+            && !!session.work_started_at
+            && !session.submitted_at
+            && session.feedback_status !== "generating"
+            && !timer.is_time_up,
+        can_edit_answers: !!session.work_started_at && !session.submitted_at && session.feedback_status !== "generating" && !timer.is_time_up,
         member_count: safeMembers.length,
         max_members: MAX_GROUP_MEMBERS,
         is_full: safeMembers.length >= MAX_GROUP_MEMBERS,
         is_member: safeMembers.some((member) => String(member.user_id) === String(userId)),
-        members: safeMembers,
+        members: safeMembers.map((member) => ({
+            ...member,
+            is_host: String(member.user_id) === String(session.created_by),
+        })),
         answers: safeAnswers,
         my_answer: myAnswer || null,
         gamification: gamification || {
@@ -96,6 +177,7 @@ function normalizeSession(session, members, answers, userId, feedbackGroups = []
             group_xp_reason: "",
             leaderboard: [],
         },
+        ...timer,
         created_at: session.created_at,
         updated_at: session.updated_at,
     };
@@ -129,6 +211,55 @@ async function loadSessionActivity(session, user) {
     return {members, answers, feedbackGroups, gamification};
 }
 
+async function submitTimedOutGroupSession(session, user, answerText = "") {
+    const members = await getSessionMembers(session.session_id);
+    const isMember = members.some((member) => String(member.user_id) === String(user.user_id));
+    if (!isMember) {
+        const error = new Error("NOT_GROUP_MEMBER");
+        error.code = "NOT_GROUP_MEMBER";
+        throw error;
+    }
+
+    const currentAnswerText = String(answerText || "").trim();
+    if (currentAnswerText) {
+        await saveSessionAnswer(session.session_id, user.user_id, currentAnswerText);
+    }
+
+    const answers = await getSessionAnswers(session.session_id);
+    if (answers.length === 0) {
+        return endGroupSessionWithoutSubmission(session.session_id);
+    }
+
+    const generatingSession = await beginFeedbackGeneration(session.session_id, user.user_id);
+    if (!generatingSession) {
+        return getSessionById(session.session_id);
+    }
+
+    let feedbackResult;
+    try {
+        feedbackResult = await generateCognitiveFeedback({
+            caseTitle: session.case_title,
+            casePrompt: session.case_prompt,
+            answers,
+        });
+    } catch (error) {
+        await markFeedbackGenerationFailed(session.session_id, error.message);
+        throw error;
+    }
+
+    const submittedResult = await submitSessionAnswers(
+        session.session_id,
+        user.user_id,
+        feedbackResult.feedback,
+        feedbackResult.model
+    );
+    const submitted = submittedResult ? await getSessionById(session.session_id) : await getSessionById(session.session_id);
+    if (submittedResult && user.gamification_enabled) {
+        await upsertTableSessionScores(submitted, answers, feedbackResult.feedback.xp_awards);
+    }
+    return submitted;
+}
+
 export async function getTableContext(req, res) {
     try {
         await ensureTableActivityTables();
@@ -139,7 +270,7 @@ export async function getTableContext(req, res) {
         const [course, topics, activeSession] = await Promise.all([
             getCourseById(user.course_id),
             getTopicsForCourse(user.course_id),
-            getActiveGroupSession(user.course_id, groupId),
+            getActiveGroupSession(user.course_id, groupId, user.course_group_id || null),
         ]);
         const {members, answers, feedbackGroups, gamification} = await loadSessionActivity(activeSession, user);
 
@@ -149,6 +280,7 @@ export async function getTableContext(req, res) {
             group_id: groupId,
             object_id: req.query.object_id || null,
             max_members: MAX_GROUP_MEMBERS,
+            group_start_delay_seconds: GROUP_START_DELAY_SECONDS,
             gamification_enabled: !!user.gamification_enabled,
             active_session: normalizeSession(activeSession, members, answers, user.user_id, feedbackGroups, gamification),
         });
@@ -165,7 +297,7 @@ export async function startTableSession(req, res) {
         if (!user) return;
 
         const groupId = normalizeGroupId(req.body.group_id);
-        const activeSession = await getActiveGroupSession(user.course_id, groupId);
+        const activeSession = await getActiveGroupSession(user.course_id, groupId, user.course_group_id || null);
         if (activeSession) {
             const {members, answers, feedbackGroups, gamification} = await loadSessionActivity(activeSession, user);
             return res.status(409).json({
@@ -186,8 +318,14 @@ export async function startTableSession(req, res) {
 
         const caseSelection = await selectAvailableCaseForStudent(topic.topic_id, user.user_id);
         if (!caseSelection.caseStudy) {
+            if (caseSelection.totalCases === 0) {
+                return res.status(409).json({
+                    message: `Belum ada case study aktif untuk topic ${topic.topic_name}.`,
+                    reason: "NO_TOPIC_CASES_AVAILABLE",
+                });
+            }
             return res.status(409).json({
-                message: `You already completed all ${caseSelection.totalCases || 2} cases for ${topic.topic_name}. You can't start another group for this topic.`,
+                message: `Kamu sudah menyelesaikan semua ${caseSelection.totalCases} case yang tersedia untuk topic ${topic.topic_name}.`,
                 reason: "ALL_TOPIC_CASES_COMPLETED",
             });
         }
@@ -223,18 +361,22 @@ export async function joinTableSession(req, res) {
         if (!user) return;
 
         const session = await getSessionById(req.params.sessionId);
-        if (!session || !session.is_active || String(session.course_id) !== String(user.course_id)) {
+        if (!session || !session.is_active || String(session.course_id) !== String(user.course_id) || !sameCourseGroup(session, user)) {
             return res.status(404).json({message: "Session tidak ditemukan"});
         }
 
         const currentMembers = await getSessionMembers(session.session_id);
         const alreadyMember = currentMembers.some((member) => String(member.user_id) === String(user.user_id));
+        if (!alreadyMember && session.work_started_at) {
+            return res.status(409).json({message: "Group discussion sudah dimulai. Student baru tidak bisa join sesi ini."});
+        }
         if (!alreadyMember && currentMembers.length >= MAX_GROUP_MEMBERS) {
             return res.status(409).json({message: "Group sudah penuh"});
         }
 
         await addMemberToSession(session.session_id, user);
         const {members, answers, feedbackGroups, gamification} = await loadSessionActivity(session, user);
+        emitGroupEvent(req, session.session_id, "group:lobby_updated", {status: "lobby"});
 
         res.json({
             message: "Berhasil join group",
@@ -246,6 +388,48 @@ export async function joinTableSession(req, res) {
     }
 }
 
+export async function beginTableSessionWork(req, res) {
+    try {
+        await ensureTableActivityTables();
+        const user = await getAuthenticatedUser(req, res);
+        if (!user) return;
+
+        const session = await getSessionById(req.params.sessionId);
+        if (!session || !session.is_active || String(session.course_id) !== String(user.course_id) || !sameCourseGroup(session, user)) {
+            return res.status(404).json({message: "Session tidak ditemukan"});
+        }
+
+        const result = await startGroupSessionWork(session.session_id, user.user_id, 2);
+        if (result.reason === "NOT_HOST") {
+            return res.status(403).json({message: "Hanya host yang bisa mulai group discussion."});
+        }
+        if (result.reason === "WAITING_FOR_MEMBERS") {
+            const {members, answers, feedbackGroups, gamification} = await loadSessionActivity(session, user);
+            return res.status(409).json({
+                message: "Group discussion bisa dimulai setelah minimal 2 student bergabung.",
+                session: normalizeSession(session, members, answers, user.user_id, feedbackGroups, gamification),
+            });
+        }
+        if (result.reason === "NOT_AVAILABLE") {
+            return res.status(409).json({message: "Session tidak bisa dimulai saat ini."});
+        }
+
+        const updated = await getSessionById(session.session_id);
+        const {members, answers, feedbackGroups, gamification} = await loadSessionActivity(updated, user);
+        emitGroupEvent(req, session.session_id, "group:starting", {
+            work_started_at: updated?.work_started_at,
+            delay_seconds: GROUP_START_DELAY_SECONDS,
+        });
+        res.json({
+            message: result.reason === "ALREADY_STARTED" ? "Group discussion sudah dimulai." : "Group discussion dimulai.",
+            session: normalizeSession(updated, members, answers, user.user_id, feedbackGroups, gamification),
+        });
+    } catch (error) {
+        console.error("Begin table session work error:", error);
+        res.status(500).json({message: "Gagal mulai group discussion"});
+    }
+}
+
 export async function getTableSession(req, res) {
     try {
         await ensureTableActivityTables();
@@ -253,7 +437,7 @@ export async function getTableSession(req, res) {
         if (!user) return;
 
         const session = await getSessionById(req.params.sessionId);
-        if (!session || String(session.course_id) !== String(user.course_id)) {
+        if (!session || String(session.course_id) !== String(user.course_id) || !sameCourseGroup(session, user)) {
             return res.status(404).json({message: "Session tidak ditemukan"});
         }
 
@@ -272,7 +456,7 @@ export async function saveTableAnswer(req, res) {
         if (!user) return;
 
         const session = await getSessionById(req.params.sessionId);
-        if (!session || String(session.course_id) !== String(user.course_id)) {
+        if (!session || String(session.course_id) !== String(user.course_id) || !sameCourseGroup(session, user)) {
             return res.status(404).json({message: "Session tidak ditemukan"});
         }
 
@@ -280,8 +464,35 @@ export async function saveTableAnswer(req, res) {
             return res.status(409).json({message: "Answers sudah disubmit dan tidak bisa diedit lagi"});
         }
 
+        if (!session.work_started_at) {
+            return res.status(409).json({message: "Group discussion belum dimulai oleh host."});
+        }
+        if (isGroupSessionPendingStart(session)) {
+            const {members, answers, feedbackGroups, gamification} = await loadSessionActivity(session, user);
+            return res.status(409).json({
+                message: "Group discussion sedang bersiap dimulai.",
+                session: normalizeSession(session, members, answers, user.user_id, feedbackGroups, gamification),
+            });
+        }
+
         if (session.feedback_status === "generating") {
             return res.status(409).json({message: "Feedback sedang dibuat. Answers tidak bisa diedit saat ini"});
+        }
+
+        if (isGroupSessionTimeUp(session)) {
+            emitGroupEvent(req, session.session_id, "group:feedback_generating", {status: "generating", reason: "timeout"});
+            const timedOutSession = await submitTimedOutGroupSession(session, user, req.body.answer_text);
+            const {members, answers, feedbackGroups, gamification} = await loadSessionActivity(timedOutSession, user);
+            emitGroupEvent(
+                req,
+                session.session_id,
+                timedOutSession?.submitted_at ? "group:feedback_ready" : "group:session_updated",
+                {reason: "timeout"}
+            );
+            return res.status(409).json({
+                message: "Waktu group discussion sudah habis.",
+                session: normalizeSession(timedOutSession, members, answers, user.user_id, feedbackGroups, gamification),
+            });
         }
 
         const members = await getSessionMembers(session.session_id);
@@ -294,6 +505,7 @@ export async function saveTableAnswer(req, res) {
         await saveSessionAnswer(session.session_id, user.user_id, req.body.answer_text);
         const updated = await getSessionById(session.session_id);
         const {members: updatedMembers, answers, feedbackGroups, gamification} = await loadSessionActivity(updated, user);
+        emitGroupEvent(req, session.session_id, "group:answer_updated", {user_id: user.user_id});
 
         res.json({
             message: "Jawaban tersimpan",
@@ -312,18 +524,25 @@ export async function submitTableAnswers(req, res) {
         if (!user) return;
 
         const session = await getSessionById(req.params.sessionId);
-        if (!session || !session.is_active || String(session.course_id) !== String(user.course_id)) {
+        if (!session || !session.is_active || String(session.course_id) !== String(user.course_id) || !sameCourseGroup(session, user)) {
             return res.status(404).json({message: "Session tidak ditemukan"});
+        }
+
+        if (!session.work_started_at) {
+            return res.status(409).json({message: "Group discussion belum dimulai oleh host."});
+        }
+        if (isGroupSessionPendingStart(session)) {
+            const {members, answers, feedbackGroups, gamification} = await loadSessionActivity(session, user);
+            return res.status(409).json({
+                message: "Group discussion sedang bersiap dimulai.",
+                session: normalizeSession(session, members, answers, user.user_id, feedbackGroups, gamification),
+            });
         }
 
         const members = await getSessionMembers(session.session_id);
         const isMember = members.some((member) => String(member.user_id) === String(user.user_id));
         if (!isMember) {
             return res.status(403).json({message: "Join group terlebih dahulu"});
-        }
-
-        if (String(session.created_by) !== String(user.user_id)) {
-            return res.status(403).json({message: "Hanya student yang membuat group yang bisa submit semua jawaban"});
         }
 
         if (session.submitted_at) {
@@ -342,15 +561,45 @@ export async function submitTableAnswers(req, res) {
             });
         }
 
+        if (isGroupSessionTimeUp(session)) {
+            emitGroupEvent(req, session.session_id, "group:feedback_generating", {status: "generating", reason: "timeout"});
+            const timedOutSession = await submitTimedOutGroupSession(session, user, req.body.answer_text);
+            const {members: timedOutMembers, answers: timedOutAnswers, feedbackGroups: timedOutFeedbackGroups, gamification: timedOutGamification} =
+                await loadSessionActivity(timedOutSession, user);
+            emitGroupEvent(
+                req,
+                session.session_id,
+                timedOutSession?.submitted_at ? "group:feedback_ready" : "group:session_updated",
+                {reason: "timeout"}
+            );
+            return res.json({
+                message: "Waktu group discussion sudah habis.",
+                session: normalizeSession(timedOutSession, timedOutMembers, timedOutAnswers, user.user_id, timedOutFeedbackGroups, timedOutGamification),
+            });
+        }
+
         const answers = await getSessionAnswers(session.session_id);
         if (answers.length === 0) {
             return res.status(400).json({message: "Belum ada jawaban aktif untuk disubmit"});
+        }
+        const answeredUserIds = new Set(
+            answers
+                .filter((answer) => String(answer.answer_text || "").trim().length > 0)
+                .map((answer) => String(answer.user_id))
+        );
+        const unansweredMembers = members.filter((member) => !answeredUserIds.has(String(member.user_id)));
+        if (unansweredMembers.length > 0) {
+            return res.status(409).json({
+                message: "Submit bisa dilakukan setelah semua anggota group menyimpan jawaban.",
+                waiting_for: unansweredMembers.map((member) => member.name),
+            });
         }
 
         const generatingSession = await beginFeedbackGeneration(session.session_id, user.user_id);
         if (!generatingSession) {
             return res.status(409).json({message: "Feedback sedang dibuat. Mohon tunggu."});
         }
+        emitGroupEvent(req, session.session_id, "group:feedback_generating", {status: "generating", submitted_by: user.user_id});
 
         let feedbackResult;
         try {
@@ -384,6 +633,7 @@ export async function submitTableAnswers(req, res) {
             feedbackGroups,
             gamification,
         } = await loadSessionActivity(submitted, user);
+        emitGroupEvent(req, session.session_id, "group:feedback_ready", {submitted_by: user.user_id});
 
         res.json({
             message: "Semua jawaban berhasil disubmit",
@@ -404,6 +654,73 @@ export async function submitTableAnswers(req, res) {
     }
 }
 
+export async function timeoutTableSession(req, res) {
+    try {
+        await ensureTableActivityTables();
+        const user = await getAuthenticatedUser(req, res);
+        if (!user) return;
+
+        const session = await getSessionById(req.params.sessionId);
+        if (!session || String(session.course_id) !== String(user.course_id) || !sameCourseGroup(session, user)) {
+            return res.status(404).json({message: "Session tidak ditemukan"});
+        }
+
+        if (!session.is_active || session.submitted_at) {
+            const {members, answers, feedbackGroups, gamification} = await loadSessionActivity(session, user);
+            return res.json({
+                message: "Group session sudah selesai",
+                session: normalizeSession(session, members, answers, user.user_id, feedbackGroups, gamification),
+            });
+        }
+
+        if (!session.work_started_at) {
+            const {members, answers, feedbackGroups, gamification} = await loadSessionActivity(session, user);
+            return res.status(409).json({
+                message: "Group discussion belum dimulai oleh host.",
+                session: normalizeSession(session, members, answers, user.user_id, feedbackGroups, gamification),
+            });
+        }
+        if (isGroupSessionPendingStart(session)) {
+            const {members, answers, feedbackGroups, gamification} = await loadSessionActivity(session, user);
+            return res.status(409).json({
+                message: "Group discussion sedang bersiap dimulai.",
+                session: normalizeSession(session, members, answers, user.user_id, feedbackGroups, gamification),
+            });
+        }
+
+        if (!isGroupSessionTimeUp(session)) {
+            const {members, answers, feedbackGroups, gamification} = await loadSessionActivity(session, user);
+            return res.json({
+                message: "Timer masih berjalan",
+                session: normalizeSession(session, members, answers, user.user_id, feedbackGroups, gamification),
+            });
+        }
+
+        emitGroupEvent(req, session.session_id, "group:feedback_generating", {status: "generating", reason: "timeout"});
+        const timedOutSession = await submitTimedOutGroupSession(session, user, req.body.answer_text);
+        const {members, answers, feedbackGroups, gamification} = await loadSessionActivity(timedOutSession, user);
+        emitGroupEvent(
+            req,
+            session.session_id,
+            timedOutSession?.submitted_at ? "group:feedback_ready" : "group:session_updated",
+            {reason: "timeout"}
+        );
+        res.json({
+            message: "Waktu group discussion sudah habis.",
+            session: normalizeSession(timedOutSession, members, answers, user.user_id, feedbackGroups, gamification),
+        });
+    } catch (error) {
+        console.error("Timeout table session error:", error);
+        if (error.code === "NOT_GROUP_MEMBER") {
+            return res.status(403).json({message: "Join group terlebih dahulu"});
+        }
+        if (error.code?.startsWith("OPENAI_")) {
+            return res.status(502).json({message: "Gagal membuat feedback dari OpenAI"});
+        }
+        res.status(500).json({message: "Gagal menyelesaikan group yang waktunya habis"});
+    }
+}
+
 export async function heartbeatTableSession(req, res) {
     try {
         await ensureTableActivityTables();
@@ -411,7 +728,7 @@ export async function heartbeatTableSession(req, res) {
         if (!user) return;
 
         const session = await getSessionById(req.params.sessionId);
-        if (!session || !session.is_active || String(session.course_id) !== String(user.course_id)) {
+        if (!session || !session.is_active || String(session.course_id) !== String(user.course_id) || !sameCourseGroup(session, user)) {
             return res.status(404).json({message: "Session tidak ditemukan"});
         }
 
@@ -438,7 +755,7 @@ export async function exitTableSession(req, res) {
         if (!user) return;
 
         const session = await getSessionById(req.params.sessionId);
-        if (!session || String(session.course_id) !== String(user.course_id)) {
+        if (!session || String(session.course_id) !== String(user.course_id) || !sameCourseGroup(session, user)) {
             return res.status(404).json({message: "Session tidak ditemukan"});
         }
 
@@ -446,6 +763,14 @@ export async function exitTableSession(req, res) {
             const {members, answers, feedbackGroups, gamification} = await loadSessionActivity(session, user);
             return res.status(409).json({
                 message: "Feedback sedang dibuat. Siswa belum bisa keluar dari group.",
+                session: normalizeSession(session, members, answers, user.user_id, feedbackGroups, gamification),
+            });
+        }
+
+        if (session.work_started_at && !session.submitted_at) {
+            const {members, answers, feedbackGroups, gamification} = await loadSessionActivity(session, user);
+            return res.status(409).json({
+                message: "Group discussion sudah dimulai dan tidak bisa ditinggalkan. Selesaikan aktivitas ini bersama group.",
                 session: normalizeSession(session, members, answers, user.user_id, feedbackGroups, gamification),
             });
         }
@@ -460,9 +785,17 @@ export async function exitTableSession(req, res) {
                 feedbackGroups: [],
                 gamification: {enabled: !!user.gamification_enabled, group_xp: 0, group_xp_reason: "", leaderboard: []},
             };
+        emitGroupEvent(
+            req,
+            session.session_id,
+            exitResult.cancelledByHost ? "group:lobby_cancelled" : "group:lobby_updated",
+            {remaining_members: exitResult.remainingMembers || 0}
+        );
 
         res.json({
-            message: exitResult.remainingMembers === 0 ? "Group session selesai" : "Berhasil keluar dari group",
+            message: exitResult.cancelledByHost
+                ? "Host keluar sebelum aktivitas dimulai. Waiting room ditutup untuk semua student."
+                : exitResult.remainingMembers === 0 ? "Group session selesai" : "Berhasil keluar dari group",
             session: normalizeSession(updated, members, answers, user.user_id, feedbackGroups, gamification),
         });
     } catch (error) {

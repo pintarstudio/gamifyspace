@@ -5,6 +5,7 @@ let quizTablesReady = false;
 const QUESTION_COUNT = 5;
 const QUESTION_TIME_SECONDS = 15;
 const QUESTION_REVEAL_SECONDS = 3;
+const QUESTION_START_DELAY_SECONDS = 3;
 const MAX_QUIZ_MEMBERS = 2;
 
 export async function ensureQuizActivityTables() {
@@ -30,6 +31,7 @@ export async function ensureQuizActivityTables() {
         CREATE TABLE IF NOT EXISTS quiz_sessions (
             quiz_session_id SERIAL PRIMARY KEY,
             course_id INTEGER NOT NULL,
+            course_group_id INTEGER,
             topic_id INTEGER NOT NULL,
             group_id INTEGER,
             table_id TEXT NOT NULL,
@@ -48,14 +50,23 @@ export async function ensureQuizActivityTables() {
         )
     `);
 
-    await pool.query(`
-        CREATE UNIQUE INDEX IF NOT EXISTS quiz_sessions_one_open_table_idx
-        ON quiz_sessions (course_id, table_id)
-        WHERE status IN ('lobby', 'in_progress', 'completed')
-    `);
-
+    await pool.query(`ALTER TABLE quiz_sessions ADD COLUMN IF NOT EXISTS course_group_id INTEGER`);
     await pool.query(`ALTER TABLE quiz_sessions ADD COLUMN IF NOT EXISTS group_id INTEGER`);
     await pool.query(`ALTER TABLE quiz_sessions ADD COLUMN IF NOT EXISTS question_completed_at TIMESTAMPTZ`);
+    await pool.query(`
+        UPDATE quiz_sessions qs
+        SET course_group_id = u.course_group_id
+        FROM users u
+        WHERE qs.course_group_id IS NULL
+          AND u.user_id = qs.hosted_by
+    `);
+
+    await pool.query(`DROP INDEX IF EXISTS quiz_sessions_one_open_table_idx`);
+    await pool.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS quiz_sessions_one_open_table_course_group_idx
+        ON quiz_sessions (course_id, (COALESCE(course_group_id, 0)), table_id)
+        WHERE status IN ('lobby', 'in_progress', 'completed')
+    `);
 
     await pool.query(`
         CREATE TABLE IF NOT EXISTS quiz_members (
@@ -139,16 +150,17 @@ export async function getQuizQuestionsByIds(questionIds) {
     return result.rows;
 }
 
-export async function getActiveQuizSession(courseId, tableId) {
+export async function getActiveQuizSession(courseId, tableId, courseGroupId = null) {
     const result = await pool.query(
         `SELECT *
          FROM quiz_sessions
          WHERE course_id = $1
            AND table_id = $2
+           AND course_group_id IS NOT DISTINCT FROM $3
            AND status IN ('lobby', 'in_progress', 'completed')
          ORDER BY created_at DESC
          LIMIT 1`,
-        [courseId, String(tableId)]
+        [courseId, String(tableId), courseGroupId || null]
     );
     return result.rows[0] || null;
 }
@@ -247,6 +259,7 @@ function pickQuestionIds(questions) {
 
 export async function createQuizSession({course, topic, groupId, tableId, objectId, user, questions}) {
     const client = await pool.connect();
+    const courseGroupId = user.course_group_id || null;
 
     try {
         await client.query("BEGIN");
@@ -256,10 +269,11 @@ export async function createQuizSession({course, topic, groupId, tableId, object
              FROM quiz_sessions
              WHERE course_id = $1
                AND table_id = $2
+               AND course_group_id IS NOT DISTINCT FROM $3
                AND status IN ('lobby', 'in_progress', 'completed')
              LIMIT 1
              FOR UPDATE`,
-            [course.course_id, String(tableId)]
+            [course.course_id, String(tableId), courseGroupId]
         );
 
         if (existing.rows[0]) {
@@ -277,11 +291,12 @@ export async function createQuizSession({course, topic, groupId, tableId, object
 
         const created = await client.query(
             `INSERT INTO quiz_sessions
-                 (course_id, topic_id, group_id, table_id, object_id, question_ids, hosted_by)
-             VALUES ($1, $2, $3, $4, $5, $6::int[], $7)
+                 (course_id, course_group_id, topic_id, group_id, table_id, object_id, question_ids, hosted_by)
+             VALUES ($1, $2, $3, $4, $5, $6, $7::int[], $8)
              RETURNING *`,
             [
                 course.course_id,
+                courseGroupId,
                 topic.topic_id,
                 groupId || null,
                 String(tableId),
@@ -366,6 +381,17 @@ export async function exitQuizMember(sessionId, userId) {
         );
 
         let updatedSession = session;
+        if (shouldCancel) {
+            await client.query(
+                `UPDATE quiz_members
+                 SET is_active = FALSE,
+                     last_seen_at = NOW()
+                 WHERE quiz_session_id = $1
+                   AND is_active = TRUE`,
+                [sessionId]
+            );
+        }
+
         if (shouldCancel || activeMembers.rows[0].count === 0) {
             const cancelled = await client.query(
                 `UPDATE quiz_sessions
@@ -406,7 +432,7 @@ export async function startQuizSession(sessionId, userId) {
     const result = await pool.query(
         `UPDATE quiz_sessions
          SET status = 'in_progress',
-             question_started_at = NOW(),
+             question_started_at = NOW() + ($3 * INTERVAL '1 second'),
              question_completed_at = NULL,
              updated_at = NOW()
          WHERE quiz_session_id = $1
@@ -417,9 +443,9 @@ export async function startQuizSession(sessionId, userId) {
                FROM quiz_members
                WHERE quiz_session_id = $1
                  AND is_active = TRUE
-           ) = $3
+           ) = $4
          RETURNING *`,
-        [sessionId, userId, MAX_QUIZ_MEMBERS]
+        [sessionId, userId, QUESTION_START_DELAY_SECONDS, MAX_QUIZ_MEMBERS]
     );
     return result.rows[0] || null;
 }
@@ -560,9 +586,15 @@ export async function submitQuizAnswer(session, user, answerIndex) {
             return {session: activeSession, answer: null};
         }
 
+        const questionStartMs = new Date(activeSession.question_started_at).getTime();
+        if (Date.now() < questionStartMs) {
+            await client.query("ROLLBACK");
+            return {session: activeSession, answer: null, reason: "QUESTION_NOT_STARTED"};
+        }
+
         const elapsedSeconds = Math.max(
             0,
-            Math.floor((Date.now() - new Date(activeSession.question_started_at).getTime()) / 1000)
+            Math.floor((Date.now() - questionStartMs) / 1000)
         );
         const timeTaken = Math.min(QUESTION_TIME_SECONDS, elapsedSeconds);
         const timeLeft = Math.max(0, QUESTION_TIME_SECONDS - timeTaken);
@@ -670,4 +702,4 @@ export async function saveQuizResult(sessionId, userId, questions, answers, resu
     }
 }
 
-export {MAX_QUIZ_MEMBERS, QUESTION_COUNT, QUESTION_REVEAL_SECONDS, QUESTION_TIME_SECONDS};
+export {MAX_QUIZ_MEMBERS, QUESTION_COUNT, QUESTION_REVEAL_SECONDS, QUESTION_START_DELAY_SECONDS, QUESTION_TIME_SECONDS};

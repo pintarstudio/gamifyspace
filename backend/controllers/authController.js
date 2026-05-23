@@ -1,9 +1,9 @@
 // backend/controllers/authController.js
 import {findActiveCourseById, findCourseByName} from "../models/courseModel.js";
-import {createDemoUser, findUserByCourseNameEmail, findUserByEmail, findUserById, updateUserRole} from "../models/userModel.js";
+import {createDemoUser, findUserByCourseNameEmail, findUserByEmail, findUserById} from "../models/userModel.js";
 import {createSession, deactivateSession} from "../models/sessionModel.js";
 import {findAvatarById, getDefaultAvatar} from "../models/avatarModel.js";
-import {findRoleById, INSTRUCTOR_ROLE_ID, STUDENT_ROLE_ID} from "../models/roleModel.js";
+import {INSTRUCTOR_ROLE_ID, STUDENT_ROLE_ID} from "../models/roleModel.js";
 import {findAdminByUsername, updateAdminLastLogin, verifyAdminPassword} from "../models/adminModel.js";
 import {leaveStudentGroupRoomsForLogout} from "../models/chatModel.js";
 import {v4 as uuidv4} from "uuid";
@@ -43,7 +43,7 @@ function emitChatLogoutLeaves(req, user, leftRooms) {
 
 export async function login(req, res) {
     try {
-        const { user_id, course_id, avatar_id, avatar_public_path, password, role_id } = req.body;
+        const { user_id, course_id, avatar_id, avatar_public_path, password } = req.body;
 
         if (!user_id) {
             return res.status(400).json({ message: "User wajib dipilih" });
@@ -56,12 +56,8 @@ export async function login(req, res) {
         if (!user) {
             return res.status(404).json({ message: "User tidak ditemukan" });
         }
-        if (role_id) {
-            const role = await findRoleById(role_id);
-            if (!role) {
-                return res.status(400).json({message: "Role tidak ditemukan"});
-            }
-            user = await updateUserRole(user.user_id, role.role_id);
+        if (String(user.role_id) !== String(STUDENT_ROLE_ID)) {
+            return res.status(403).json({message: "Demo login hanya tersedia untuk student. Gunakan halaman instructor untuk login instructor."});
         }
         const course = await findActiveCourseById(course_id || user.course_id);
         if (!course || String(user.course_id) !== String(course.course_id)) {

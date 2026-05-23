@@ -114,6 +114,33 @@ function firstText(...values) {
     return "";
 }
 
+function clampChoiceIndex(value, fallback = 0) {
+    const parsed = Number.parseInt(value, 10);
+    if (!Number.isFinite(parsed)) return fallback;
+    return Math.max(0, Math.min(3, parsed));
+}
+
+function shuffleChoicesWithAnswer(choices, correctAnswerIndex) {
+    if (!Array.isArray(choices) || choices.length !== 4) {
+        return {choices, correct_answer_index: clampChoiceIndex(correctAnswerIndex)};
+    }
+
+    const indexedChoices = choices.map((choice, index) => ({
+        choice,
+        wasCorrect: index === clampChoiceIndex(correctAnswerIndex),
+    }));
+
+    for (let index = indexedChoices.length - 1; index > 0; index -= 1) {
+        const swapIndex = Math.floor(Math.random() * (index + 1));
+        [indexedChoices[index], indexedChoices[swapIndex]] = [indexedChoices[swapIndex], indexedChoices[index]];
+    }
+
+    return {
+        choices: indexedChoices.map((item) => item.choice),
+        correct_answer_index: indexedChoices.findIndex((item) => item.wasCorrect),
+    };
+}
+
 function normalizeDigest(digest) {
     return {
         summary: trimWords(digest.summary, 450),
@@ -146,11 +173,14 @@ function normalizeDrafts(items, bankType, startNumber) {
                 ? `Which statement is best supported by this material: ${trimWords(item.source_excerpt, 18)}?`
                 : "Which statement is best supported by the selected course material?";
         }
+        const shuffled = isCaseBank
+            ? {choices, correct_answer_index: 0}
+            : shuffleChoicesWithAnswer(choices, item.correct_answer_index);
         return {
             question_number: number,
             question_text: trimWords(questionText, 80),
-            choices,
-            correct_answer_index: Math.max(0, Math.min(3, Number.parseInt(item.correct_answer_index, 10) || 0)),
+            choices: shuffled.choices,
+            correct_answer_index: shuffled.correct_answer_index,
             explanation: trimWords(item.explanation, 80),
             case_number: isCaseBank
                 ? Math.max(1, Number.parseInt(startNumber, 10) + index)

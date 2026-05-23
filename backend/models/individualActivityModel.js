@@ -6,10 +6,19 @@ export const ACTIVITY_TYPES = ["exercise", "pre_test", "post_test"];
 export const QUESTION_KINDS = ["multiple_choice", "case_study"];
 export const MC_QUESTION_COUNT = 10;
 export const ASSESSMENT_QUESTION_COUNT = 20;
+export const INDIVIDUAL_MC_DURATION_SECONDS = 180;
+export const INDIVIDUAL_CASE_DURATION_SECONDS = 240;
+export const INDIVIDUAL_ASSESSMENT_DURATION_SECONDS = 900;
 
 export function getIndividualQuestionCount(activityType, questionKind) {
     if (questionKind === "case_study") return 1;
     return ["pre_test", "post_test"].includes(activityType) ? ASSESSMENT_QUESTION_COUNT : MC_QUESTION_COUNT;
+}
+
+export function getIndividualActivityDuration(activityType, questionKind) {
+    if (activityType === "pre_test" || activityType === "post_test") return INDIVIDUAL_ASSESSMENT_DURATION_SECONDS;
+    if (questionKind === "case_study") return INDIVIDUAL_CASE_DURATION_SECONDS;
+    return INDIVIDUAL_MC_DURATION_SECONDS;
 }
 
 let individualReadyPromise = null;
@@ -74,16 +83,45 @@ async function createIndividualTables() {
             feedback_model TEXT,
             feedback_status TEXT NOT NULL DEFAULT 'idle',
             feedback_error TEXT,
+            duration_seconds INTEGER NOT NULL DEFAULT 0,
+            seconds_spent INTEGER NOT NULL DEFAULT 0,
+            seconds_left INTEGER NOT NULL DEFAULT 0,
             started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             completed_at TIMESTAMPTZ,
             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
     `);
 
+    await pool.query(`ALTER TABLE individual_activity_sessions ADD COLUMN IF NOT EXISTS duration_seconds INTEGER NOT NULL DEFAULT 0`);
+    await pool.query(`ALTER TABLE individual_activity_sessions ADD COLUMN IF NOT EXISTS seconds_spent INTEGER NOT NULL DEFAULT 0`);
+    await pool.query(`ALTER TABLE individual_activity_sessions ADD COLUMN IF NOT EXISTS seconds_left INTEGER NOT NULL DEFAULT 0`);
+    await pool.query(`
+        UPDATE individual_activity_sessions
+        SET duration_seconds = CASE
+                WHEN activity_type IN ('pre_test', 'post_test') THEN ${INDIVIDUAL_ASSESSMENT_DURATION_SECONDS}
+                WHEN question_kind = 'case_study' THEN ${INDIVIDUAL_CASE_DURATION_SECONDS}
+                ELSE ${INDIVIDUAL_MC_DURATION_SECONDS}
+            END,
+            seconds_left = CASE
+                WHEN seconds_left > 0 THEN seconds_left
+                WHEN activity_type IN ('pre_test', 'post_test') THEN ${INDIVIDUAL_ASSESSMENT_DURATION_SECONDS}
+                WHEN question_kind = 'case_study' THEN ${INDIVIDUAL_CASE_DURATION_SECONDS}
+                ELSE ${INDIVIDUAL_MC_DURATION_SECONDS}
+            END
+        WHERE duration_seconds = 0
+    `);
+
     await pool.query(`
         CREATE UNIQUE INDEX IF NOT EXISTS individual_activity_one_active_idx
         ON individual_activity_sessions (course_id, user_id, object_id)
         WHERE status = 'in_progress'
+    `);
+
+    await pool.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS individual_activity_one_active_computer_idx
+        ON individual_activity_sessions (course_id, object_id)
+        WHERE status = 'in_progress'
+          AND COALESCE(object_id, '') <> ''
     `);
 
     await pool.query(`
@@ -138,6 +176,53 @@ export async function getIndividualSettingsForTopics(topics) {
     return new Map(result.rows.map((row) => [Number(row.topic_id), row]));
 }
 
+export async function getCompletedIndividualAssessmentsForTopics({courseId, userId, topics}) {
+    const topicIds = (topics || []).map((topic) => Number(topic.topic_id)).filter(Number.isFinite);
+    if (topicIds.length === 0) return new Map();
+
+    const result = await pool.query(
+        `SELECT topic_id, activity_type, COUNT(*)::int AS completed_count
+         FROM individual_activity_sessions
+         WHERE course_id = $1
+           AND user_id = $2
+           AND topic_id = ANY($3::int[])
+           AND activity_type IN ('pre_test', 'post_test')
+           AND status = 'completed'
+         GROUP BY topic_id, activity_type`,
+        [courseId, userId, topicIds]
+    );
+
+    const completionMap = new Map();
+    for (const row of result.rows) {
+        const topicId = Number(row.topic_id);
+        const current = completionMap.get(topicId) || {
+            pre_test_completed: false,
+            post_test_completed: false,
+        };
+        if (row.activity_type === "pre_test") current.pre_test_completed = Number(row.completed_count) > 0;
+        if (row.activity_type === "post_test") current.post_test_completed = Number(row.completed_count) > 0;
+        completionMap.set(topicId, current);
+    }
+    return completionMap;
+}
+
+export async function hasCompletedIndividualAssessment({courseId, userId, topicId, activityType}) {
+    if (!["pre_test", "post_test"].includes(activityType)) return false;
+
+    const result = await pool.query(
+        `SELECT 1
+         FROM individual_activity_sessions
+         WHERE course_id = $1
+           AND user_id = $2
+           AND topic_id = $3
+           AND activity_type = $4
+           AND status = 'completed'
+         LIMIT 1`,
+        [courseId, userId, topicId, activityType]
+    );
+    return !!result.rows[0];
+}
+
 export async function updateIndividualTopicSettings(topicId, settings) {
     const result = await pool.query(
         `INSERT INTO individual_topic_settings (topic_id, show_pre_test, show_post_test)
@@ -157,8 +242,35 @@ export async function updateIndividualTopicSettings(topicId, settings) {
     return result.rows[0] || null;
 }
 
-export async function getIndividualQuestions({topicId, activityType, questionKind}) {
+export async function getIndividualQuestions({courseId, topicId, userId, activityType, questionKind}) {
     const limit = getIndividualQuestionCount(activityType, questionKind);
+
+    if (activityType === "exercise" && courseId && userId) {
+        const result = await pool.query(
+            `WITH used_questions AS (
+                 SELECT DISTINCT used_question_id::int AS question_id
+                 FROM individual_activity_sessions ias
+                 CROSS JOIN LATERAL unnest(ias.question_ids) AS used_question_id
+                 WHERE ias.course_id = $1
+                   AND ias.user_id = $2
+                   AND ias.topic_id = $3
+                   AND ias.activity_type = $4
+                   AND ias.question_kind = $5
+             )
+             SELECT iq.*
+             FROM individual_questions iq
+             LEFT JOIN used_questions uq ON uq.question_id = iq.question_id
+             WHERE iq.topic_id = $3
+               AND iq.activity_type = $4
+               AND iq.question_kind = $5
+               AND iq.is_active = TRUE
+             ORDER BY CASE WHEN uq.question_id IS NULL THEN 0 ELSE 1 END, RANDOM()
+             LIMIT $6`,
+            [courseId, userId, topicId, activityType, questionKind, limit]
+        );
+        return result.rows;
+    }
+
     const result = await pool.query(
         `SELECT *
          FROM individual_questions
@@ -202,6 +314,24 @@ export async function getActiveIndividualSession({courseId, userId, objectId}) {
     return result.rows[0] || null;
 }
 
+export async function getActiveIndividualSessionForObject({courseId, objectId}) {
+    const normalizedObjectId = objectId || "";
+    if (!normalizedObjectId) return null;
+
+    const result = await pool.query(
+        `SELECT ias.*, u.name AS user_name
+         FROM individual_activity_sessions ias
+         LEFT JOIN users u ON u.user_id = ias.user_id
+         WHERE ias.course_id = $1
+           AND COALESCE(ias.object_id, '') = $2
+           AND ias.status = 'in_progress'
+         ORDER BY ias.started_at DESC
+         LIMIT 1`,
+        [courseId, normalizedObjectId]
+    );
+    return result.rows[0] || null;
+}
+
 export async function getIndividualSessionById(sessionId) {
     const result = await pool.query(
         `SELECT *
@@ -233,10 +363,11 @@ export async function getIndividualAnswers(sessionId) {
 }
 
 export async function createIndividualSession({courseId, topicId, userId, objectId, activityType, questionKind, questions}) {
+    const durationSeconds = getIndividualActivityDuration(activityType, questionKind);
     const result = await pool.query(
         `INSERT INTO individual_activity_sessions
-             (course_id, topic_id, user_id, object_id, activity_type, question_kind, question_ids)
-         VALUES ($1, $2, $3, $4, $5, $6, $7::int[])
+             (course_id, topic_id, user_id, object_id, activity_type, question_kind, question_ids, duration_seconds, seconds_left)
+         VALUES ($1, $2, $3, $4, $5, $6, $7::int[], $8, $8)
          RETURNING *`,
         [
             courseId,
@@ -246,6 +377,7 @@ export async function createIndividualSession({courseId, topicId, userId, object
             activityType,
             questionKind,
             questions.map((question) => question.question_id),
+            durationSeconds,
         ]
     );
     return result.rows[0] || null;
@@ -301,6 +433,8 @@ export async function completeIndividualSession({sessionId, resultJson, feedback
              feedback_model = $7,
              feedback_status = $8,
              feedback_error = $9,
+             seconds_spent = LEAST(duration_seconds, GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - started_at)))::int)),
+             seconds_left = GREATEST(0, duration_seconds - LEAST(duration_seconds, GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - started_at)))::int))),
              completed_at = NOW(),
              updated_at = NOW()
          WHERE session_id = $1
@@ -361,6 +495,8 @@ export async function cancelIndividualSession(sessionId, userId) {
     const result = await pool.query(
         `UPDATE individual_activity_sessions
          SET status = 'cancelled',
+             seconds_spent = LEAST(duration_seconds, GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - started_at)))::int)),
+             seconds_left = GREATEST(0, duration_seconds - LEAST(duration_seconds, GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - started_at)))::int))),
              updated_at = NOW()
          WHERE session_id = $1
            AND user_id = $2

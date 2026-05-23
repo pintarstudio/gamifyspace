@@ -1,7 +1,8 @@
-import React, {useEffect, useMemo, useRef, useState} from "react";
+import React, {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import {useSearchParams} from "react-router-dom";
 import {apiGet, apiPost} from "../api/apiClient";
 import AvatarIcon from "../components/AvatarIcon";
+import socket from "../utils/socketClient";
 import {
     ACTIVITY_STATUS,
     activeActivityMessage,
@@ -47,6 +48,15 @@ function buildWrongFeedbackMap(session) {
     return grouped;
 }
 
+function stampSession(session) {
+    return session ? {...session, _received_at_ms: Date.now()} : null;
+}
+
+function getSessionNow(session, localNow) {
+    if (!session?.server_time_ms || !session?._received_at_ms) return localNow;
+    return Number(session.server_time_ms) + (localNow - Number(session._received_at_ms));
+}
+
 const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activitySearchParams = null, exitOnBack = false}) => {
     const [routeSearchParams] = useSearchParams();
     const searchParams = useMemo(
@@ -69,10 +79,11 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
     const [message, setMessage] = useState("");
     const [now, setNow] = useState(Date.now());
     const [currentUser, setCurrentUser] = useState(null);
-    const [confirmExitOpen, setConfirmExitOpen] = useState(false);
+    const [confirmStartOpen, setConfirmStartOpen] = useState(false);
     const timeoutPulseRef = useRef("");
     const activityStatusKeyRef = useRef(null);
-    const cancelExitButtonRef = useRef(null);
+    const pageUnloadingRef = useRef(false);
+    const autoSaveSessionRef = useRef("");
 
     const selectedTopic = useMemo(
         () => context?.topics?.find((topic) => String(topic.topic_id) === String(selectedTopicId)),
@@ -86,7 +97,7 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
         const query = `/quiz/context?table_id=${encodeURIComponent(nextTableId)}&group_id=${encodeURIComponent(nextGroupId)}${objectId ? `&object_id=${encodeURIComponent(objectId)}` : ""}`;
         const data = await apiGet(query);
         setContext(data);
-        setActiveSession(useActiveSession ? data.active_session || null : null);
+        setActiveSession(useActiveSession ? stampSession(data.active_session || null) : null);
         if (!selectedTopicId && data.topics?.length > 0) {
             setSelectedTopicId(String((useActiveSession ? data.active_session?.topic_id : null) || data.topics[0].topic_id));
         }
@@ -106,25 +117,68 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
     }, []);
 
     useEffect(() => {
-        if (!currentUser) return undefined;
-
-        const clearStatusOnPageHide = () => {
-            if (!activityStatusKeyRef.current) return;
-            clearActivityStatus({
-                user: currentUser,
-                activityKey: activityStatusKeyRef.current,
-                keepalive: true,
-            });
+        const markUnloading = () => {
+            pageUnloadingRef.current = true;
         };
 
-        window.addEventListener("pagehide", clearStatusOnPageHide);
-        return () => window.removeEventListener("pagehide", clearStatusOnPageHide);
-    }, [currentUser]);
+        window.addEventListener("pagehide", markUnloading);
+        return () => window.removeEventListener("pagehide", markUnloading);
+    }, []);
 
     useEffect(() => {
         const timerId = window.setInterval(() => setNow(Date.now()), 500);
         return () => window.clearInterval(timerId);
     }, []);
+
+    useEffect(() => {
+        if (!activeSession?.quiz_session_id || !activeSession?.is_member || activeSession.status === "saved") return undefined;
+
+        const sessionId = activeSession.quiz_session_id;
+        const activityKey = `${ACTIVITY_STATUS.quiz.type}:${sessionId}`;
+        let disposed = false;
+
+        const refreshQuizSession = async () => {
+            const data = await apiGet(`/quiz/sessions/${sessionId}`);
+            if (disposed) return;
+            if (data.session) {
+                setActiveSession(stampSession(data.session));
+            } else if (data.message) {
+                setMessage(data.message);
+            }
+        };
+
+        const handleSessionEvent = (event = {}) => {
+            if (String(event.quiz_session_id) !== String(sessionId)) return;
+            refreshQuizSession();
+        };
+
+        const handleLobbyCancelled = (event = {}) => {
+            if (String(event.quiz_session_id) !== String(sessionId)) return;
+            setActiveSession(null);
+            setMessage("Quiz lobby dibatalkan oleh host.");
+            if (currentUser) clearActivityStatus({user: currentUser, activityKey});
+            if (activityStatusKeyRef.current === activityKey) activityStatusKeyRef.current = null;
+        };
+
+        socket.emit("quiz:join", {quiz_session_id: sessionId});
+        socket.on("quiz:lobby_updated", handleSessionEvent);
+        socket.on("quiz:starting", handleSessionEvent);
+        socket.on("quiz:answer_updated", handleSessionEvent);
+        socket.on("quiz:session_updated", handleSessionEvent);
+        socket.on("quiz:result_saved", handleSessionEvent);
+        socket.on("quiz:lobby_cancelled", handleLobbyCancelled);
+
+        return () => {
+            disposed = true;
+            socket.emit("quiz:leave", {quiz_session_id: sessionId});
+            socket.off("quiz:lobby_updated", handleSessionEvent);
+            socket.off("quiz:starting", handleSessionEvent);
+            socket.off("quiz:answer_updated", handleSessionEvent);
+            socket.off("quiz:session_updated", handleSessionEvent);
+            socket.off("quiz:result_saved", handleSessionEvent);
+            socket.off("quiz:lobby_cancelled", handleLobbyCancelled);
+        };
+    }, [activeSession?.quiz_session_id, activeSession?.is_member, activeSession?.status, currentUser]);
 
     useEffect(() => {
         if (!savingResult) return undefined;
@@ -144,20 +198,29 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
 
         const intervalId = window.setInterval(() => {
             apiPost(`/quiz/sessions/${activeSession.quiz_session_id}/heartbeat`, {}).then((data) => {
-                if (data.session) setActiveSession(data.session);
-                if (data.message && !data.session) setMessage(data.message);
+                if (data.session) setActiveSession(stampSession(data.session));
+                if (data.message && !data.session) {
+                    setMessage(data.message);
+                    setActiveSession(null);
+                    if (currentUser) {
+                        clearActivityStatus({
+                            user: currentUser,
+                            activityKey: `${ACTIVITY_STATUS.quiz.type}:${activeSession.quiz_session_id}`,
+                        });
+                    }
+                }
             });
         }, activeSession.status === "in_progress" ? 1500 : 4000);
 
         return () => window.clearInterval(intervalId);
-    }, [activeSession?.quiz_session_id, activeSession?.is_member, activeSession?.status]);
+    }, [activeSession?.quiz_session_id, activeSession?.is_member, activeSession?.status, currentUser]);
 
     useEffect(() => {
         if (
             !currentUser
             || !activeSession?.quiz_session_id
             || !activeSession?.is_member
-            || !["lobby", "in_progress"].includes(activeSession.status)
+            || !["lobby", "in_progress", "completed"].includes(activeSession.status)
         ) {
             return undefined;
         }
@@ -179,7 +242,9 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
 
         return () => {
             window.clearInterval(intervalId);
-            clearActivityStatus({user: currentUser, activityKey, keepalive: true});
+            if (!pageUnloadingRef.current) {
+                clearActivityStatus({user: currentUser, activityKey, keepalive: true});
+            }
             if (activityStatusKeyRef.current === activityKey) activityStatusKeyRef.current = null;
         };
     }, [
@@ -215,14 +280,23 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
             return activeSession?.question_time_seconds || context?.question_time_seconds || 15;
         }
         const started = new Date(activeSession.question_started_at).getTime();
-        const elapsed = Math.floor((now - started) / 1000);
+        const serverNow = getSessionNow(activeSession, now);
+        const elapsed = Math.max(0, Math.floor((serverNow - started) / 1000));
         return Math.max(0, (activeSession.question_time_seconds || 15) - elapsed);
     }, [activeSession, context, now]);
+
+    const quizCountdownSeconds = useMemo(() => {
+        if (activeSession?.status !== "in_progress" || !activeSession.question_started_at) return 0;
+        const started = new Date(activeSession.question_started_at).getTime();
+        const serverNow = getSessionNow(activeSession, now);
+        return Math.max(0, Math.ceil((started - serverNow) / 1000));
+    }, [activeSession, now]);
 
     const revealTimeLeft = useMemo(() => {
         if (activeSession?.status !== "in_progress" || !activeSession.question_completed_at) return null;
         const completed = new Date(activeSession.question_completed_at).getTime();
-        const elapsed = Math.floor((now - completed) / 1000);
+        const serverNow = getSessionNow(activeSession, now);
+        const elapsed = Math.max(0, Math.floor((serverNow - completed) / 1000));
         return Math.max(0, (activeSession.question_reveal_seconds || 3) - elapsed);
     }, [activeSession, now]);
 
@@ -232,6 +306,7 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
             || !activeSession?.quiz_session_id
             || !activeSession?.is_member
             || activeSession?.my_current_answer
+            || quizCountdownSeconds > 0
             || localTimeLeft !== 0
         ) {
             return;
@@ -242,15 +317,9 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
         timeoutPulseRef.current = timeoutKey;
 
         apiPost(`/quiz/sessions/${activeSession.quiz_session_id}/heartbeat`, {}).then((data) => {
-            if (data.session) setActiveSession(data.session);
+            if (data.session) setActiveSession(stampSession(data.session));
         });
-    }, [activeSession, localTimeLeft]);
-
-    useEffect(() => {
-        if (confirmExitOpen) {
-            window.setTimeout(() => cancelExitButtonRef.current?.focus(), 0);
-        }
-    }, [confirmExitOpen]);
+    }, [activeSession, localTimeLeft, quizCountdownSeconds]);
 
     useEffect(() => {
         if (!embedded) return undefined;
@@ -258,11 +327,6 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
         const handleEscape = (event) => {
             if (event.key !== "Escape" || isTypingTarget(event.target)) return;
             event.preventDefault();
-
-            if (confirmExitOpen) {
-                setConfirmExitOpen(false);
-                return;
-            }
 
             if (!activeSession?.is_member) {
                 onBack?.();
@@ -274,14 +338,37 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
                 return;
             }
 
-            if (["lobby", "in_progress"].includes(activeSession.status)) {
-                setConfirmExitOpen(true);
+            if (activeSession?.status === "lobby") {
+                setMessage("Gunakan tombol Exit Quiz untuk keluar dari lobby.");
+                return;
             }
+
+            if (activeSession?.status === "in_progress" || activeSession?.status === "completed") {
+                setMessage(activeSession.status === "completed"
+                    ? "Simpan hasil quiz terlebih dahulu sebelum kembali ke map."
+                    : "Quiz sudah dibuka. Selesaikan quiz ini sebelum kembali ke map.");
+                return;
+            }
+
+            onBack?.();
         };
 
         window.addEventListener("keydown", handleEscape);
         return () => window.removeEventListener("keydown", handleEscape);
-    }, [activeSession, confirmExitOpen, embedded, onBack, savingResult]);
+    }, [activeSession, embedded, onBack, savingResult]);
+
+    const requestCreateQuiz = () => {
+        const nextGroupId = noVirtual ? entryCode.trim() : groupId;
+        if (noVirtual && !isNoVirtualCode(nextGroupId)) {
+            setMessage("Masukkan kode unik antara 101-150.");
+            return;
+        }
+        if (!selectedTopicId) {
+            setMessage("Pilih topic terlebih dahulu.");
+            return;
+        }
+        setConfirmStartOpen(true);
+    };
 
     const handleCreateQuiz = async () => {
         const nextGroupId = noVirtual ? entryCode.trim() : groupId;
@@ -294,6 +381,7 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
             return;
         }
 
+        setConfirmStartOpen(false);
         setBusy(true);
         setMessage("");
         const pendingActivityKey = `${ACTIVITY_STATUS.quiz.type}:pending:${nextGroupId}`;
@@ -316,10 +404,10 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
 
         if (data.session) {
             if (noVirtual) setSelectedEntryGroupId(nextGroupId);
-            setActiveSession(data.session);
+            setActiveSession(stampSession(data.session));
         } else if (data.active_session) {
             if (noVirtual) setSelectedEntryGroupId(nextGroupId);
-            setActiveSession(data.active_session);
+            setActiveSession(stampSession(data.active_session));
             setMessage(getMessage(data, "Quiz aktif ditemukan. Silakan join."));
         } else {
             setMessage(getMessage(data, "Gagal membuat quiz."));
@@ -348,7 +436,7 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
         const data = await apiPost(`/quiz/sessions/${session.quiz_session_id}/join`, {});
         if (data.session) {
             if (noVirtual) setSelectedEntryGroupId(nextGroupId);
-            setActiveSession(data.session);
+            setActiveSession(stampSession(data.session));
         } else {
             setMessage(getMessage(data, "Gagal join quiz."));
             if (currentUser) clearActivityStatus({user: currentUser, activityKey});
@@ -392,43 +480,64 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
         setMessage("");
         const data = await apiPost(`/quiz/sessions/${activeSession.quiz_session_id}/start`, {});
         if (data.session) {
-            setActiveSession(data.session);
+            setActiveSession(stampSession(data.session));
         } else {
             setMessage(getMessage(data, "Quiz belum bisa dimulai."));
         }
         setBusy(false);
     };
 
-    const handleExitQuiz = async () => {
+    const handleExitQuiz = async (options = {}) => {
         if (!activeSession?.quiz_session_id) return false;
+        if (activeSession.status !== "lobby") {
+            setMessage("Quiz sudah dimulai. Selesaikan quiz terlebih dahulu.");
+            return false;
+        }
 
         setBusy(true);
         setMessage("");
+        const activityKey = `${ACTIVITY_STATUS.quiz.type}:${activeSession.quiz_session_id}`;
         const data = await apiPost(`/quiz/sessions/${activeSession.quiz_session_id}/exit`, {});
-        if (currentUser) clearActivityStatus({user: currentUser, activityKey: `${ACTIVITY_STATUS.quiz.type}:${activeSession.quiz_session_id}`});
-        activityStatusKeyRef.current = null;
-        if (data.session) {
-            setActiveSession(data.session);
+        if (currentUser) clearActivityStatus({user: currentUser, activityKey});
+        if (activityStatusKeyRef.current === activityKey) activityStatusKeyRef.current = null;
+
+        if (data.session?.is_member) {
+            setActiveSession(stampSession(data.session));
             setMessage(getMessage(data, "Berhasil keluar dari quiz."));
         } else {
             setActiveSession(null);
-            setMessage(getMessage(data, "Quiz lobby dibatalkan."));
-            loadContext();
+            setMessage(getMessage(data, "Quiz lobby ditutup."));
+            if (options.closeAfterExit && embedded) {
+                onBack?.();
+            } else {
+                loadContext(tableId, groupId, false);
+            }
         }
         setBusy(false);
         return true;
     };
 
     const handleEmbeddedBack = async () => {
-        if (exitOnBack && activeSession?.quiz_session_id && activeSession.status !== "saved") {
-            const exited = await handleExitQuiz();
+        if (exitOnBack && savingResult) {
+            setMessage("Hasil quiz sedang disimpan. Jangan refresh, tutup halaman, atau keluar sampai proses selesai.");
+            return;
+        }
+        if (exitOnBack && activeSession?.status === "lobby") {
+            const exited = await handleExitQuiz({closeAfterExit: true});
             if (!exited) return;
+            return;
+        }
+        if (exitOnBack && ["in_progress", "completed"].includes(activeSession?.status)) {
+            setMessage(activeSession?.status === "completed"
+                ? "Simpan hasil quiz terlebih dahulu sebelum kembali ke map."
+                : "Quiz sudah dibuka. Selesaikan quiz ini sebelum kembali ke map.");
+            return;
         }
         onBack?.();
     };
 
     const handleAnswer = async (answerIndex) => {
-        if (!activeSession?.quiz_session_id || activeSession.my_current_answer || localTimeLeft <= 0) return;
+        if (!activeSession?.quiz_session_id || activeSession.my_current_answer || quizCountdownSeconds > 0 || localTimeLeft <= 0) return;
 
         setBusy(true);
         setMessage("");
@@ -436,14 +545,14 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
             answer_index: answerIndex,
         });
         if (data.session) {
-            setActiveSession(data.session);
+            setActiveSession(stampSession(data.session));
         } else {
             setMessage(getMessage(data, "Gagal mengirim jawaban."));
         }
         setBusy(false);
     };
 
-    const handleSaveResult = async () => {
+    const handleSaveResult = useCallback(async () => {
         if (!activeSession?.quiz_session_id) return;
 
         setBusy(true);
@@ -452,8 +561,14 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
         try {
             const data = await apiPost(`/quiz/sessions/${activeSession.quiz_session_id}/save`, {});
             if (data.session) {
-                setActiveSession(data.session);
+                setActiveSession(stampSession(data.session));
                 setMessage(getMessage(data, "Hasil quiz tersimpan."));
+                if (currentUser) {
+                    clearActivityStatus({
+                        user: currentUser,
+                        activityKey: `${ACTIVITY_STATUS.quiz.type}:${activeSession.quiz_session_id}`,
+                    });
+                }
             } else {
                 setMessage(getMessage(data, "Gagal menyimpan hasil quiz."));
             }
@@ -462,13 +577,30 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
         }
         setSavingResult(false);
         setBusy(false);
-    };
+    }, [activeSession?.quiz_session_id, currentUser]);
+
+    useEffect(() => {
+        if (
+            activeSession?.status !== "completed"
+            || !activeSession?.quiz_session_id
+            || !activeSession?.is_host
+            || savingResult
+        ) {
+            return;
+        }
+
+        const autoSaveKey = `${activeSession.quiz_session_id}:${activeSession.updated_at || ""}`;
+        if (autoSaveSessionRef.current === autoSaveKey) return;
+        autoSaveSessionRef.current = autoSaveKey;
+        handleSaveResult();
+    }, [activeSession?.status, activeSession?.quiz_session_id, activeSession?.is_host, activeSession?.updated_at, savingResult, handleSaveResult]);
 
     if (loading) {
         return <main className={`quiz-app quiz-app--center${embedded ? " quiz-app--embedded" : ""}`}>Memuat quiz...</main>;
     }
 
     const showGamification = !!context?.gamification_enabled;
+    const showStudentAvatars = !noVirtual;
 
     if (activeSession?.is_member) {
         const currentQuestion = activeSession.current_question;
@@ -483,7 +615,7 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
                     <div className="quiz-members__heading">Group {activeSession.group_id || activeSession.table_id}</div>
                     {activeSession.members.map((member) => (
                         <div className="quiz-member" key={member.member_id}>
-                            <AvatarIcon path={member.avatar_public_path} alt={member.name} />
+                            {showStudentAvatars && <AvatarIcon path={member.avatar_public_path} alt={member.name} />}
                             <span>{member.name}</span>
                         </div>
                     ))}
@@ -498,16 +630,6 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
                         <div className="quiz-header__meta">
                             <span>{progressText}</span>
                             <span>{activeSession.member_count}/{activeSession.max_members}</span>
-                            {activeSession.status === "in_progress" && (
-                                <button
-                                    className="quiz-button quiz-button--danger"
-                                    onClick={handleExitQuiz}
-                                    disabled={busy}
-                                    type="button"
-                                >
-                                    Exit Quiz
-                                </button>
-                            )}
                         </div>
                     </div>
 
@@ -533,7 +655,8 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
                                 )}
                                 <button
                                     className="quiz-button quiz-button--danger"
-                                    onClick={handleExitQuiz}
+                                    type="button"
+                                    onClick={() => handleExitQuiz({closeAfterExit: true})}
                                     disabled={busy}
                                 >
                                     Exit Quiz
@@ -546,56 +669,64 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
                         <>
                             <div className="quiz-timer" aria-label={`Time left ${localTimeLeft} seconds`}>
                                 <div className="quiz-timer__bar">
-                                    <div style={{width: `${Math.max(0, Math.min(100, (localTimeLeft / activeSession.question_time_seconds) * 100))}%`}} />
+                                    <div style={{width: quizCountdownSeconds > 0 ? "100%" : `${Math.max(0, Math.min(100, (localTimeLeft / activeSession.question_time_seconds) * 100))}%`}} />
                                 </div>
-                                <strong>{revealTimeLeft !== null ? `Next ${revealTimeLeft}s` : `${localTimeLeft}s`}</strong>
+                                <strong>{quizCountdownSeconds > 0 ? `Start ${quizCountdownSeconds}s` : revealTimeLeft !== null ? `Next ${revealTimeLeft}s` : `${localTimeLeft}s`}</strong>
                             </div>
 
-                            <div className="quiz-panel quiz-question">
-                                <div className="quiz-question__topline">
-                                    <span>Question {activeSession.current_question_index + 1}</span>
+                            {quizCountdownSeconds > 0 ? (
+                                <div className="quiz-panel quiz-countdown" role="status" aria-live="polite">
+                                    <span className="quiz-label">Get Ready</span>
+                                    <strong>{quizCountdownSeconds}</strong>
+                                    <p>Pertanyaan pertama akan dimulai bersama untuk semua peserta.</p>
+                                </div>
+                            ) : (
+                                <div className="quiz-panel quiz-question">
+                                    <div className="quiz-question__topline">
+                                        <span>Question {activeSession.current_question_index + 1}</span>
+                                        {myAnswer && (
+                                            <strong className={myAnswer.is_correct ? "is-correct" : "is-wrong"}>
+                                                {myAnswer.is_correct ? "Correct" : "Wrong"}
+                                            </strong>
+                                        )}
+                                    </div>
+                                    <h2>{currentQuestion.question_text}</h2>
+
+                                    <div className="quiz-options">
+                                        {(currentQuestion.choices || []).map((choice, index) => {
+                                            const isSelected = myAnswer?.answer_index === index;
+                                            const isCorrect = currentQuestion.correct_answer_index === index;
+                                            const reveal = !!myAnswer;
+                                            return (
+                                                <button
+                                                    type="button"
+                                                    className={[
+                                                        "quiz-option",
+                                                        isSelected ? "is-selected" : "",
+                                                        reveal && isCorrect ? "is-correct" : "",
+                                                        reveal && isSelected && !myAnswer.is_correct ? "is-wrong" : "",
+                                                    ].filter(Boolean).join(" ")}
+                                                    key={`${index}-${choice}`}
+                                                    onClick={() => handleAnswer(index)}
+                                                    disabled={busy || !!myAnswer || localTimeLeft <= 0}
+                                                >
+                                                    <span>{formatChoiceLabel(index)}</span>
+                                                    <strong>{choice}</strong>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+
                                     {myAnswer && (
-                                        <strong className={myAnswer.is_correct ? "is-correct" : "is-wrong"}>
-                                            {myAnswer.is_correct ? "Correct" : "Wrong"}
-                                        </strong>
+                                        <p className="quiz-answer-note">
+                                            {showGamification
+                                                ? (myAnswer.is_correct ? `+${myAnswer.score} points.` : "No score for this answer.")
+                                                : (myAnswer.is_correct ? "Correct answer." : "Wrong answer.")}
+                                            {revealTimeLeft !== null ? ` Next question in ${revealTimeLeft}s.` : ""}
+                                        </p>
                                     )}
                                 </div>
-                                <h2>{currentQuestion.question_text}</h2>
-
-                                <div className="quiz-options">
-                                    {(currentQuestion.choices || []).map((choice, index) => {
-                                        const isSelected = myAnswer?.answer_index === index;
-                                        const isCorrect = currentQuestion.correct_answer_index === index;
-                                        const reveal = !!myAnswer;
-                                        return (
-                                            <button
-                                                type="button"
-                                                className={[
-                                                    "quiz-option",
-                                                    isSelected ? "is-selected" : "",
-                                                    reveal && isCorrect ? "is-correct" : "",
-                                                    reveal && isSelected && !myAnswer.is_correct ? "is-wrong" : "",
-                                                ].filter(Boolean).join(" ")}
-                                                key={`${index}-${choice}`}
-                                                onClick={() => handleAnswer(index)}
-                                                disabled={busy || !!myAnswer || localTimeLeft <= 0}
-                                            >
-                                                <span>{formatChoiceLabel(index)}</span>
-                                                <strong>{choice}</strong>
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-
-                                {myAnswer && (
-                                    <p className="quiz-answer-note">
-                                        {showGamification
-                                            ? (myAnswer.is_correct ? `+${myAnswer.score} points.` : "No score for this answer.")
-                                            : (myAnswer.is_correct ? "Correct answer." : "Wrong answer.")}
-                                        {revealTimeLeft !== null ? ` Next question in ${revealTimeLeft}s.` : ""}
-                                    </p>
-                                )}
-                            </div>
+                            )}
 
                             <div className="quiz-panel quiz-status">
                                 <div className="quiz-section-title">
@@ -627,18 +758,22 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
                                         : "Result is based on correct answers."}
                                 </p>
                                 {activeSession.status === "completed" ? (
-                                    <button className="quiz-button quiz-button--primary" onClick={handleSaveResult} disabled={busy}>
-                                        {busy ? "Saving Result..." : "Save Result"}
-                                    </button>
+                                    <div className="quiz-result-actions">
+                                        <span className="quiz-auto-save">
+                                            {activeSession.is_host
+                                                ? "Menyimpan hasil quiz dan membuat AI feedback..."
+                                                : "Menunggu hasil quiz disimpan otomatis..."}
+                                        </span>
+                                    </div>
                                 ) : (
-                                    <>
+                                    <div className="quiz-result-actions">
                                         <span className="quiz-saved">Saved</span>
                                         {embedded && (
                                             <button className="quiz-button quiz-button--primary" onClick={onBack} type="button">
                                                 Close
                                             </button>
                                         )}
-                                    </>
+                                    </div>
                                 )}
                                 {activeSession.wrong_answer_feedback_error && (
                                     <p className="quiz-feedback-error">{activeSession.wrong_answer_feedback_error}</p>
@@ -663,9 +798,9 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
                                     </div>
                                     <div className="quiz-scoreboard">
                                         {activeSession.scoreboard.map((item, index) => (
-                                            <article className="quiz-score-row" key={item.user_id}>
+                                            <article className={`quiz-score-row ${showStudentAvatars ? "" : "quiz-score-row--no-avatar"}`} key={item.user_id}>
                                                 <div className="quiz-rank">{index + 1}</div>
-                                                <AvatarIcon path={item.avatar_public_path} alt={item.name} />
+                                                {showStudentAvatars && <AvatarIcon path={item.avatar_public_path} alt={item.name} />}
                                                 <div>
                                                     <strong>{item.name}</strong>
                                                     <span>{item.correct_count}/{item.question_count} correct</span>
@@ -719,25 +854,6 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
                     )}
 
                     {message && <p className="quiz-message">{message}</p>}
-                    {confirmExitOpen && (
-                        <div className="activity-exit-confirm" role="dialog" aria-modal="true" aria-labelledby="quiz-exit-confirm-title">
-                            <section className="activity-exit-confirm__panel">
-                                <h2 id="quiz-exit-confirm-title">Exit quiz?</h2>
-                                <p>Your current quiz session will be closed for you.</p>
-                                <div className="activity-exit-confirm__actions">
-                                    <button ref={cancelExitButtonRef} type="button" onClick={() => setConfirmExitOpen(false)}>
-                                        No, stay
-                                    </button>
-                                    <button className="is-danger" type="button" onClick={() => {
-                                        setConfirmExitOpen(false);
-                                        handleExitQuiz();
-                                    }}>
-                                        Yes, exit
-                                    </button>
-                                </div>
-                            </section>
-                        </div>
-                    )}
                 </section>
             </main>
         );
@@ -827,7 +943,9 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
                             <p>A quiz is already active at this big table. New users can only join while a seat is available.</p>
                             <div className="quiz-member-strip">
                                 {activeSession.members.map((member) => (
-                                    <AvatarIcon key={member.member_id} path={member.avatar_public_path} alt={member.name} />
+                                    showStudentAvatars
+                                        ? <AvatarIcon key={member.member_id} path={member.avatar_public_path} alt={member.name} />
+                                        : <span key={member.member_id}>{member.name}</span>
                                 ))}
                             </div>
                             <button className="quiz-button quiz-button--primary" onClick={handleJoinQuiz} disabled={!canJoin || busy}>
@@ -845,7 +963,7 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
                                 <div className="no-virtual-code-actions">
                                     <button
                                         className="quiz-button quiz-button--primary"
-                                        onClick={handleCreateQuiz}
+                                        onClick={requestCreateQuiz}
                                         disabled={!canStart || busy || !isNoVirtualCode(entryCode)}
                                     >
                                         Host Quiz
@@ -861,7 +979,7 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
                             ) : (
                                 <button
                                     className="quiz-button quiz-button--primary"
-                                    onClick={handleCreateQuiz}
+                                    onClick={requestCreateQuiz}
                                     disabled={!canStart || busy}
                                 >
                                     Host Quiz
@@ -874,6 +992,26 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
                     {message && <p className="quiz-message">{message}</p>}
                 </div>
             </section>
+
+            {confirmStartOpen && (
+                <div className="activity-exit-confirm" role="dialog" aria-modal="true" aria-labelledby="quiz-start-confirm-title">
+                    <section className="activity-exit-confirm__panel">
+                        <h2 id="quiz-start-confirm-title">Mulai host quiz?</h2>
+                        <p>
+                            Setelah lobby quiz dibuat, paket pertanyaan akan terkunci untuk meja ini.
+                            Refresh atau menutup halaman tidak akan membuat percobaan quiz baru.
+                        </p>
+                        <div className="activity-exit-confirm__actions">
+                            <button type="button" onClick={() => setConfirmStartOpen(false)}>
+                                Batal
+                            </button>
+                            <button className="is-danger" type="button" onClick={handleCreateQuiz} disabled={busy}>
+                                Host Quiz
+                            </button>
+                        </div>
+                    </section>
+                </div>
+            )}
         </main>
     );
 };

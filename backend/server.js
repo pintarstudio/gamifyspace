@@ -142,6 +142,16 @@ function buildScopedRoom({courseId, room}) {
     return `course:${normalizedCourseId}:room:${normalizeRoomName(room)}`;
 }
 
+function buildQuizSessionRoom(sessionId) {
+    const parsed = Number.parseInt(sessionId, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? `quiz:session:${parsed}` : null;
+}
+
+function buildGroupSessionRoom(sessionId) {
+    const parsed = Number.parseInt(sessionId, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? `group:session:${parsed}` : null;
+}
+
 function activityLockKey(courseId, userId) {
     const normalizedCourseId = normalizeCourseId(courseId);
     if (!normalizedCourseId || !userId) return null;
@@ -318,6 +328,118 @@ app.post("/api/activity-status/clear", (req, res) => {
     return res.json({ok: true, cleared});
 });
 
+async function findDatabaseBackedActivityStatus(sessionUser) {
+    const courseId = normalizeCourseId(sessionUser?.course_id);
+    const userId = sessionUser?.user_id;
+    if (!courseId || !userId) return null;
+
+    const individual = await pool.query(
+        `SELECT session_id, activity_type, object_id
+         FROM individual_activity_sessions
+         WHERE course_id = $1
+           AND user_id = $2
+           AND status = 'in_progress'
+         ORDER BY started_at DESC
+         LIMIT 1`,
+        [courseId, userId]
+    ).catch(() => ({rows: []}));
+    if (individual.rows[0]) {
+        const row = individual.rows[0];
+        const type = row.activity_type === "pre_test"
+            ? "individual_pre_test"
+            : row.activity_type === "post_test"
+                ? "individual_post_test"
+                : "individual_exercise";
+        return {
+            type,
+            label: type === "individual_pre_test"
+                ? "Taking pre-test"
+                : type === "individual_post_test"
+                    ? "Taking post-test"
+                    : "Doing exercise",
+            activity_key: `${type}:${row.session_id}`,
+            object_id: row.object_id || "computer",
+            object_name: "computer",
+            is_pending: false,
+        };
+    }
+
+    const quiz = await pool.query(
+        `SELECT s.quiz_session_id, s.object_id, s.group_id, s.table_id
+         FROM quiz_sessions s
+         JOIN quiz_members m ON m.quiz_session_id = s.quiz_session_id
+         WHERE s.course_id = $1
+           AND m.user_id = $2
+           AND m.is_active = TRUE
+           AND s.status IN ('lobby', 'in_progress', 'completed')
+         ORDER BY s.created_at DESC
+         LIMIT 1`,
+        [courseId, userId]
+    ).catch(() => ({rows: []}));
+    if (quiz.rows[0]) {
+        const row = quiz.rows[0];
+        return {
+            type: "quiz",
+            label: "In quiz",
+            activity_key: `quiz:${row.quiz_session_id}`,
+            object_id: row.object_id || row.table_id,
+            object_name: "bigtable",
+            group_id: row.group_id,
+            table_id: row.table_id,
+            is_pending: false,
+        };
+    }
+
+    const group = await pool.query(
+        `SELECT s.session_id, s.object_id, s.group_id
+         FROM table_group_sessions s
+         JOIN table_group_members m ON m.session_id = s.session_id
+         WHERE s.course_id = $1
+           AND m.user_id = $2
+           AND m.is_active = TRUE
+           AND s.is_active = TRUE
+           AND s.submitted_at IS NULL
+         ORDER BY s.created_at DESC
+         LIMIT 1`,
+        [courseId, userId]
+    ).catch(() => ({rows: []}));
+    if (group.rows[0]) {
+        const row = group.rows[0];
+        return {
+            type: "group_discussion",
+            label: "In group discussion",
+            activity_key: `group_discussion:${row.session_id}`,
+            object_id: row.object_id,
+            object_name: "table",
+            group_id: row.group_id,
+            is_pending: false,
+        };
+    }
+
+    return null;
+}
+
+app.get("/api/activity-status/current", async (req, res) => {
+    const sessionUser = req.session?.user;
+    if (!sessionUser?.user_id || !sessionUser?.course_id) {
+        return res.status(401).json({ok: false, reason: "MISSING_USER"});
+    }
+
+    const key = activityLockKey(sessionUser.course_id, sessionUser.user_id);
+    const status = key ? sanitizeActivityStatus(activityLocks[key]) : null;
+    if (status) return res.json({ok: true, status});
+
+    const databaseStatus = await findDatabaseBackedActivityStatus(sessionUser);
+    if (!databaseStatus) return res.json({ok: true, status: null});
+
+    const locked = setActivityStatusForUser({
+        courseId: sessionUser.course_id,
+        userId: sessionUser.user_id,
+        status: databaseStatus,
+    });
+    return res.json({ok: true, status: locked.status || null});
+});
+
 io.on("connection", (socket) => {
     console.log("User connected:", socket.id);
 
@@ -343,6 +465,26 @@ io.on("connection", (socket) => {
     socket.on("chat:leave_room", (data = {}) => {
         const roomId = Number.parseInt(data.room_id, 10);
         if (Number.isFinite(roomId) && roomId > 0) socket.leave(`chat:room:${roomId}`);
+    });
+
+    socket.on("quiz:join", (data = {}) => {
+        const room = buildQuizSessionRoom(data.quiz_session_id);
+        if (room) socket.join(room);
+    });
+
+    socket.on("quiz:leave", (data = {}) => {
+        const room = buildQuizSessionRoom(data.quiz_session_id);
+        if (room) socket.leave(room);
+    });
+
+    socket.on("group:join", (data = {}) => {
+        const room = buildGroupSessionRoom(data.session_id);
+        if (room) socket.join(room);
+    });
+
+    socket.on("group:leave", (data = {}) => {
+        const room = buildGroupSessionRoom(data.session_id);
+        if (room) socket.leave(room);
     });
 
     // Join room handler

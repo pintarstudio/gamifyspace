@@ -220,7 +220,7 @@
 }
 
 .no-virtual-history-modal {
-    max-width: 920px;
+    max-width: 980px;
 }
 
 .no-virtual-shell .course-leaderboard--compact .no-virtual-leaderboard-row,
@@ -242,6 +242,10 @@
 
 .course-leaderboard--groups .no-virtual-leaderboard-row > div:nth-child(3) {
     min-width: 0;
+}
+
+.no-virtual-shell .course-leaderboard__student {
+    grid-template-columns: minmax(0, 1fr) auto;
 }
 
 .no-virtual-member-list article {

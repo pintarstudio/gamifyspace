@@ -693,9 +693,9 @@ export default function ChatLauncher({currentUser}) {
                         )}
                         {confirmLeaveRoomId === selectedRoom.chat_room_id && (
                             <div className="chat-confirm-exit" role="alert">
-                                <span>Exit this group chat?</span>
-                                <button type="button" onClick={() => leaveRoom(selectedRoom.chat_room_id)}>Yes</button>
-                                <button type="button" onClick={() => setConfirmLeaveRoomId(null)}>No</button>
+                                <span>Keluar dari chat group ini?</span>
+                                <button type="button" onClick={() => leaveRoom(selectedRoom.chat_room_id)}>Ya</button>
+                                <button type="button" onClick={() => setConfirmLeaveRoomId(null)}>Tidak</button>
                             </div>
                         )}
                         {renderMessages(roomData?.messages || [], {readOnly: isInstructor, allowReactions: false})}

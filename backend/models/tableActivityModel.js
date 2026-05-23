@@ -2,6 +2,8 @@ import {pool} from "../db/index.js";
 import {ensureGamificationTables} from "./gamificationModel.js";
 
 let tablesReady = false;
+export const GROUP_ACTIVITY_DURATION_SECONDS = 600;
+export const GROUP_START_DELAY_SECONDS = 3;
 
 const hasColumn = (columns, name) => columns.includes(name);
 
@@ -71,6 +73,7 @@ export async function ensureTableActivityTables() {
         CREATE TABLE IF NOT EXISTS table_group_sessions (
             session_id SERIAL PRIMARY KEY,
             course_id INTEGER NOT NULL,
+            course_group_id INTEGER,
             topic_id INTEGER,
             case_id INTEGER REFERENCES topic_cases(case_id),
             group_id INTEGER NOT NULL,
@@ -81,12 +84,24 @@ export async function ensureTableActivityTables() {
             submitted_by INTEGER,
             submitted_at TIMESTAMPTZ,
             feedback_text TEXT,
+            duration_seconds INTEGER NOT NULL DEFAULT 600,
+            seconds_spent INTEGER NOT NULL DEFAULT 0,
+            seconds_left INTEGER NOT NULL DEFAULT 600,
+            work_started_at TIMESTAMPTZ,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             ended_at TIMESTAMPTZ
         )
     `);
 
+    await pool.query(`ALTER TABLE table_group_sessions ADD COLUMN IF NOT EXISTS course_group_id INTEGER`);
+    await pool.query(`
+        UPDATE table_group_sessions s
+        SET course_group_id = u.course_group_id
+        FROM users u
+        WHERE s.course_group_id IS NULL
+          AND u.user_id = s.created_by
+    `);
     await pool.query(`ALTER TABLE table_group_sessions ADD COLUMN IF NOT EXISTS case_id INTEGER REFERENCES topic_cases(case_id)`);
     await pool.query(`ALTER TABLE table_group_sessions ADD COLUMN IF NOT EXISTS case_title TEXT`);
     await pool.query(`ALTER TABLE table_group_sessions ADD COLUMN IF NOT EXISTS case_prompt TEXT`);
@@ -101,10 +116,21 @@ export async function ensureTableActivityTables() {
     await pool.query(`ALTER TABLE table_group_sessions ADD COLUMN IF NOT EXISTS feedback_status TEXT NOT NULL DEFAULT 'idle'`);
     await pool.query(`ALTER TABLE table_group_sessions ADD COLUMN IF NOT EXISTS feedback_started_at TIMESTAMPTZ`);
     await pool.query(`ALTER TABLE table_group_sessions ADD COLUMN IF NOT EXISTS feedback_error TEXT`);
-
+    await pool.query(`ALTER TABLE table_group_sessions ADD COLUMN IF NOT EXISTS duration_seconds INTEGER NOT NULL DEFAULT ${GROUP_ACTIVITY_DURATION_SECONDS}`);
+    await pool.query(`ALTER TABLE table_group_sessions ADD COLUMN IF NOT EXISTS seconds_spent INTEGER NOT NULL DEFAULT 0`);
+    await pool.query(`ALTER TABLE table_group_sessions ADD COLUMN IF NOT EXISTS seconds_left INTEGER NOT NULL DEFAULT ${GROUP_ACTIVITY_DURATION_SECONDS}`);
+    await pool.query(`ALTER TABLE table_group_sessions ADD COLUMN IF NOT EXISTS work_started_at TIMESTAMPTZ`);
     await pool.query(`
-        CREATE UNIQUE INDEX IF NOT EXISTS table_group_sessions_one_active_idx
-        ON table_group_sessions (course_id, group_id)
+        UPDATE table_group_sessions
+        SET duration_seconds = ${GROUP_ACTIVITY_DURATION_SECONDS},
+            seconds_left = CASE WHEN seconds_left > 0 THEN seconds_left ELSE ${GROUP_ACTIVITY_DURATION_SECONDS} END
+        WHERE duration_seconds = 0
+    `);
+
+    await pool.query(`DROP INDEX IF EXISTS table_group_sessions_one_active_idx`);
+    await pool.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS table_group_sessions_one_active_course_group_idx
+        ON table_group_sessions (course_id, (COALESCE(course_group_id, 0)), group_id)
         WHERE is_active = TRUE
     `);
 
@@ -238,8 +264,7 @@ export async function getCasesForTopic(topicId) {
          FROM topic_cases
          WHERE topic_id = $1
            AND is_active = TRUE
-         ORDER BY case_number ASC
-         LIMIT 2`,
+         ORDER BY case_number ASC`,
         [topicId]
     );
     return result.rows;
@@ -247,12 +272,14 @@ export async function getCasesForTopic(topicId) {
 
 export async function getSubmittedCaseIdsForStudent(userId, topicId) {
     const result = await pool.query(
-        `SELECT DISTINCT case_id
-         FROM table_group_sessions
-         WHERE created_by = $1
-           AND topic_id = $2
-           AND case_id IS NOT NULL
-           AND submitted_at IS NOT NULL`,
+        `SELECT DISTINCT s.case_id
+         FROM table_group_sessions s
+         JOIN table_group_members m
+           ON m.session_id = s.session_id
+          AND m.user_id = $1
+         WHERE s.topic_id = $2
+           AND s.case_id IS NOT NULL
+           AND s.submitted_at IS NOT NULL`,
         [userId, topicId]
     );
     return result.rows.map((row) => row.case_id);
@@ -279,17 +306,18 @@ export async function selectAvailableCaseForStudent(topicId, userId) {
     };
 }
 
-export async function getActiveGroupSession(courseId, groupId) {
-    await cleanupStaleMembersForGroup(courseId, groupId);
+export async function getActiveGroupSession(courseId, groupId, courseGroupId = null) {
+    await cleanupStaleMembersForGroup(courseId, groupId, courseGroupId);
 
     const result = await pool.query(
         `${SESSION_SELECT}
          WHERE s.course_id = $1
            AND s.group_id = $2
+           AND s.course_group_id IS NOT DISTINCT FROM $3
            AND s.is_active = TRUE
          ORDER BY s.created_at DESC
          LIMIT 1`,
-        [courseId, groupId]
+        [courseId, groupId, courseGroupId || null]
     );
     return result.rows[0] || null;
 }
@@ -402,8 +430,68 @@ export async function touchSessionMember(sessionId, user) {
     return result.rows[0] || null;
 }
 
+export async function startGroupSessionWork(sessionId, userId, minMembers = 2) {
+    const client = await pool.connect();
+
+    try {
+        await client.query("BEGIN");
+        const sessionResult = await client.query(
+            `SELECT session_id, created_by, work_started_at, submitted_at, is_active
+             FROM table_group_sessions
+             WHERE session_id = $1
+             FOR UPDATE`,
+            [sessionId]
+        );
+        const session = sessionResult.rows[0];
+        if (!session || !session.is_active || session.submitted_at) {
+            await client.query("ROLLBACK");
+            return {session: null, reason: "NOT_AVAILABLE"};
+        }
+        if (String(session.created_by) !== String(userId)) {
+            await client.query("ROLLBACK");
+            return {session, reason: "NOT_HOST"};
+        }
+        if (session.work_started_at) {
+            await client.query("COMMIT");
+            return {session: await getSessionById(sessionId), reason: "ALREADY_STARTED"};
+        }
+
+        const memberResult = await client.query(
+            `SELECT COUNT(*)::int AS count
+             FROM table_group_members
+             WHERE session_id = $1
+               AND is_active = TRUE`,
+            [sessionId]
+        );
+        if (Number(memberResult.rows[0]?.count || 0) < minMembers) {
+            await client.query("ROLLBACK");
+            return {session, reason: "WAITING_FOR_MEMBERS", memberCount: Number(memberResult.rows[0]?.count || 0)};
+        }
+
+        const updated = await client.query(
+            `UPDATE table_group_sessions
+	             SET work_started_at = NOW() + ($2 * INTERVAL '1 second'),
+	                 seconds_spent = 0,
+	                 seconds_left = duration_seconds,
+	                 updated_at = NOW()
+	             WHERE session_id = $1
+	             RETURNING *`,
+	            [sessionId, GROUP_START_DELAY_SECONDS]
+	        );
+
+        await client.query("COMMIT");
+        return {session: updated.rows[0], reason: "STARTED"};
+    } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+    } finally {
+        client.release();
+    }
+}
+
 export async function createGroupSession({course, topic, caseStudy, groupId, objectId, user}) {
     const client = await pool.connect();
+    const courseGroupId = user.course_group_id || null;
 
     try {
         await client.query("BEGIN");
@@ -413,10 +501,11 @@ export async function createGroupSession({course, topic, caseStudy, groupId, obj
              FROM table_group_sessions
              WHERE course_id = $1
                AND group_id = $2
+               AND course_group_id IS NOT DISTINCT FROM $3
                AND is_active = TRUE
              LIMIT 1
              FOR UPDATE`,
-            [course.course_id, groupId]
+            [course.course_id, groupId, courseGroupId]
         );
 
         if (existing.rows[0]) {
@@ -427,16 +516,18 @@ export async function createGroupSession({course, topic, caseStudy, groupId, obj
 
         const created = await client.query(
             `INSERT INTO table_group_sessions
-                 (course_id, topic_id, case_id, group_id, object_id, created_by)
-             VALUES ($1, $2, $3, $4, $5, $6)
+                 (course_id, course_group_id, topic_id, case_id, group_id, object_id, created_by, duration_seconds, seconds_left)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
              RETURNING *`,
             [
                 course.course_id,
+                courseGroupId,
                 topic?.topic_id || null,
                 caseStudy.case_id,
                 groupId,
                 objectId || null,
                 user.user_id,
+                GROUP_ACTIVITY_DURATION_SECONDS,
             ]
         );
 
@@ -481,12 +572,11 @@ export async function beginFeedbackGeneration(sessionId, userId) {
              feedback_error = NULL,
              updated_at = NOW()
          WHERE session_id = $1
-           AND created_by = $2
            AND submitted_at IS NULL
            AND is_active = TRUE
            AND COALESCE(feedback_status, 'idle') <> 'generating'
          RETURNING *`,
-        [sessionId, userId]
+        [sessionId]
     );
     return result.rows[0] || null;
 }
@@ -523,7 +613,7 @@ export async function submitSessionAnswers(sessionId, userId, feedback, model) {
 
         const updated = await client.query(
             `UPDATE table_group_sessions
-             SET submitted_by = $2,
+	             SET submitted_by = $2,
                  submitted_at = NOW(),
                  feedback_text = $3,
                  combined_feedback = $4::jsonb,
@@ -531,12 +621,13 @@ export async function submitSessionAnswers(sessionId, userId, feedback, model) {
                  feedback_generated_at = NOW(),
                  feedback_status = 'ready',
                  feedback_error = NULL,
+	                 seconds_spent = LEAST(duration_seconds, GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - COALESCE(work_started_at, created_at))))::int)),
+	                 seconds_left = GREATEST(0, duration_seconds - LEAST(duration_seconds, GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - COALESCE(work_started_at, created_at))))::int))),
                  updated_at = NOW()
-             WHERE session_id = $1
-               AND created_by = $2
-               AND submitted_at IS NULL
-               AND is_active = TRUE
-               AND feedback_status = 'generating'
+	             WHERE session_id = $1
+	               AND submitted_at IS NULL
+	               AND is_active = TRUE
+	               AND feedback_status = 'generating'
              RETURNING *`,
             [sessionId, userId, buildFeedbackText(feedback), JSON.stringify(feedback.combined_feedback), model]
         );
@@ -583,7 +674,7 @@ export async function exitSessionMember(sessionId, userId) {
     try {
         await client.query("BEGIN");
         const session = await client.query(
-            `SELECT feedback_status
+            `SELECT created_by, feedback_status, work_started_at, submitted_at
              FROM table_group_sessions
              WHERE session_id = $1
              FOR UPDATE`,
@@ -594,6 +685,43 @@ export async function exitSessionMember(sessionId, userId) {
             const error = new Error("FEEDBACK_GENERATING");
             error.code = "FEEDBACK_GENERATING";
             throw error;
+        }
+        if (session.rows[0]?.work_started_at && !session.rows[0]?.submitted_at) {
+            const error = new Error("SESSION_ALREADY_STARTED");
+            error.code = "SESSION_ALREADY_STARTED";
+            throw error;
+        }
+
+        const hostCancelledLobby = !session.rows[0]?.work_started_at
+            && String(session.rows[0]?.created_by) === String(userId);
+        if (hostCancelledLobby) {
+            await client.query(
+                `UPDATE table_group_members
+                 SET is_active = FALSE,
+                     last_seen_at = NOW()
+                 WHERE session_id = $1
+                   AND is_active = TRUE`,
+                [sessionId]
+            );
+            await client.query(
+                `UPDATE table_group_answers
+                 SET is_active = FALSE,
+                     updated_at = NOW()
+                 WHERE session_id = $1`,
+                [sessionId]
+            );
+            await client.query(
+                `UPDATE table_group_sessions
+                 SET is_active = FALSE,
+                     seconds_spent = 0,
+                     seconds_left = duration_seconds,
+                     ended_at = NOW(),
+                     updated_at = NOW()
+                 WHERE session_id = $1`,
+                [sessionId]
+            );
+            await client.query("COMMIT");
+            return {remainingMembers: 0, cancelledByHost: true};
         }
 
         await client.query(
@@ -631,6 +759,8 @@ export async function exitSessionMember(sessionId, userId) {
             await client.query(
                 `UPDATE table_group_sessions
                  SET is_active = FALSE,
+	                     seconds_spent = LEAST(duration_seconds, GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - COALESCE(work_started_at, created_at))))::int)),
+	                     seconds_left = GREATEST(0, duration_seconds - LEAST(duration_seconds, GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - COALESCE(work_started_at, created_at))))::int))),
                      ended_at = NOW(),
                      updated_at = NOW()
                  WHERE session_id = $1`,
@@ -654,13 +784,13 @@ export async function cleanupStaleMembers(sessionId, staleSeconds = 30) {
     try {
         await client.query("BEGIN");
         const session = await client.query(
-            `SELECT feedback_status
+            `SELECT feedback_status, work_started_at, submitted_at
              FROM table_group_sessions
              WHERE session_id = $1`,
             [sessionId]
         );
 
-        if (session.rows[0]?.feedback_status === "generating") {
+        if (session.rows[0]?.feedback_status === "generating" || (session.rows[0]?.work_started_at && !session.rows[0]?.submitted_at)) {
             await client.query("COMMIT");
             return;
         }
@@ -705,6 +835,8 @@ export async function cleanupStaleMembers(sessionId, staleSeconds = 30) {
             await client.query(
                 `UPDATE table_group_sessions
                  SET is_active = FALSE,
+	                     seconds_spent = LEAST(duration_seconds, GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - COALESCE(work_started_at, created_at))))::int)),
+	                     seconds_left = GREATEST(0, duration_seconds - LEAST(duration_seconds, GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - COALESCE(work_started_at, created_at))))::int))),
                      ended_at = COALESCE(ended_at, NOW()),
                      updated_at = NOW()
                  WHERE session_id = $1
@@ -722,14 +854,32 @@ export async function cleanupStaleMembers(sessionId, staleSeconds = 30) {
     }
 }
 
-export async function cleanupStaleMembersForGroup(courseId, groupId, staleSeconds = 30) {
+export async function endGroupSessionWithoutSubmission(sessionId) {
+    const result = await pool.query(
+        `UPDATE table_group_sessions
+         SET is_active = FALSE,
+             seconds_spent = LEAST(duration_seconds, GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - COALESCE(work_started_at, created_at))))::int)),
+             seconds_left = GREATEST(0, duration_seconds - LEAST(duration_seconds, GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - COALESCE(work_started_at, created_at))))::int))),
+             ended_at = COALESCE(ended_at, NOW()),
+             updated_at = NOW()
+         WHERE session_id = $1
+           AND is_active = TRUE
+           AND submitted_at IS NULL
+         RETURNING *`,
+        [sessionId]
+    );
+    return result.rows[0] || null;
+}
+
+export async function cleanupStaleMembersForGroup(courseId, groupId, courseGroupId = null, staleSeconds = 30) {
     const result = await pool.query(
         `SELECT session_id
          FROM table_group_sessions
          WHERE course_id = $1
            AND group_id = $2
+           AND course_group_id IS NOT DISTINCT FROM $3
            AND is_active = TRUE`,
-        [courseId, groupId]
+        [courseId, groupId, courseGroupId || null]
     );
 
     await Promise.all(result.rows.map((row) => cleanupStaleMembers(row.session_id, staleSeconds)));

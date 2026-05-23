@@ -14,6 +14,7 @@ import {
     MAX_QUIZ_MEMBERS,
     QUESTION_COUNT,
     QUESTION_REVEAL_SECONDS,
+    QUESTION_START_DELAY_SECONDS,
     QUESTION_TIME_SECONDS,
     refreshQuizProgress,
     saveQuizResult,
@@ -52,6 +53,27 @@ function normalizeTableId(value) {
 function normalizeGroupId(value) {
     const parsed = Number.parseInt(value, 10);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function sameCourseGroup(session, user) {
+    return String(session?.course_group_id || "") === String(user?.course_group_id || "");
+}
+
+function quizSessionRoom(sessionId) {
+    const parsed = Number.parseInt(sessionId, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? `quiz:session:${parsed}` : null;
+}
+
+function emitQuizEvent(req, sessionId, eventName = "quiz:session_updated", payload = {}) {
+    const room = quizSessionRoom(sessionId);
+    const io = req.app.get("io");
+    if (!room || !io) return;
+
+    io.to(room).emit(eventName, {
+        quiz_session_id: Number.parseInt(sessionId, 10),
+        server_time_ms: Date.now(),
+        ...payload,
+    });
 }
 
 function buildScoreboard(members, questions, answers) {
@@ -186,14 +208,16 @@ function normalizeQuizSession(session, members, questions, answers, userId, save
     const scoreboard = buildScoreboard(safeMembers, safeQuestions, safeAnswers);
     const includeFinalAnswers = ["completed", "saved"].includes(session.status);
     const questionStartedAt = session.question_started_at ? new Date(session.question_started_at).getTime() : null;
-    const elapsedSeconds = questionStartedAt ? Math.floor((Date.now() - questionStartedAt) / 1000) : 0;
+    const elapsedSeconds = questionStartedAt ? Math.max(0, Math.floor((Date.now() - questionStartedAt) / 1000)) : 0;
     const timeLeftSeconds = session.status === "in_progress"
         ? Math.max(0, QUESTION_TIME_SECONDS - elapsedSeconds)
         : QUESTION_TIME_SECONDS;
 
     return {
+        server_time_ms: Date.now(),
         quiz_session_id: session.quiz_session_id,
         course_id: session.course_id,
+        course_group_id: session.course_group_id,
         topic_id: session.topic_id,
         group_id: session.group_id,
         table_id: session.table_id,
@@ -281,7 +305,7 @@ export async function getQuizContext(req, res) {
         const [course, topics, activeSession] = await Promise.all([
             getCourseById(user.course_id),
             getTopicsForCourse(user.course_id),
-            getActiveQuizSession(user.course_id, tableId),
+            getActiveQuizSession(user.course_id, tableId, user.course_group_id || null),
         ]);
 
         res.json({
@@ -294,6 +318,7 @@ export async function getQuizContext(req, res) {
             question_count: QUESTION_COUNT,
             question_time_seconds: QUESTION_TIME_SECONDS,
             question_reveal_seconds: QUESTION_REVEAL_SECONDS,
+            question_start_delay_seconds: QUESTION_START_DELAY_SECONDS,
             gamification_enabled: !!user.gamification_enabled,
             active_session: activeSession ? await hydrateSession(activeSession, user) : null,
         });
@@ -311,7 +336,7 @@ export async function startQuizLobby(req, res) {
 
         const groupId = normalizeGroupId(req.body.group_id || req.body.table_id);
         const tableId = normalizeTableId(groupId || req.body.table_id || req.body.object_id);
-        const activeSession = await getActiveQuizSession(user.course_id, tableId);
+        const activeSession = await getActiveQuizSession(user.course_id, tableId, user.course_group_id || null);
         if (activeSession) {
             return res.status(409).json({
                 message: "Quiz di meja ini sudah aktif. Silakan join.",
@@ -361,7 +386,7 @@ export async function joinQuizSession(req, res) {
         if (!user) return;
 
         const session = await getQuizSessionById(req.params.sessionId);
-        if (!session || String(session.course_id) !== String(user.course_id)) {
+        if (!session || String(session.course_id) !== String(user.course_id) || !sameCourseGroup(session, user)) {
             return res.status(404).json({message: "Quiz tidak ditemukan"});
         }
         if (!["lobby", "in_progress"].includes(session.status)) {
@@ -376,6 +401,7 @@ export async function joinQuizSession(req, res) {
 
         await addQuizMember(session.quiz_session_id, user);
         const updated = await getQuizSessionById(session.quiz_session_id);
+        emitQuizEvent(req, session.quiz_session_id, "quiz:lobby_updated", {status: updated?.status || session.status});
         res.json({
             message: "Berhasil join quiz",
             session: await hydrateSession(updated, user),
@@ -393,7 +419,7 @@ export async function getQuizSession(req, res) {
         if (!user) return;
 
         const session = await getQuizSessionById(req.params.sessionId);
-        if (!session || String(session.course_id) !== String(user.course_id)) {
+        if (!session || String(session.course_id) !== String(user.course_id) || !sameCourseGroup(session, user)) {
             return res.status(404).json({message: "Quiz tidak ditemukan"});
         }
 
@@ -411,17 +437,35 @@ export async function heartbeatQuizSession(req, res) {
         if (!user) return;
 
         const session = await getQuizSessionById(req.params.sessionId);
-        if (!session || String(session.course_id) !== String(user.course_id)) {
+        if (!session || String(session.course_id) !== String(user.course_id) || !sameCourseGroup(session, user)) {
             return res.status(404).json({message: "Quiz tidak ditemukan"});
         }
 
         const member = await touchQuizMember(session.quiz_session_id, user);
         if (!member) return res.status(403).json({message: "Join quiz terlebih dahulu"});
 
-        const updated = await getQuizSessionById(session.quiz_session_id);
+        const activity = await loadQuizSessionActivity(session, user);
+        const updated = activity.session;
+        if (
+            updated
+            && (
+                updated.status !== session.status
+                || updated.current_question_index !== session.current_question_index
+                || String(updated.question_completed_at || "") !== String(session.question_completed_at || "")
+            )
+        ) {
+            emitQuizEvent(req, session.quiz_session_id, "quiz:session_updated", {status: updated.status});
+        }
         res.json({
             message: "Heartbeat diterima",
-            session: await hydrateSession(updated, user),
+            session: normalizeQuizSession(
+                activity.session,
+                activity.members,
+                activity.questions,
+                activity.answers,
+                user.user_id,
+                activity.savedResult
+            ),
         });
     } catch (error) {
         console.error("Quiz heartbeat error:", error);
@@ -436,7 +480,7 @@ export async function exitQuizSession(req, res) {
         if (!user) return;
 
         const session = await getQuizSessionById(req.params.sessionId);
-        if (!session || String(session.course_id) !== String(user.course_id)) {
+        if (!session || String(session.course_id) !== String(user.course_id) || !sameCourseGroup(session, user)) {
             return res.status(404).json({message: "Quiz tidak ditemukan"});
         }
 
@@ -446,6 +490,12 @@ export async function exitQuizSession(req, res) {
 
         const exitResult = await exitQuizMember(session.quiz_session_id, user.user_id);
         if (!exitResult) return res.status(404).json({message: "Quiz tidak ditemukan"});
+        emitQuizEvent(
+            req,
+            session.quiz_session_id,
+            exitResult.cancelled ? "quiz:lobby_cancelled" : "quiz:lobby_updated",
+            {status: exitResult.session?.status || null}
+        );
 
         res.json({
             message: exitResult.cancelled ? "Quiz lobby dibatalkan" : "Berhasil keluar dari quiz",
@@ -467,7 +517,7 @@ export async function beginQuiz(req, res) {
         if (!user) return;
 
         const session = await getQuizSessionById(req.params.sessionId);
-        if (!session || String(session.course_id) !== String(user.course_id)) {
+        if (!session || String(session.course_id) !== String(user.course_id) || !sameCourseGroup(session, user)) {
             return res.status(404).json({message: "Quiz tidak ditemukan"});
         }
 
@@ -475,6 +525,12 @@ export async function beginQuiz(req, res) {
         if (!updated) {
             return res.status(409).json({message: "Host hanya bisa start setelah dua user join"});
         }
+
+        emitQuizEvent(req, updated.quiz_session_id, "quiz:starting", {
+            status: updated.status,
+            question_started_at: updated.question_started_at,
+            delay_seconds: QUESTION_START_DELAY_SECONDS,
+        });
 
         res.json({
             message: "Quiz dimulai",
@@ -493,7 +549,7 @@ export async function answerQuizQuestion(req, res) {
         if (!user) return;
 
         const session = await getQuizSessionById(req.params.sessionId);
-        if (!session || String(session.course_id) !== String(user.course_id)) {
+        if (!session || String(session.course_id) !== String(user.course_id) || !sameCourseGroup(session, user)) {
             return res.status(404).json({message: "Quiz tidak ditemukan"});
         }
 
@@ -502,7 +558,14 @@ export async function answerQuizQuestion(req, res) {
         if (!isMember) return res.status(403).json({message: "Join quiz terlebih dahulu"});
         if (session.status !== "in_progress") return res.status(409).json({message: "Quiz belum berjalan"});
 
-        const {session: updated} = await submitQuizAnswer(session, user, req.body.answer_index);
+        const {session: updated, reason} = await submitQuizAnswer(session, user, req.body.answer_index);
+        if (reason === "QUESTION_NOT_STARTED") {
+            return res.status(409).json({
+                message: "Pertanyaan belum dimulai",
+                session: await hydrateSession(updated || session, user),
+            });
+        }
+        emitQuizEvent(req, session.quiz_session_id, "quiz:answer_updated", {status: updated?.status || session.status});
         res.json({
             message: "Jawaban quiz diterima",
             session: await hydrateSession(updated || session, user),
@@ -520,7 +583,7 @@ export async function saveQuizSessionResult(req, res) {
         if (!user) return;
 
         const session = await getQuizSessionById(req.params.sessionId);
-        if (!session || String(session.course_id) !== String(user.course_id)) {
+        if (!session || String(session.course_id) !== String(user.course_id) || !sameCourseGroup(session, user)) {
             return res.status(404).json({message: "Quiz tidak ditemukan"});
         }
 
@@ -568,6 +631,8 @@ export async function saveQuizSessionResult(req, res) {
                 saved_at: new Date().toISOString(),
             }
         );
+
+        emitQuizEvent(req, activity.session.quiz_session_id, "quiz:result_saved", {status: saved?.status || "saved"});
 
         res.json({
             message: "Hasil quiz tersimpan",

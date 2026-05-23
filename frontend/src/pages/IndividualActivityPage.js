@@ -11,6 +11,37 @@ import "./IndividualActivityPage.css";
 
 const choiceLabel = (index) => ["A", "B", "C", "D"][index] || String(index + 1);
 const getMessage = (data, fallback) => data?.message || fallback;
+const formatSeconds = (value) => {
+    const total = Math.max(0, Number(value || 0));
+    const minutes = Math.floor(total / 60);
+    const seconds = total % 60;
+    return `${minutes}:${String(seconds).padStart(2, "0")}`;
+};
+
+const getSessionTimer = (session, now) => {
+    if (!session) return null;
+    const duration = Math.max(0, Number(session.duration_seconds || 0));
+    if (session.status !== "in_progress") {
+        return {
+            duration,
+            secondsLeft: Math.max(0, Number(session.seconds_left || 0)),
+            secondsSpent: Math.max(0, Number(session.seconds_spent || 0)),
+            percentLeft: duration > 0 ? Math.max(0, Math.min(100, (Number(session.seconds_left || 0) / duration) * 100)) : 0,
+        };
+    }
+
+    const expiresAt = session.timer_expires_at ? new Date(session.timer_expires_at).getTime() : null;
+    const secondsLeft = expiresAt
+        ? Math.max(0, Math.ceil((expiresAt - now) / 1000))
+        : Math.max(0, Number(session.seconds_left || 0));
+    const secondsSpent = duration > 0 ? Math.max(0, duration - secondsLeft) : Math.max(0, Number(session.seconds_spent || 0));
+    return {
+        duration,
+        secondsLeft,
+        secondsSpent,
+        percentLeft: duration > 0 ? Math.max(0, Math.min(100, (secondsLeft / duration) * 100)) : 0,
+    };
+};
 
 const isTypingTarget = (target) =>
     target && (
@@ -24,6 +55,12 @@ function activityTitle(activityType, questionKind) {
     if (activityType === "pre_test") return "Pre-test";
     if (activityType === "post_test") return "Post-test";
     return questionKind === "case_study" ? "Individual Case Study" : "Individual Exercise";
+}
+
+function assessmentCompletionKey(type) {
+    if (type === "pre_test") return "pre_test_completed";
+    if (type === "post_test") return "post_test_completed";
+    return null;
 }
 
 function feedbackForAnswer(session, answer) {
@@ -51,20 +88,23 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
     const [message, setMessage] = useState("");
     const [completionNotice, setCompletionNotice] = useState("");
     const [currentUser, setCurrentUser] = useState(null);
-    const [confirmExitOpen, setConfirmExitOpen] = useState(false);
+    const [confirmStartOpen, setConfirmStartOpen] = useState(false);
+    const [now, setNow] = useState(Date.now());
     const activityStatusKeyRef = useRef(null);
-    const cancelExitButtonRef = useRef(null);
+    const timeoutSubmittedRef = useRef(false);
+    const pageUnloadingRef = useRef(false);
 
     const selectedTopic = useMemo(
         () => context?.topics?.find((topic) => String(topic.topic_id) === String(selectedTopicId)),
         [context, selectedTopicId]
     );
     const showGamification = !!context?.gamification_enabled;
+    const sessionTimer = useMemo(() => getSessionTimer(activeSession, now), [activeSession, now]);
 
     const availableActivityTypes = useMemo(() => {
         const types = ["exercise"];
-        if (selectedTopic?.show_pre_test) types.push("pre_test");
-        if (selectedTopic?.show_post_test) types.push("post_test");
+        if (selectedTopic?.show_pre_test && !selectedTopic?.pre_test_completed) types.push("pre_test");
+        if (selectedTopic?.show_post_test && !selectedTopic?.post_test_completed) types.push("post_test");
         return types;
     }, [selectedTopic]);
 
@@ -93,26 +133,30 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
     }, [objectId]);
 
     useEffect(() => {
+        timeoutSubmittedRef.current = false;
+    }, [activeSession?.session_id]);
+
+    useEffect(() => {
+        if (activeSession?.status !== "in_progress") return undefined;
+        setNow(Date.now());
+        const timerId = window.setInterval(() => setNow(Date.now()), 1000);
+        return () => window.clearInterval(timerId);
+    }, [activeSession?.status, activeSession?.session_id]);
+
+    useEffect(() => {
         apiGet("/session").then((data) => {
             if (data.loggedIn && data.user) setCurrentUser(data.user);
         });
     }, []);
 
     useEffect(() => {
-        if (!currentUser) return undefined;
-
-        const clearStatusOnPageHide = () => {
-            if (!activityStatusKeyRef.current) return;
-            clearActivityStatus({
-                user: currentUser,
-                activityKey: activityStatusKeyRef.current,
-                keepalive: true,
-            });
+        const markUnloading = () => {
+            pageUnloadingRef.current = true;
         };
 
-        window.addEventListener("pagehide", clearStatusOnPageHide);
-        return () => window.removeEventListener("pagehide", clearStatusOnPageHide);
-    }, [currentUser]);
+        window.addEventListener("pagehide", markUnloading);
+        return () => window.removeEventListener("pagehide", markUnloading);
+    }, []);
 
     useEffect(() => {
         if (!availableActivityTypes.includes(activityType)) {
@@ -139,7 +183,9 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
 
         return () => {
             window.clearInterval(intervalId);
-            clearActivityStatus({user: currentUser, activityKey, keepalive: true});
+            if (!pageUnloadingRef.current) {
+                clearActivityStatus({user: currentUser, activityKey, keepalive: true});
+            }
             if (activityStatusKeyRef.current === activityKey) activityStatusKeyRef.current = null;
         };
     }, [currentUser, activeSession?.status, activeSession?.session_id, activeSession?.activity_type, activeSession?.object_id, objectId]);
@@ -158,48 +204,59 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
     }, [completionNotice]);
 
     useEffect(() => {
-        if (confirmExitOpen) {
-            window.setTimeout(() => cancelExitButtonRef.current?.focus(), 0);
-        }
-    }, [confirmExitOpen]);
-
-    useEffect(() => {
         if (!embedded) return undefined;
 
         const handleEscape = (event) => {
             if (event.key !== "Escape" || isTypingTarget(event.target)) return;
             event.preventDefault();
 
-            if (confirmExitOpen) {
-                setConfirmExitOpen(false);
-                return;
-            }
-
             if (!activeSession) {
                 onBack?.();
                 return;
             }
-
-            if (activeSession.status !== "in_progress") return;
 
             if (completionNotice) {
                 setMessage("Aktivitas sedang disimpan. Jangan refresh, tutup halaman, atau keluar sampai proses selesai.");
                 return;
             }
 
-            setConfirmExitOpen(true);
+            if (activeSession?.status === "in_progress") {
+                setMessage("Aktivitas sudah dimulai. Selesaikan aktivitas ini sebelum kembali ke map.");
+                return;
+            }
+
+            onBack?.();
         };
 
         window.addEventListener("keydown", handleEscape);
         return () => window.removeEventListener("keydown", handleEscape);
-    }, [activeSession, completionNotice, confirmExitOpen, embedded, onBack]);
+    }, [activeSession, completionNotice, embedded, onBack]);
+
+    const requestStart = () => {
+        if (!selectedTopicId) {
+            setMessage("Pilih topic terlebih dahulu.");
+            return;
+        }
+        const completedKey = assessmentCompletionKey(activityType);
+        if (completedKey && selectedTopic?.[completedKey]) {
+            setMessage(`${activityTitle(activityType, questionKind)} untuk topic ini sudah pernah dikerjakan dan hanya bisa dilakukan satu kali.`);
+            return;
+        }
+        setConfirmStartOpen(true);
+    };
 
     const handleStart = async () => {
         if (!selectedTopicId) {
             setMessage("Pilih topic terlebih dahulu.");
             return;
         }
+        const completedKey = assessmentCompletionKey(activityType);
+        if (completedKey && selectedTopic?.[completedKey]) {
+            setMessage(`${activityTitle(activityType, questionKind)} untuk topic ini sudah pernah dikerjakan dan hanya bisa dilakukan satu kali.`);
+            return;
+        }
 
+        setConfirmStartOpen(false);
         setBusy(true);
         setMessage("");
         const status = activityStatusForIndividual(activityType);
@@ -288,23 +345,49 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
         setBusy(false);
     };
 
-    const handleExit = async () => {
-        if (!activeSession?.session_id) return false;
+    async function handleSessionTimeout() {
+        if (!activeSession?.session_id || activeSession.status !== "in_progress") return;
         setBusy(true);
-        const data = await apiPost(`/individual/sessions/${activeSession.session_id}/exit`, {});
-        const status = activityStatusForIndividual(activeSession.activity_type);
-        if (currentUser) clearActivityStatus({user: currentUser, activityKey: `${status.type}:${activeSession.session_id}`});
-        activityStatusKeyRef.current = null;
-        setActiveSession(null);
-        setMessage(getMessage(data, "Aktivitas dibatalkan."));
+        setMessage("");
+        setCompletionNotice(activeSession.question_kind === "case_study"
+            ? "Time is up. Saving your answer and getting feedback..."
+            : activeSession.activity_type === "exercise"
+                ? "Time is up. Saving your progress and getting AI feedback..."
+                : "Time is up. Calculating your result...");
+        try {
+            const data = await apiPost(`/individual/sessions/${activeSession.session_id}/timeout`, {
+                answer_text: activeSession.question_kind === "case_study" ? caseAnswer : "",
+            });
+            if (data.session) {
+                setActiveSession(data.session);
+                setMessage(getMessage(data, "Waktu aktivitas sudah habis."));
+            } else {
+                setMessage(getMessage(data, "Waktu aktivitas sudah habis."));
+            }
+        } catch (error) {
+            setMessage("Gagal menyelesaikan aktivitas yang waktunya habis.");
+        }
+        setCompletionNotice("");
         setBusy(false);
-        return true;
-    };
+    }
+
+    useEffect(() => {
+        if (activeSession?.status !== "in_progress" || !sessionTimer || sessionTimer.secondsLeft > 0) return;
+        if (busy || completionNotice) return;
+        if (timeoutSubmittedRef.current) return;
+        timeoutSubmittedRef.current = true;
+        handleSessionTimeout();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeSession?.status, activeSession?.session_id, sessionTimer?.secondsLeft, busy, completionNotice]);
 
     const handleEmbeddedBack = async () => {
+        if (exitOnBack && activeSession?.status === "in_progress" && completionNotice) {
+            setMessage("Aktivitas sedang disimpan. Jangan refresh, tutup halaman, atau keluar sampai proses selesai.");
+            return;
+        }
         if (exitOnBack && activeSession?.status === "in_progress") {
-            const exited = await handleExit();
-            if (!exited) return;
+            setMessage("Aktivitas sudah dimulai. Selesaikan aktivitas ini sebelum kembali ke map.");
+            return;
         }
         onBack?.();
     };
@@ -331,6 +414,7 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
     if (activeSession?.status === "in_progress") {
         const currentQuestion = activeSession.current_question;
         const isCaseStudy = activeSession.question_kind === "case_study";
+        const isTimeUp = sessionTimer?.secondsLeft <= 0;
         const progress = isCaseStudy
             ? "Case study"
             : `${activeSession.current_question_index + 1}/${activeSession.question_count}`;
@@ -343,10 +427,13 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
                         <h1>{activityTitle(activeSession.activity_type, activeSession.question_kind)}</h1>
                     </div>
                     <div className="individual-header__actions">
+                        <div className={`individual-timer${isTimeUp ? " is-danger" : ""}`} aria-label={`Time left ${sessionTimer?.secondsLeft || 0} seconds`}>
+                            <span>{formatSeconds(sessionTimer?.secondsLeft)}</span>
+                            <div>
+                                <i style={{width: `${sessionTimer?.percentLeft || 0}%`}} />
+                            </div>
+                        </div>
                         <span>{progress}</span>
-                        <button className="individual-button individual-button--danger" onClick={handleExit} disabled={busy}>
-                            {busy ? "Please Wait" : "Exit"}
-                        </button>
                     </div>
                 </header>
 
@@ -374,12 +461,12 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
                                 value={caseAnswer}
                                 onChange={(event) => setCaseAnswer(event.target.value)}
                                 placeholder="Write your case study answer here..."
-                                disabled={busy}
+                                disabled={busy || isTimeUp}
                             />
                             <button
                                 className="individual-button individual-button--primary"
                                 onClick={handleSubmitCase}
-                                disabled={busy || caseAnswer.trim().length < 20}
+                                disabled={busy || isTimeUp || caseAnswer.trim().length < 20}
                             >
                                 {busy ? "Getting AI Feedback..." : "Submit Answer"}
                             </button>
@@ -399,7 +486,7 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
                                     key={`${index}-${choice}`}
                                     type="button"
                                     onClick={() => handleAnswer(index)}
-                                    disabled={busy}
+                                    disabled={busy || isTimeUp}
                                 >
                                     <span>{choiceLabel(index)}</span>
                                     <strong>{choice}</strong>
@@ -410,25 +497,6 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
                 )}
 
                 {message && <p className="individual-message">{message}</p>}
-                {confirmExitOpen && (
-                    <div className="activity-exit-confirm" role="dialog" aria-modal="true" aria-labelledby="individual-exit-confirm-title">
-                        <section className="activity-exit-confirm__panel">
-                            <h2 id="individual-exit-confirm-title">Exit activity?</h2>
-                            <p>Your current individual activity will be closed.</p>
-                            <div className="activity-exit-confirm__actions">
-                                <button ref={cancelExitButtonRef} type="button" onClick={() => setConfirmExitOpen(false)}>
-                                    No, stay
-                                </button>
-                                <button className="is-danger" type="button" onClick={() => {
-                                    setConfirmExitOpen(false);
-                                    handleExit();
-                                }}>
-                                    Yes, exit
-                                </button>
-                            </div>
-                        </section>
-                    </div>
-                )}
             </main>
         );
     }
@@ -462,6 +530,10 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
                                 : <>Correct answers: <strong>{activeSession.correct_count}/{activeSession.question_count}</strong></>}
                         </p>
                     )}
+                    <p className="individual-time-result">
+                        Time used: <strong>{formatSeconds(sessionTimer?.secondsSpent)}</strong>
+                        {" "}· Time left: <strong>{formatSeconds(sessionTimer?.secondsLeft)}</strong>
+                    </p>
                 </section>
 
                 {isCaseStudy ? (
@@ -499,17 +571,21 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
                                         <div className="individual-review__question">
                                             <span>Question {index + 1}</span>
                                             <strong>{question.question_text}</strong>
-                                            <p>Correct: {choiceLabel(question.correct_answer_index)}. {question.choices?.[question.correct_answer_index]}</p>
+                                            {!isAssessment && (
+                                                <p>Correct: {choiceLabel(question.correct_answer_index)}. {question.choices?.[question.correct_answer_index]}</p>
+                                            )}
                                         </div>
                                         <div className="individual-review__answer">
                                             <b className={answer?.is_correct ? "is-correct" : "is-wrong"}>
                                                 {answer?.is_correct ? "Correct" : "Wrong"}
                                             </b>
-                                            <span>
-                                                Your answer: {answer?.answer_index === null || answer?.answer_index === undefined
-                                                    ? "No answer"
-                                                    : `${choiceLabel(answer.answer_index)}. ${question.choices?.[answer.answer_index] || ""}`}
-                                            </span>
+                                            {!isAssessment && (
+                                                <span>
+                                                    Your answer: {answer?.answer_index === null || answer?.answer_index === undefined
+                                                        ? "No answer"
+                                                        : `${choiceLabel(answer.answer_index)}. ${question.choices?.[answer.answer_index] || ""}`}
+                                                </span>
+                                            )}
                                             {showGamification && activeSession.activity_type === "exercise" && (
                                                 <em>{answer?.xp_earned || 0} XP</em>
                                             )}
@@ -566,7 +642,7 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
                             >
                                 <strong>{topic.topic_name}</strong>
                                 <span>
-                                    Pre-test {topic.show_pre_test ? "open" : "hidden"} · Post-test {topic.show_post_test ? "open" : "hidden"}
+                                    Pre-test {topic.pre_test_completed ? "sudah dikerjakan" : topic.show_pre_test ? "dibuka" : "disembunyikan"} · Post-test {topic.post_test_completed ? "sudah dikerjakan" : topic.show_post_test ? "dibuka" : "disembunyikan"}
                                 </span>
                             </button>
                         ))}
@@ -619,12 +695,35 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
                             ? `${activityTitle(activityType, questionKind)} for ${selectedTopic.topic_name}.`
                             : "Select a topic before starting."}
                     </p>
-                    <button className="individual-button individual-button--primary" onClick={handleStart} disabled={!canStart || busy}>
+                    <button className="individual-button individual-button--primary" onClick={requestStart} disabled={!canStart || busy}>
                         Start Activity
                     </button>
                     {message && <p className="individual-message">{message}</p>}
                 </div>
             </section>
+
+            {confirmStartOpen && (
+                <div className="activity-exit-confirm" role="dialog" aria-modal="true" aria-labelledby="individual-start-confirm-title">
+                    <section className="activity-exit-confirm__panel">
+                        <h2 id="individual-start-confirm-title">Mulai aktivitas?</h2>
+                        <p>
+                            Setelah dimulai, aktivitas ini akan terkunci. Timer tetap berjalan, pertanyaan tidak berubah,
+                            dan refresh atau menutup halaman tidak akan mengulang percobaan.
+                            {["pre_test", "post_test"].includes(activityType)
+                                ? ` ${activityTitle(activityType, questionKind)} untuk setiap topic hanya bisa dikerjakan satu kali.`
+                                : ""}
+                        </p>
+                        <div className="activity-exit-confirm__actions">
+                            <button type="button" onClick={() => setConfirmStartOpen(false)}>
+                                Batal
+                            </button>
+                            <button className="is-danger" type="button" onClick={handleStart} disabled={busy}>
+                                Mulai Sekarang
+                            </button>
+                        </div>
+                    </section>
+                </div>
+            )}
 
             {showAdminControls && (
                 <section className="individual-panel individual-admin">

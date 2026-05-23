@@ -704,8 +704,8 @@ const AdminPage = () => {
             setMessage("Default admin user tidak bisa dihapus.");
             return;
         }
-        const label = row.username || row.group_name || row.course_name || row.topic_name || "this data";
-        if (!window.confirm(`Delete ${label}? This will soft-delete the data.`)) return;
+        const label = row.username || row.group_name || row.course_name || row.topic_name || "data ini";
+        if (!window.confirm(`Hapus ${label}? Data akan dihapus secara soft-delete.`)) return;
 
         setBusy(true);
         const data = await apiDelete(`/admin/resources/${activeConfig.resource}/${row[activeConfig.idKey]}`);
@@ -868,7 +868,7 @@ const AdminPage = () => {
     };
 
     const removeMaterial = async (material) => {
-        if (!window.confirm(`Delete material "${material.title}"?`)) return;
+        if (!window.confirm(`Hapus materi "${material.title}"?`)) return;
         setBusy(true);
         const data = await apiDelete(`/admin/materials/${material.material_id}`);
         if (data.message) setMessage(data.message);

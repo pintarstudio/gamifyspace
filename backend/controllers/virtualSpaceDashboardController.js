@@ -30,6 +30,43 @@ function labelIndividualActivity(activityType, questionKind) {
     return questionKind === "case_study" ? "Individual Case Study" : "Individual Exercise";
 }
 
+function sanitizeIndividualQuestion(question, revealCorrectAnswer) {
+    if (revealCorrectAnswer) return question;
+    const {correct_answer_index, explanation, ...safeQuestion} = question;
+    return safeQuestion;
+}
+
+function sanitizeIndividualAnswer(answer, revealCorrectAnswer) {
+    if (revealCorrectAnswer) return answer;
+    const {answer_index, answer_text, correct_answer_index, explanation, ...safeAnswer} = answer;
+    return safeAnswer;
+}
+
+function buildQuizCardOutcome(activity, user) {
+    const results = activity.results_json || {};
+    const scoreboard = Array.isArray(results.scoreboard) ? results.scoreboard : [];
+    const winner = results.winner || null;
+    const competitor = scoreboard.find((item) => String(item.user_id) !== String(user.user_id));
+    const fallbackCompetitorName = (activity.member_names || []).find((name) => name && name !== user.name);
+
+    let outcome = null;
+    if (winner?.is_tie) {
+        outcome = "tie";
+    } else if (winner?.user_id !== undefined && winner?.user_id !== null) {
+        outcome = String(winner.user_id) === String(user.user_id) ? "win" : "lose";
+    }
+
+    return {
+        quiz_competitor_name: competitor?.name || fallbackCompetitorName || "Competitor",
+        quiz_outcome: outcome,
+        quiz_points: Number(
+            activity.quiz_points
+            ?? scoreboard.find((item) => String(item.user_id) === String(user.user_id))?.total_score
+            ?? 0
+        ),
+    };
+}
+
 export async function getVirtualSpaceDashboard(req, res) {
     try {
         await ensureGamificationTables();
@@ -46,6 +83,7 @@ export async function getVirtualSpaceDashboard(req, res) {
             individualLevelResult,
             leaderboardResult,
             quizLeaderboardResult,
+            individualLeaderboardResult,
             activitiesResult,
             quizActivitiesResult,
             individualActivitiesResult,
@@ -219,6 +257,56 @@ export async function getVirtualSpaceDashboard(req, res) {
                 [user.course_id]
             ),
             pool.query(
+                `WITH individual_scores AS (
+                     SELECT
+                         u.user_id,
+                         u.name,
+                         cg.group_name,
+                         a.avatar_public_path,
+                         COALESCE(SUM(gus.xp_earned), 0)::int AS total_xp,
+                         COUNT(DISTINCT gus.activity_id)::int AS activities_count
+                     FROM users u
+                     LEFT JOIN sessions latest_session
+                       ON latest_session.user_id = u.user_id
+                      AND latest_session.id = (
+                          SELECT MAX(s2.id)
+                          FROM sessions s2
+                          WHERE s2.user_id = u.user_id
+                      )
+                     LEFT JOIN avatars a ON a.avatar_id = latest_session.avatar_id
+                     LEFT JOIN gamification_user_scores gus
+                       ON gus.user_id = u.user_id
+                      AND gus.course_id = $1
+                      AND gus.activity_type = 'individual_exercise'
+                     JOIN course_groups cg
+                       ON cg.course_group_id = u.course_group_id
+                      AND cg.deleted_at IS NULL
+                      AND cg.gamification_enabled = TRUE
+                     WHERE u.course_id = $1
+                       AND u.deleted_at IS NULL
+                     GROUP BY u.user_id, u.name, cg.group_name, a.avatar_public_path
+                 )
+                 SELECT
+                     individual_scores.user_id,
+                     individual_scores.name,
+                     individual_scores.group_name,
+                     individual_scores.avatar_public_path,
+                     individual_scores.total_xp,
+                     individual_scores.activities_count,
+                     gl.level_id,
+                     gl.level_name,
+                     gl.color_hex
+                 FROM individual_scores
+                 JOIN gamification_levels gl
+                   ON individual_scores.total_xp >= gl.min_xp
+                  AND (gl.max_xp IS NULL OR individual_scores.total_xp <= gl.max_xp)
+                 ORDER BY individual_scores.total_xp DESC,
+                          individual_scores.activities_count DESC,
+                          individual_scores.name ASC
+                 LIMIT 10`,
+                [user.course_id]
+            ),
+            pool.query(
                 `SELECT
                      s.session_id,
                      CONCAT('table-', s.session_id) AS activity_key,
@@ -277,6 +365,28 @@ export async function getVirtualSpaceDashboard(req, res) {
                      'ready' AS feedback_status,
                      0::int AS group_xp,
                      0::int AS my_xp,
+                     COALESCE(
+                         (
+                             SELECT (score.value->>'total_score')::int
+                             FROM jsonb_array_elements(
+                                 CASE
+                                     WHEN jsonb_typeof(qsr.results_json->'scoreboard') = 'array'
+                                     THEN qsr.results_json->'scoreboard'
+                                     ELSE '[]'::jsonb
+                                 END
+                             ) AS score(value)
+                             WHERE (score.value->>'user_id')::int = $1
+                             LIMIT 1
+                         ),
+                         (
+                             SELECT COALESCE(SUM(qa.score), 0)::int
+                             FROM quiz_answers qa
+                             WHERE qa.quiz_session_id = qs.quiz_session_id
+                               AND qa.user_id = $1
+                         ),
+                         0
+                     )::int AS quiz_points,
+                     qsr.results_json,
                      ARRAY_REMOVE(ARRAY_AGG(DISTINCT u.name), NULL) AS member_names
                  FROM quiz_sessions qs
                  JOIN quiz_members qm_self
@@ -285,13 +395,15 @@ export async function getVirtualSpaceDashboard(req, res) {
                  LEFT JOIN quiz_members qm_all ON qm_all.quiz_session_id = qs.quiz_session_id
                  LEFT JOIN users u ON u.user_id = qm_all.user_id
                  LEFT JOIN topics t ON t.topic_id = qs.topic_id
+                 LEFT JOIN quiz_session_results qsr ON qsr.quiz_session_id = qs.quiz_session_id
                  WHERE qs.status = 'saved'
                  GROUP BY
                      qs.quiz_session_id,
                      qs.group_id,
                      qs.topic_id,
                      t.topic_name,
-                     qs.saved_at
+                     qs.saved_at,
+                     qsr.results_json
                  ORDER BY qs.saved_at DESC
                  LIMIT 12`,
                 [user.user_id]
@@ -324,7 +436,9 @@ export async function getVirtualSpaceDashboard(req, res) {
                      COALESCE(gus.xp_earned, ias.xp_total, 0)::int AS my_xp,
                      ias.correct_count,
                      ias.score_total,
-                     ias.xp_total
+                     ias.xp_total,
+                     ias.seconds_spent,
+                     ias.seconds_left
                  FROM individual_activity_sessions ias
                  LEFT JOIN topics t ON t.topic_id = ias.topic_id
                  LEFT JOIN gamification_user_scores gus
@@ -348,6 +462,7 @@ export async function getVirtualSpaceDashboard(req, res) {
             ...quizActivitiesResult.rows.map((activity) => ({
                 ...activity,
                 activity_name: "Big Table Quiz",
+                ...buildQuizCardOutcome(activity, user),
             })),
         ].sort((a, b) => new Date(b.submitted_at || 0) - new Date(a.submitted_at || 0)).slice(0, 12);
         const individualActivities = individualActivitiesResult.rows;
@@ -399,6 +514,7 @@ export async function getVirtualSpaceDashboard(req, res) {
             hud,
             leaderboard: leaderboardResult.rows,
             quiz_leaderboard: quizLeaderboardResult.rows,
+            individual_leaderboard: individualLeaderboardResult.rows,
             activities: [...individualActivities, ...groupActivities]
                 .sort((a, b) => new Date(b.submitted_at || 0) - new Date(a.submitted_at || 0))
                 .slice(0, 12),
@@ -476,6 +592,7 @@ export async function getVirtualSpaceActivityDetail(req, res) {
             const questions = questionsResult.rows.sort((a, b) =>
                 orderMap.get(Number(a.question_id)) - orderMap.get(Number(b.question_id))
             );
+            const revealCorrectAnswer = session.activity_type === "exercise";
             const primaryQuestion = questions[0] || {};
 
             return res.json({
@@ -495,6 +612,8 @@ export async function getVirtualSpaceActivityDetail(req, res) {
                         : "Saved individual multiple-choice activity.",
                     submitted_at: session.completed_at,
                     created_at: session.started_at,
+                    seconds_spent: session.seconds_spent || 0,
+                    seconds_left: session.seconds_left || 0,
                     group_xp: 0,
                     group_xp_reason: "",
                     members: [{
@@ -504,8 +623,8 @@ export async function getVirtualSpaceActivityDetail(req, res) {
                         xp_earned: session.xp_total || 0,
                         xp_reason: session.result_json?.case_feedback?.xp_reason || "",
                     }],
-                    questions,
-                    answers: answersResult.rows,
+                    questions: questions.map((question) => sanitizeIndividualQuestion(question, revealCorrectAnswer)),
+                    answers: answersResult.rows.map((answer) => sanitizeIndividualAnswer(answer, revealCorrectAnswer)),
                     results: session.result_json || null,
                     feedback: session.feedback_json || null,
                     feedback_model: session.feedback_model,

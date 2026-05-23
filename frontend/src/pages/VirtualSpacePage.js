@@ -9,7 +9,7 @@ import UserHUD from "../components/UserHUD";
 import IndividualActivityPage from "./IndividualActivityPage";
 import TableActivityPage from "./TableActivityPage";
 import QuizActivityPage from "./QuizActivityPage";
-import {ACTIVITY_STATUS, clearActivityStatus, setActivityStatus} from "../utils/activityStatus";
+import {ACTIVITY_STATUS, clearActivityStatus, isActivityStatusActive, setActivityStatus} from "../utils/activityStatus";
 import "./VirtualSpacePage.css";
 
 const choiceLabel = (index) => ["A", "B", "C", "D"][index] || String(index + 1);
@@ -25,6 +25,13 @@ const quizOutcome = (activity, score) => {
     if (!winner) return "";
     if (winner.is_tie) return "Tie";
     return String(winner.user_id) === String(score.user_id) ? "Winner" : "Lose";
+};
+
+const activityQuizOutcomeLabel = (outcome) => {
+    if (outcome === "win") return "Win";
+    if (outcome === "lose") return "Lose";
+    if (outcome === "tie") return "Tie";
+    return "";
 };
 
 const individualActivityLabel = (activity) => {
@@ -51,6 +58,13 @@ const formatMonitorTime = (dateValue) => {
         minute: "2-digit",
         second: "2-digit",
     }).format(new Date(dateValue));
+};
+
+const formatSeconds = (value) => {
+    const total = Math.max(0, Number(value || 0));
+    const minutes = Math.floor(total / 60);
+    const seconds = total % 60;
+    return `${minutes}:${String(seconds).padStart(2, "0")}`;
 };
 
 const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
@@ -180,6 +194,75 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
         setDetailLoading(false);
     };
 
+    const buildActivityLaunchFromStatus = useCallback((status) => {
+        if (!isActivityStatusActive(status)) return null;
+
+        if (["individual_exercise", "individual_pre_test", "individual_post_test"].includes(status.type)) {
+            const objectId = status.object_id || "computer";
+            const searchParams = new URLSearchParams({object_id: objectId});
+            return {
+                key: status.activity_key || `${status.type}:${objectId}`,
+                objectName: status.object_name || "computer",
+                objectId,
+                activityType: "individual",
+                searchParams: searchParams.toString(),
+                restored: true,
+            };
+        }
+
+        if (status.type === "quiz") {
+            const tableId = status.table_id || status.group_id || status.object_id || "1";
+            const groupId = status.group_id || tableId;
+            const searchParams = new URLSearchParams({
+                table_id: String(tableId),
+                group_id: String(groupId),
+            });
+            if (status.object_id) searchParams.set("object_id", status.object_id);
+            return {
+                key: status.activity_key || `quiz:${tableId}`,
+                objectName: status.object_name || "bigtable",
+                objectId: status.object_id || tableId,
+                groupId,
+                tableId,
+                activityType: "quiz",
+                searchParams: searchParams.toString(),
+                restored: true,
+            };
+        }
+
+        if (status.type === "group_discussion") {
+            const groupId = status.group_id || status.object_id || "1";
+            const searchParams = new URLSearchParams({group_id: String(groupId)});
+            if (status.object_id) searchParams.set("object_id", status.object_id);
+            return {
+                key: status.activity_key || `group_discussion:${groupId}`,
+                objectName: status.object_name || "table",
+                objectId: status.object_id || groupId,
+                groupId,
+                activityType: "table",
+                searchParams: searchParams.toString(),
+                restored: true,
+            };
+        }
+
+        return null;
+    }, []);
+
+    useEffect(() => {
+        if (!currentUser || isInstructor || activeMapActivity) return undefined;
+
+        let active = true;
+        apiGet("/activity-status/current").then((data) => {
+            if (!active || activeMapActivity) return;
+            const launch = buildActivityLaunchFromStatus(data.status);
+            if (launch) setActiveMapActivity(launch);
+        }).catch(() => {});
+
+        return () => {
+            active = false;
+        };
+    }, [activeMapActivity, buildActivityLaunchFromStatus, currentUser, isInstructor]);
+
     const openMapActivity = useCallback((launch) => {
         if (activeMapActivity) return false;
 
@@ -266,12 +349,16 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
     const showGameLayer = !!currentUser.gamification_enabled;
     const groupLeaderboard = dashboard?.leaderboard || [];
     const quizLeaderboard = dashboard?.quiz_leaderboard || [];
+    const individualLeaderboard = dashboard?.individual_leaderboard || [];
     const individualActivities = dashboard?.individual_activities || [];
     const groupActivities = dashboard?.group_activities || [];
+    const groupCaseActivities = groupActivities.filter((activity) => activity.activity_type !== "quiz");
+    const quizActivities = groupActivities.filter((activity) => activity.activity_type === "quiz");
     const visibleTabs = [
         ...(showGameLayer ? [{id: "leaderboard", label: "Leaderboard"}] : []),
-        {id: "individual", label: "Individual Activity"},
-        {id: "group", label: "Group Activity"},
+        {id: "individual", label: "Individual"},
+        {id: "group", label: "Group"},
+        {id: "quiz", label: "Quiz"},
     ];
     const currentDashboardTab = activeDashboardTab && visibleTabs.some((tab) => tab.id === activeDashboardTab)
         ? activeDashboardTab
@@ -441,7 +528,12 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
             {activities.length > 0 ? (
                 activities.map((activity) => (
                     <button
-                        className="activity-card"
+                        className={[
+                            "activity-card",
+                            activity.activity_type === "quiz" && activity.quiz_outcome
+                                ? `activity-card--quiz-outcome activity-card--quiz-outcome-${activity.quiz_outcome}`
+                                : "",
+                        ].filter(Boolean).join(" ")}
                         key={activity.activity_key || activity.session_id}
                         onClick={() => openActivity(activity)}
                         type="button"
@@ -454,7 +546,19 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
                                     ? (activity.individual_activity_type === "exercise"
                                         ? `${activity.my_xp || activity.xp_total || 0} individual XP`
                                         : `${activity.score_total || 0}/100 score`)
+                                    : activity.activity_type === "quiz"
+                                        ? `${activity.quiz_points || 0} pts`
                                     : `${activity.group_xp || 0} group XP`}
+                            </small>
+                        )}
+                        {activity.activity_type === "individual" && (
+                            <small>
+                                Waktu digunakan {formatSeconds(activity.seconds_spent)} · Sisa {formatSeconds(activity.seconds_left)}
+                            </small>
+                        )}
+                        {activity.activity_type === "quiz" && activity.quiz_outcome && (
+                            <small className={`activity-card__quiz-outcome activity-card__quiz-outcome--${activity.quiz_outcome}`}>
+                                vs {activity.quiz_competitor_name || "Competitor"} · {activityQuizOutcomeLabel(activity.quiz_outcome)}
                             </small>
                         )}
                     </button>
@@ -552,6 +656,40 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
                     )}
                 </div>
             </div>
+
+            <div className="leaderboard-block">
+                <div className="leaderboard-block__title">
+                    <h3>Individual XP Leaderboard</h3>
+                    <span>Level</span>
+                </div>
+                <div className="course-leaderboard course-leaderboard--compact course-leaderboard--individual">
+                    {individualLeaderboard.length > 0 ? (
+                        individualLeaderboard.map((item, index) => (
+                            <article className="course-leaderboard__row" key={item.user_id}>
+                                <div className={`course-leaderboard__rank course-leaderboard__rank--individual ${rankToneClass(index)}`}>
+                                    {index + 1}
+                                </div>
+                                <AvatarIcon path={item.avatar_public_path} alt={item.name} />
+                                <div>
+                                    <strong>{item.name}</strong>
+                                    <span>{item.group_name || "Group"} · {item.activities_count || 0} activities</span>
+                                </div>
+                                <div className="course-leaderboard__score-stack">
+                                    <b>{item.total_xp || 0} XP</b>
+                                    <span
+                                        className="course-leaderboard__level"
+                                        style={{"--level-color": item.color_hex || "#6B7280"}}
+                                    >
+                                        Level {item.level_id || 1} · {item.level_name || "Rookie"}
+                                    </span>
+                                </div>
+                            </article>
+                        ))
+                    ) : (
+                        <p className="panel-empty">No individual XP records yet.</p>
+                    )}
+                </div>
+            </div>
         </div>
     );
 
@@ -613,9 +751,19 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
                         <div className="dashboard-tab-panel">
                             <div className="side-panel__title">
                                 <h2>Group Activity</h2>
-                                <span>{groupActivities.length}</span>
+                                <span>{groupCaseActivities.length}</span>
                             </div>
-                            {renderActivityList(groupActivities, "No group activities yet.")}
+                            {renderActivityList(groupCaseActivities, "No group activities yet.")}
+                        </div>
+                    )}
+
+                    {currentDashboardTab === "quiz" && (
+                        <div className="dashboard-tab-panel">
+                            <div className="side-panel__title">
+                                <h2>Big Table Quiz</h2>
+                                <span>{quizActivities.length}</span>
+                            </div>
+                            {renderActivityList(quizActivities, "No quiz activities yet.")}
                         </div>
                     )}
                 </section>
@@ -699,6 +847,10 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
                                             {showGameLayer && selectedActivity.individual_activity_type === "exercise" && (
                                                 <p>{selectedActivity.results?.xp_total || 0} individual XP earned.</p>
                                             )}
+                                            <p>
+                                                Waktu digunakan: <strong>{formatSeconds(selectedActivity.seconds_spent)}</strong>
+                                                {" "}· Sisa waktu: <strong>{formatSeconds(selectedActivity.seconds_left)}</strong>
+                                            </p>
                                         </section>
 
                                         {selectedActivity.question_kind === "case_study" ? (
@@ -729,22 +881,27 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
                                                         const showIndividualXp = showGameLayer && selectedActivity.individual_activity_type === "exercise";
                                                         const showAssessmentScore = selectedActivity.individual_activity_type === "pre_test"
                                                             || selectedActivity.individual_activity_type === "post_test";
+                                                        const showCorrectAnswer = selectedActivity.individual_activity_type === "exercise";
                                                         return (
                                                             <article key={question.question_id}>
                                                                 <div className="quiz-history-question">
                                                                     <span>Question {index + 1}</span>
                                                                     <strong>{question.question_text}</strong>
-                                                                    <p>Correct: {choiceLabel(question.correct_answer_index)}. {question.choices?.[question.correct_answer_index]}</p>
+                                                                    {showCorrectAnswer && (
+                                                                        <p>Correct: {choiceLabel(question.correct_answer_index)}. {question.choices?.[question.correct_answer_index]}</p>
+                                                                    )}
                                                                 </div>
                                                                 <div className="individual-history-answer">
                                                                     <b className={answer?.is_correct ? "is-correct" : "is-wrong"}>
                                                                         {answer?.is_correct ? "Correct" : "Wrong"}
                                                                     </b>
-                                                                    <span>
-                                                                        Your answer: {answer?.answer_index === null || answer?.answer_index === undefined
-                                                                            ? "No answer"
-                                                                            : `${choiceLabel(answer.answer_index)}. ${question.choices?.[answer.answer_index] || ""}`}
-                                                                    </span>
+                                                                    {!showAssessmentScore && (
+                                                                        <span>
+                                                                            Your answer: {answer?.answer_index === null || answer?.answer_index === undefined
+                                                                                ? "No answer"
+                                                                                : `${choiceLabel(answer.answer_index)}. ${question.choices?.[answer.answer_index] || ""}`}
+                                                                        </span>
+                                                                    )}
                                                                     {showIndividualXp && <em>{answer?.xp_earned || 0} XP</em>}
                                                                     {showAssessmentScore && <em>{answer?.score || 0} pts</em>}
                                                                 </div>

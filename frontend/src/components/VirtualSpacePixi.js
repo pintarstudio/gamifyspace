@@ -23,6 +23,54 @@ const randomSpawnPosition = () => ({
     y: Math.floor(Math.random() * (850 - 650 + 1)) + 650,
 });
 
+const avatarPositionStorageKey = (user, suffix = "position") => {
+    const userKey = user?.user_id || user?.id || user?.email || "guest";
+    const courseKey = user?.course_id || "course";
+    return `gamifyit:avatar:${courseKey}:${userKey}:${suffix}`;
+};
+
+const readStoredAvatarPosition = (user, suffix = "position") => {
+    try {
+        const raw = localStorage.getItem(avatarPositionStorageKey(user, suffix));
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        const x = Number(parsed.x);
+        const y = Number(parsed.y);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+        return {
+            x,
+            y,
+            room: normalizeRoomName(parsed.room || "room1"),
+            direction: parsed.direction || "right",
+        };
+    } catch (error) {
+        return null;
+    }
+};
+
+const saveStoredAvatarPosition = (user, position, suffix = "position") => {
+    if (!position) return;
+    try {
+        localStorage.setItem(avatarPositionStorageKey(user, suffix), JSON.stringify({
+            x: Number(position.x),
+            y: Number(position.y),
+            room: normalizeRoomName(position.room || "room1"),
+            direction: position.direction || "right",
+            saved_at: Date.now(),
+        }));
+    } catch (error) {
+        // Ignore storage failures; avatar can still spawn normally.
+    }
+};
+
+const clearStoredActivityStartPosition = (user) => {
+    try {
+        localStorage.removeItem(avatarPositionStorageKey(user, "activity-start"));
+    } catch (error) {
+        // Ignore storage failures.
+    }
+};
+
 const avatarAnimationCache = {};
 
 const avatarPublicPath = (user) => {
@@ -352,7 +400,11 @@ const destroyPixiApp = (app) => {
 
 const VirtualSpacePixi = ({user, onOpenActivity, activityPanelOpen = false}) => {
     const pixiContainer = useRef(null);
-    const [currentRoom, setCurrentRoom] = useState("room1.json");
+    const [currentRoom, setCurrentRoom] = useState(() =>
+        roomFileName(readStoredAvatarPosition(user, "activity-start")?.room
+            || readStoredAvatarPosition(user, "position")?.room
+            || "room1")
+    );
     const [roomData, setRoomData] = useState(null);
     const localUserRef = useRef(null);
     const activityPanelOpenRef = useRef(activityPanelOpen);
@@ -384,6 +436,8 @@ const VirtualSpacePixi = ({user, onOpenActivity, activityPanelOpen = false}) => 
             localUserRef.current.course_id = user.course_id;
             localUserRef.current.x = spawnPosition.x;
             localUserRef.current.y = spawnPosition.y;
+            saveStoredAvatarPosition(user, localUserRef.current);
+            clearStoredActivityStartPosition(user);
         }
 
         // Update displayed room and notify server
@@ -399,7 +453,9 @@ const VirtualSpacePixi = ({user, onOpenActivity, activityPanelOpen = false}) => 
         window.__avatars = avatars;
 
         // Inisialisasi localUser dengan user_id agar server mengenali dengan benar
-        const spawnPosition = randomSpawnPosition();
+        const restoredPosition = readStoredAvatarPosition(user, "activity-start")
+            || readStoredAvatarPosition(user, "position");
+        const spawnPosition = restoredPosition || randomSpawnPosition();
         const localUser = {
             user_id: user.user_id || user.id,
             avatar: avatarPublicPath(user),
@@ -407,7 +463,8 @@ const VirtualSpacePixi = ({user, onOpenActivity, activityPanelOpen = false}) => 
             y: spawnPosition.y,
             name: user.name || "User",
             course_id: user.course_id,
-            room: normalizeRoomName(localUserRef.current?.room || user.room || currentRoom || "room1"),
+            direction: restoredPosition?.direction || localStorage.getItem("lastDirection") || "right",
+            room: normalizeRoomName(restoredPosition?.room || localUserRef.current?.room || user.room || currentRoom || "room1"),
         };
         localUserRef.current = localUser;
 
@@ -477,7 +534,7 @@ const VirtualSpacePixi = ({user, onOpenActivity, activityPanelOpen = false}) => 
         });
 
         // Pindahkan logika movement dan camera follow ke modul terpisah
-        const cleanupMovement = initAvatarMovement(app, worldContainer, avatars, localUserRef, localKeyRef, checkCollision, TILE_SIZE, mapWidth, mapHeight, zoomFactor);
+        const cleanupMovement = initAvatarMovement(app, worldContainer, avatars, localUserRef, localKeyRef, checkCollision, TILE_SIZE, mapWidth, mapHeight, zoomFactor, user);
 
         return {localUserRef, localKeyRef, cleanupMovement};
     }
@@ -581,7 +638,20 @@ const VirtualSpacePixi = ({user, onOpenActivity, activityPanelOpen = false}) => 
             // Objects
             //console.log("🧭 Calling initObjects...");
             initObjects(app, worldContainer, roomData, user, localUserRef, zoomFactor, handleRoomChange, {
-                onOpenActivity: (launch) => onOpenActivityRef.current?.(launch),
+                onOpenActivity: (launch) => {
+                    const localUser = localUserRef.current;
+                    if (localUser) {
+                        const position = {
+                            x: localUser.x,
+                            y: localUser.y,
+                            room: localUser.room || currentRoom,
+                            direction: localUser.direction || "right",
+                        };
+                        saveStoredAvatarPosition(user, position, "activity-start");
+                        saveStoredAvatarPosition(user, position, "position");
+                    }
+                    return onOpenActivityRef.current?.(launch);
+                },
                 isInteractionDisabled: () => activityPanelOpenRef.current,
             });
             socket.emit("request_update_users", {
@@ -754,7 +824,7 @@ export async function renderUsers(worldContainer, avatars, usersData, localKeyRe
     resolveAvatarLabelVisibility(worldContainer, avatars, localKeyRef.current);
 }
 
-export function initAvatarMovement(app, worldContainer, avatars, localUserRef, localKeyRef, checkCollision, TILE_SIZE, mapWidth, mapHeight, zoomFactor) {
+export function initAvatarMovement(app, worldContainer, avatars, localUserRef, localKeyRef, checkCollision, TILE_SIZE, mapWidth, mapHeight, zoomFactor, user) {
     const step = 2;
     let lastDirection = localUserRef.current?.direction || "right";
     if (!window.__gs_keys) window.__gs_keys = {};
@@ -911,6 +981,13 @@ export function initAvatarMovement(app, worldContainer, avatars, localUserRef, l
             localUser.direction = direction;
             lastDirection = direction;
             localStorage.setItem("lastDirection", direction);
+            saveStoredAvatarPosition(user, {
+                x: localUser.x,
+                y: localUser.y,
+                room: localUser.room || "room1",
+                direction,
+            });
+            clearStoredActivityStartPosition(user);
             socket.emit("move", {
                 id: localKeyRef.current || localUser.user_id,
                 user_id: localUser.user_id,
