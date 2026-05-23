@@ -89,26 +89,6 @@ async function createCourseSchema() {
     `);
 
     await pool.query(`
-        UPDATE courses
-        SET instructor_id = (
-                SELECT u.user_id
-                FROM users u
-                WHERE u.role_id = ${INSTRUCTOR_ROLE_ID}
-                  AND u.deleted_at IS NULL
-                ORDER BY u.user_id ASC
-                LIMIT 1
-            ),
-            updated_at = NOW()
-        WHERE instructor_id IS NULL
-          AND EXISTS (
-              SELECT 1
-              FROM users u
-              WHERE u.role_id = ${INSTRUCTOR_ROLE_ID}
-                AND u.deleted_at IS NULL
-          )
-    `);
-
-    await pool.query(`
         UPDATE courses c
         SET instructor_id = NULL,
             updated_at = NOW()
@@ -248,4 +228,33 @@ export async function findActiveCourseById(courseId) {
         [courseId]
     );
     return result.rows[0] || null;
+}
+
+export async function getManagedCoursesForInstructor(userId, fallbackCourseId = null) {
+    await ensureCourseSchema();
+    const result = await pool.query(
+        `SELECT
+             c.course_id,
+             c.course_code,
+             c.course_name,
+             c.semester,
+             c.location,
+             c.instructor_id,
+             c.instructor2_id,
+             u1.name AS instructor_name,
+             u2.name AS instructor2_name,
+             CONCAT_WS(', ', u1.name, u2.name) AS instructor_names
+         FROM courses c
+         LEFT JOIN users u1 ON u1.user_id = c.instructor_id
+         LEFT JOIN users u2 ON u2.user_id = c.instructor2_id
+         WHERE c.deleted_at IS NULL
+           AND (
+               c.instructor_id = $1
+               OR c.instructor2_id = $1
+               OR ($2::int IS NOT NULL AND c.course_id = $2)
+           )
+         ORDER BY c.course_name ASC`,
+        [userId, fallbackCourseId || null]
+    );
+    return result.rows;
 }

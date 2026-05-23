@@ -32,23 +32,37 @@ async function getColumns(tableName) {
     return result.rows.map((row) => row.column_name);
 }
 
-async function ensureTopicVisibilityColumn() {
+async function ensureTopicVisibilityColumns() {
     const columns = await getColumns("topics");
     if (columns.length === 0) return [];
 
-    if (!hasColumn(columns, "show_topic")) {
-        await pool.query(`ALTER TABLE topics ADD COLUMN IF NOT EXISTS show_topic BOOLEAN NOT NULL DEFAULT TRUE`);
-        return [...columns, "show_topic"];
-    }
+    await pool.query(`ALTER TABLE topics ADD COLUMN IF NOT EXISTS show_topic BOOLEAN NOT NULL DEFAULT TRUE`);
+    await pool.query(`ALTER TABLE topics ADD COLUMN IF NOT EXISTS show_pre_test BOOLEAN NOT NULL DEFAULT TRUE`);
+    await pool.query(`ALTER TABLE topics ADD COLUMN IF NOT EXISTS show_post_test BOOLEAN NOT NULL DEFAULT TRUE`);
 
-    return columns;
+    await pool.query(`
+        DO $$
+        BEGIN
+            IF to_regclass('public.individual_topic_settings') IS NOT NULL THEN
+                UPDATE topics t
+                SET show_pre_test = COALESCE(s.show_pre_test, TRUE),
+                    show_post_test = COALESCE(s.show_post_test, TRUE)
+                FROM individual_topic_settings s
+                WHERE s.topic_id = t.topic_id;
+            END IF;
+        END $$;
+    `);
+
+    await pool.query(`DROP TABLE IF EXISTS individual_topic_settings`);
+
+    return Array.from(new Set([...columns, "show_topic", "show_pre_test", "show_post_test"]));
 }
 
 export async function ensureTableActivityTables() {
     if (tablesReady) return;
 
     await ensureGamificationTables();
-    await ensureTopicVisibilityColumn();
+    await ensureTopicVisibilityColumns();
 
     await pool.query(`
         CREATE TABLE IF NOT EXISTS topic_cases (
@@ -188,7 +202,7 @@ export async function getCourseById(courseId) {
 }
 
 export async function getTopicsForCourse(courseId, options = {}) {
-    const columns = await ensureTopicVisibilityColumn();
+    const columns = await ensureTopicVisibilityColumns();
     if (columns.length === 0) return [];
 
     const idColumn = pickColumn(columns, ["topic_id", "id"]);
@@ -208,6 +222,8 @@ export async function getTopicsForCourse(courseId, options = {}) {
         selectColumns.push(`NULL AS topic_description`);
     }
     selectColumns.push(`COALESCE(show_topic, TRUE) AS show_topic`);
+    selectColumns.push(`COALESCE(show_pre_test, TRUE) AS show_pre_test`);
+    selectColumns.push(`COALESCE(show_post_test, TRUE) AS show_post_test`);
 
     const where = [];
     const params = [];
@@ -244,7 +260,7 @@ export async function getTopicByIdIncludingHidden(topicId, courseId) {
 }
 
 export async function updateTopicVisibility(topicId, showTopic) {
-    const columns = await ensureTopicVisibilityColumn();
+    const columns = await ensureTopicVisibilityColumns();
     const idColumn = pickColumn(columns, ["topic_id", "id"]);
     if (!idColumn) return null;
 
@@ -254,6 +270,26 @@ export async function updateTopicVisibility(topicId, showTopic) {
          WHERE ${quoteIdent(idColumn)} = $1
          RETURNING ${quoteIdent(idColumn)} AS topic_id, show_topic`,
         [topicId, !!showTopic]
+    );
+    return result.rows[0] || null;
+}
+
+export async function updateTopicAssessmentVisibility(topicId, settings = {}) {
+    const columns = await ensureTopicVisibilityColumns();
+    const idColumn = pickColumn(columns, ["topic_id", "id"]);
+    if (!idColumn) return null;
+
+    const result = await pool.query(
+        `UPDATE topics
+         SET show_pre_test = COALESCE($2, show_pre_test),
+             show_post_test = COALESCE($3, show_post_test)
+         WHERE ${quoteIdent(idColumn)} = $1
+         RETURNING ${quoteIdent(idColumn)} AS topic_id, show_pre_test, show_post_test`,
+        [
+            topicId,
+            settings.show_pre_test === undefined ? null : !!settings.show_pre_test,
+            settings.show_post_test === undefined ? null : !!settings.show_post_test,
+        ]
     );
     return result.rows[0] || null;
 }

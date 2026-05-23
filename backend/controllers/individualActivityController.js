@@ -5,7 +5,6 @@ import {
     completeIndividualSession,
     createIndividualSession,
     ensureIndividualActivityTables,
-    ensureIndividualSettingsForTopics,
     getIndividualActivityDuration,
     getActiveIndividualSession,
     getActiveIndividualSessionForObject,
@@ -15,7 +14,6 @@ import {
     getIndividualQuestions,
     getIndividualQuestionsByIds,
     getIndividualSessionById,
-    getIndividualSettingsForTopics,
     hasCompletedIndividualAssessment,
     MC_QUESTION_COUNT,
     ASSESSMENT_QUESTION_COUNT,
@@ -356,8 +354,6 @@ export async function getIndividualContext(req, res) {
             getActiveIndividualSession({courseId: user.course_id, userId: user.user_id, objectId}),
         ]);
 
-        await ensureIndividualSettingsForTopics(topics);
-        const settingsMap = await getIndividualSettingsForTopics(topics);
         const completionMap = await getCompletedIndividualAssessmentsForTopics({
             courseId: user.course_id,
             userId: user.user_id,
@@ -374,13 +370,12 @@ export async function getIndividualContext(req, res) {
             course,
             object_id: objectId,
             topics: topics.map((topic) => {
-                const settings = settingsMap.get(Number(topic.topic_id)) || {};
                 const completion = completionMap.get(Number(topic.topic_id)) || {};
                 return {
                     ...topic,
                     show_topic: topic.show_topic !== false,
-                    show_pre_test: settings.show_pre_test !== false,
-                    show_post_test: settings.show_post_test !== false,
+                    show_pre_test: topic.show_pre_test !== false,
+                    show_post_test: topic.show_post_test !== false,
                     pre_test_completed: completion.pre_test_completed === true,
                     post_test_completed: completion.post_test_completed === true,
                 };
@@ -441,13 +436,10 @@ export async function startIndividualSession(req, res) {
         if (!course) return res.status(400).json({message: "Course tidak ditemukan"});
         if (!topic) return res.status(400).json({message: "Pilih topic terlebih dahulu"});
 
-        await ensureIndividualSettingsForTopics([topic]);
-        const settingsMap = await getIndividualSettingsForTopics([topic]);
-        const settings = settingsMap.get(Number(topic.topic_id));
-        if (activityType === "pre_test" && settings?.show_pre_test === false) {
+        if (activityType === "pre_test" && topic.show_pre_test === false) {
             return res.status(403).json({message: "Pre-test belum dibuka untuk topic ini"});
         }
-        if (activityType === "post_test" && settings?.show_post_test === false) {
+        if (activityType === "post_test" && topic.show_post_test === false) {
             return res.status(403).json({message: "Post-test belum dibuka untuk topic ini"});
         }
         if (["pre_test", "post_test"].includes(activityType)) {

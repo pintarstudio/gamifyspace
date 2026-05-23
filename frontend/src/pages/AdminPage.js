@@ -41,12 +41,16 @@ const TOPIC_ITEM = {
         {key: "week", label: "Week"},
         {key: "topic_name", label: "Topic Name"},
         {key: "show_topic", label: "Visible", type: "boolean"},
+        {key: "show_pre_test", label: "Pre-test", type: "boolean"},
+        {key: "show_post_test", label: "Post-test", type: "boolean"},
     ],
     fields: [
         {key: "course_id", label: "Course", type: "select", reference: "courses", required: true},
         {key: "week", label: "Week", type: "number", placeholder: "1"},
         {key: "topic_name", label: "Topic Name", required: true},
         {key: "show_topic", label: "Show Topic", type: "checkbox"},
+        {key: "show_pre_test", label: "Show Pre-test", type: "checkbox", trueLabel: "Pre-test visible", falseLabel: "Pre-test hidden"},
+        {key: "show_post_test", label: "Show Post-test", type: "checkbox", trueLabel: "Post-test visible", falseLabel: "Post-test hidden"},
     ],
 };
 
@@ -367,6 +371,31 @@ function getIndividualTypeFromRow(row) {
     return "exercise_multiple_choice";
 }
 
+function formatAdminNumber(value) {
+    return new Intl.NumberFormat("en-US").format(Number(value || 0));
+}
+
+function formatAdminDate(value) {
+    if (!value) return "-";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "-";
+    return date.toLocaleDateString(undefined, {month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"});
+}
+
+function scoreWidth(value) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return 0;
+    return Math.max(0, Math.min(100, parsed));
+}
+
+function activityClass(type) {
+    if (type === "pre_test") return "pre";
+    if (type === "post_test") return "post";
+    if (type === "group") return "group";
+    if (type === "quiz") return "quiz";
+    return "individual";
+}
+
 const QUESTION_BANK_TARGETS = [
     {
         value: "quiz_question_bank",
@@ -475,6 +504,9 @@ const AdminPage = () => {
         search: "",
         target_course_group_id: "",
     });
+    const [instructorDashboard, setInstructorDashboard] = useState(null);
+    const [selectedDashboardCourseId, setSelectedDashboardCourseId] = useState("");
+    const [selectedDashboardTopicId, setSelectedDashboardTopicId] = useState("");
 
     const displayedRows = useMemo(() => {
         if (activeConfig?.resource !== "students") return rows;
@@ -491,6 +523,16 @@ const AdminPage = () => {
         const isAdmin = String(admin?.role || "").toLowerCase() === "admin";
         return MENU_GROUPS.filter((group) => isAdmin || group.key !== "admin-config");
     }, [admin?.role]);
+    const dashboardCourses = useMemo(() => instructorDashboard?.courses || [], [instructorDashboard]);
+    const selectedDashboardCourse = useMemo(() => {
+        if (!dashboardCourses.length) return null;
+        return dashboardCourses.find((course) => String(course.course_id) === String(selectedDashboardCourseId)) || dashboardCourses[0];
+    }, [dashboardCourses, selectedDashboardCourseId]);
+    const selectedDashboardTopic = useMemo(() => {
+        const topics = selectedDashboardCourse?.topics || [];
+        if (!topics.length) return null;
+        return topics.find((topic) => String(topic.topic_id) === String(selectedDashboardTopicId)) || topics[0];
+    }, [selectedDashboardCourse, selectedDashboardTopicId]);
 
     useEffect(() => {
         let active = true;
@@ -513,6 +555,39 @@ const AdminPage = () => {
             if (!data.message) setReferences(data);
         });
     }, [admin]);
+
+    useEffect(() => {
+        if (!admin || activeConfig) return undefined;
+        let active = true;
+        setBusy(true);
+        apiGet("/instructor/dashboard")
+            .then((data) => {
+                if (!active) return;
+                if (data.message && !data.courses) {
+                    setMessage(data.message);
+                    setInstructorDashboard(null);
+                    return;
+                }
+                setInstructorDashboard(data);
+                const firstCourse = data.courses?.[0];
+                setSelectedDashboardCourseId((current) => current || firstCourse?.course_id || "");
+                setSelectedDashboardTopicId((current) => current || firstCourse?.topics?.[0]?.topic_id || "");
+            })
+            .finally(() => {
+                if (active) setBusy(false);
+            });
+        return () => {
+            active = false;
+        };
+    }, [admin, activeConfig]);
+
+    useEffect(() => {
+        if (!selectedDashboardCourse) return;
+        const topicExists = selectedDashboardCourse.topics?.some((topic) => String(topic.topic_id) === String(selectedDashboardTopicId));
+        if (!topicExists) {
+            setSelectedDashboardTopicId(selectedDashboardCourse.topics?.[0]?.topic_id || "");
+        }
+    }, [selectedDashboardCourse, selectedDashboardTopicId]);
 
     useEffect(() => {
         const handleScroll = () => {
@@ -1142,6 +1217,220 @@ const AdminPage = () => {
             })}
         </ol>
     );
+
+    const renderInstructorDashboard = () => {
+        const summary = instructorDashboard?.summary || {};
+        if (!instructorDashboard && busy) {
+            return <div className="admin-empty-dashboard"><h1>Loading dashboard...</h1></div>;
+        }
+        if (!dashboardCourses.length) {
+            return (
+                <div className="instructor-analytics">
+                    <section className="instructor-analytics-hero">
+                        <div>
+                            <span>Instructor Dashboard</span>
+                            <h1>No managed course found</h1>
+                            <p>Courses will appear here when this instructor account is assigned as Instructor 1 or Instructor 2.</p>
+                        </div>
+                    </section>
+                </div>
+            );
+        }
+
+        const topicGroups = selectedDashboardTopic?.groups || [];
+        const changedCourse = (courseId) => {
+            const nextCourse = dashboardCourses.find((course) => String(course.course_id) === String(courseId));
+            setSelectedDashboardCourseId(courseId);
+            setSelectedDashboardTopicId(nextCourse?.topics?.[0]?.topic_id || "");
+        };
+
+        return (
+            <div className="instructor-analytics">
+                <section className="instructor-analytics-hero">
+                    <div>
+                        <span>Instructor Dashboard</span>
+                        <h1>{selectedDashboardCourse?.course_name || "Course Activity"}</h1>
+                        <p>
+                            Saved learning activity, XP contribution, level progress, and assessment improvement by topic and group.
+                        </p>
+                    </div>
+                    <div className="instructor-dashboard-controls">
+                        <label>
+                            Course
+                            <select
+                                value={selectedDashboardCourse?.course_id || ""}
+                                onChange={(event) => changedCourse(event.target.value)}
+                            >
+                                {dashboardCourses.map((course) => (
+                                    <option key={course.course_id} value={course.course_id}>
+                                        {course.course_name}
+                                    </option>
+                                ))}
+                            </select>
+                        </label>
+                        <small>Updated {formatAdminDate(instructorDashboard?.generated_at)}</small>
+                    </div>
+                </section>
+
+                <section className="instructor-metric-grid">
+                    <article><span>Courses</span><strong>{formatAdminNumber(summary.managed_courses)}</strong></article>
+                    <article><span>Topics</span><strong>{formatAdminNumber(summary.total_topics)}</strong></article>
+                    <article><span>Groups</span><strong>{formatAdminNumber(summary.total_groups)}</strong></article>
+                    <article><span>Students</span><strong>{formatAdminNumber(summary.total_students)}</strong></article>
+                    <article><span>Activities</span><strong>{formatAdminNumber(summary.total_activities)}</strong></article>
+                    <article><span>Group XP</span><strong>{formatAdminNumber(summary.total_group_xp)}</strong></article>
+                    <article><span>Individual XP</span><strong>{formatAdminNumber(summary.total_individual_xp)}</strong></article>
+                    <article><span>Score Lift</span><strong>{summary.average_score_improvement > 0 ? "+" : ""}{summary.average_score_improvement || 0}</strong></article>
+                </section>
+
+                <section className="instructor-topic-tabs" aria-label="Topic filter">
+                    {(selectedDashboardCourse?.topics || []).map((topic) => (
+                        <button
+                            key={topic.topic_id}
+                            type="button"
+                            className={String(selectedDashboardTopic?.topic_id) === String(topic.topic_id) ? "is-active" : ""}
+                            onClick={() => setSelectedDashboardTopicId(topic.topic_id)}
+                        >
+                            <span>{topic.week ? `Week ${topic.week}` : "Topic"}</span>
+                            <strong>{topic.topic_name}</strong>
+                            <small>{formatAdminNumber(topic.summary?.total_activities)} activities</small>
+                        </button>
+                    ))}
+                </section>
+
+                <section className="instructor-topic-panel">
+                    <div className="instructor-topic-header">
+                        <div>
+                            <span>{selectedDashboardTopic?.week ? `Week ${selectedDashboardTopic.week}` : "Selected Topic"}</span>
+                            <h2>{selectedDashboardTopic?.topic_name || "Topic"}</h2>
+                        </div>
+                        <div className="instructor-topic-stats">
+                            <b>{formatAdminNumber(selectedDashboardTopic?.summary?.total_activities)} activities</b>
+                            <b>{formatAdminNumber(selectedDashboardTopic?.summary?.total_group_xp)} group XP</b>
+                            <b>{formatAdminNumber(selectedDashboardTopic?.summary?.total_individual_xp)} individual XP</b>
+                        </div>
+                    </div>
+
+                    <div className="instructor-group-list">
+                        {topicGroups.map((group) => (
+                            <article
+                                className={`instructor-group-detail ${group.gamification_enabled ? "has-game" : ""}`}
+                                key={`${group.topic_id}-${group.course_group_id}`}
+                            >
+                                <header>
+                                    <div>
+                                        <span>{group.gamification_enabled ? "Gamification enabled" : "Gamification disabled"}</span>
+                                        <h3>{group.group_name || "Ungrouped"}</h3>
+                                    </div>
+                                    <div className="instructor-group-kpis">
+                                        <b>{formatAdminNumber(group.activity_counts?.total)} activities</b>
+                                        <b>{formatAdminNumber(group.student_count)} students</b>
+                                        {group.gamification_enabled && <b>{formatAdminNumber(group.total_group_xp)} group XP</b>}
+                                    </div>
+                                </header>
+
+                                <div className="activity-type-strip">
+                                    {["individual", "pre_test", "post_test", "group", "quiz"].map((type) => (
+                                        <span className={`activity-pill activity-pill--${activityClass(type)}`} key={type}>
+                                            {type.replace("_", " ")} {group.activity_counts?.[type] || 0}
+                                        </span>
+                                    ))}
+                                </div>
+
+                                <details open>
+                                    <summary>Activity detail</summary>
+                                    <div className="instructor-activity-table-wrap">
+                                        <table className="instructor-activity-table">
+                                            <thead>
+                                            <tr>
+                                                <th>Type</th>
+                                                <th>Activity</th>
+                                                <th>Student / Members</th>
+                                                <th>Score</th>
+                                                <th>XP</th>
+                                                <th>Submitted</th>
+                                            </tr>
+                                            </thead>
+                                            <tbody>
+                                            {(group.activities || []).map((activity) => (
+                                                <tr key={activity.id}>
+                                                    <td><span className={`activity-pill activity-pill--${activityClass(activity.type)}`}>{activity.label}</span></td>
+                                                    <td>{activity.title}</td>
+                                                    <td>{activity.student_name || `${activity.member_count || 0} members`}</td>
+                                                    <td>{activity.score ?? activity.average_score ?? "-"}</td>
+                                                    <td>{activity.xp ?? "-"}</td>
+                                                    <td>{formatAdminDate(activity.submitted_at)}</td>
+                                                </tr>
+                                            ))}
+                                            {(!group.activities || group.activities.length === 0) && (
+                                                <tr><td colSpan="6">No saved activity for this group and topic yet.</td></tr>
+                                            )}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </details>
+
+                                {group.gamification_enabled && (
+                                    <>
+                                        <details>
+                                            <summary>XP contribution</summary>
+                                            <div className="instructor-xp-summary">
+                                                <strong>{formatAdminNumber(group.total_group_xp)} group XP</strong>
+                                                <strong>{formatAdminNumber(group.total_individual_xp)} individual XP</strong>
+                                            </div>
+                                            <div className="instructor-contribution-list">
+                                                {(group.xp_contributions || []).map((item, index) => (
+                                                    <div key={`${item.activity_id}-${item.user_id}-${index}`}>
+                                                        <span>{item.student_name}</span>
+                                                        <b>{formatAdminNumber(item.xp_earned)} XP</b>
+                                                        <small>{item.reason || item.activity_type}</small>
+                                                    </div>
+                                                ))}
+                                                {(!group.xp_contributions || group.xp_contributions.length === 0) && <p>No XP contribution recorded yet.</p>}
+                                            </div>
+                                        </details>
+
+                                        <details>
+                                            <summary>Students by level</summary>
+                                            <div className="instructor-levels">
+                                                {(group.level_distribution || []).map((level) => (
+                                                    <div key={level.level_id}>
+                                                        <b style={{borderColor: level.color_hex}}>{level.level_name}</b>
+                                                        <span>
+                                                            {level.students.map((student) => student.name).join(", ")}
+                                                        </span>
+                                                    </div>
+                                                ))}
+                                                {(!group.level_distribution || group.level_distribution.length === 0) && <p>No level data yet.</p>}
+                                            </div>
+                                        </details>
+                                    </>
+                                )}
+
+                                <details>
+                                    <summary>Pre-test vs post-test</summary>
+                                    <div className="score-chart">
+                                        {(group.assessment_comparison || []).map((student) => (
+                                            <div className="score-chart-row" key={student.user_id}>
+                                                <span>{student.student_name}</span>
+                                                <div>
+                                                    <i className="score-pre" style={{width: `${scoreWidth(student.pre_score)}%`}}/>
+                                                    <i className="score-post" style={{width: `${scoreWidth(student.post_score)}%`}}/>
+                                                </div>
+                                                <b>{student.pre_score ?? "-"} / {student.post_score ?? "-"}</b>
+                                                <small>{student.improvement > 0 ? "+" : ""}{student.improvement ?? "-"}</small>
+                                            </div>
+                                        ))}
+                                        {(!group.assessment_comparison || group.assessment_comparison.length === 0) && <p>No pre/post score pair recorded yet.</p>}
+                                    </div>
+                                </details>
+                            </article>
+                        ))}
+                    </div>
+                </section>
+            </div>
+        );
+    };
 
     const renderStudentBulkPanel = () => {
         if (activeConfig?.resource !== "students") return null;
@@ -1933,9 +2222,7 @@ const AdminPage = () => {
 
                 <section className="admin-page-container">
                     {!activeConfig ? (
-                        <div className="admin-empty-dashboard">
-                            <h1>Dashboard</h1>
-                        </div>
+                        renderInstructorDashboard()
                     ) : activeConfig.custom === "questionBank" ? (
                         renderQuestionBank()
                     ) : activeConfig.custom === "bankManager" ? (

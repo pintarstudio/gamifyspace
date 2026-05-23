@@ -33,16 +33,6 @@ async function createIndividualTables() {
     await ensureGamificationTables();
 
     await pool.query(`
-        CREATE TABLE IF NOT EXISTS individual_topic_settings (
-            topic_id INTEGER PRIMARY KEY,
-            show_pre_test BOOLEAN NOT NULL DEFAULT TRUE,
-            show_post_test BOOLEAN NOT NULL DEFAULT TRUE,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        )
-    `);
-
-    await pool.query(`
         CREATE TABLE IF NOT EXISTS individual_questions (
             question_id SERIAL PRIMARY KEY,
             topic_id INTEGER NOT NULL,
@@ -151,31 +141,6 @@ export async function ensureIndividualActivityTables() {
     return individualReadyPromise;
 }
 
-export async function ensureIndividualSettingsForTopics(topics) {
-    for (const topic of topics || []) {
-        await pool.query(
-            `INSERT INTO individual_topic_settings (topic_id)
-             VALUES ($1)
-             ON CONFLICT (topic_id) DO NOTHING`,
-            [topic.topic_id]
-        );
-    }
-}
-
-export async function getIndividualSettingsForTopics(topics) {
-    await ensureIndividualSettingsForTopics(topics);
-    const topicIds = (topics || []).map((topic) => Number(topic.topic_id)).filter(Number.isFinite);
-    if (topicIds.length === 0) return new Map();
-
-    const result = await pool.query(
-        `SELECT topic_id, show_pre_test, show_post_test
-         FROM individual_topic_settings
-         WHERE topic_id = ANY($1::int[])`,
-        [topicIds]
-    );
-    return new Map(result.rows.map((row) => [Number(row.topic_id), row]));
-}
-
 export async function getCompletedIndividualAssessmentsForTopics({courseId, userId, topics}) {
     const topicIds = (topics || []).map((topic) => Number(topic.topic_id)).filter(Number.isFinite);
     if (topicIds.length === 0) return new Map();
@@ -225,13 +190,11 @@ export async function hasCompletedIndividualAssessment({courseId, userId, topicI
 
 export async function updateIndividualTopicSettings(topicId, settings) {
     const result = await pool.query(
-        `INSERT INTO individual_topic_settings (topic_id, show_pre_test, show_post_test)
-         VALUES ($1, COALESCE($2, TRUE), COALESCE($3, TRUE))
-         ON CONFLICT (topic_id)
-         DO UPDATE SET
-             show_pre_test = COALESCE($2, individual_topic_settings.show_pre_test),
-             show_post_test = COALESCE($3, individual_topic_settings.show_post_test),
+        `UPDATE topics
+         SET show_pre_test = COALESCE($2, show_pre_test),
+             show_post_test = COALESCE($3, show_post_test),
              updated_at = NOW()
+         WHERE topic_id = $1
          RETURNING topic_id, show_pre_test, show_post_test`,
         [
             topicId,

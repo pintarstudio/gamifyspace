@@ -260,9 +260,28 @@ async function ensureTopicAdminSchema() {
             IF to_regclass('public.topics') IS NOT NULL THEN
                 ALTER TABLE topics
                 ADD COLUMN IF NOT EXISTS week INTEGER;
+
+                ALTER TABLE topics
+                ADD COLUMN IF NOT EXISTS show_topic BOOLEAN NOT NULL DEFAULT TRUE;
+
+                ALTER TABLE topics
+                ADD COLUMN IF NOT EXISTS show_pre_test BOOLEAN NOT NULL DEFAULT TRUE;
+
+                ALTER TABLE topics
+                ADD COLUMN IF NOT EXISTS show_post_test BOOLEAN NOT NULL DEFAULT TRUE;
+
+                IF to_regclass('public.individual_topic_settings') IS NOT NULL THEN
+                    UPDATE topics t
+                    SET show_pre_test = COALESCE(s.show_pre_test, TRUE),
+                        show_post_test = COALESCE(s.show_post_test, TRUE)
+                    FROM individual_topic_settings s
+                    WHERE s.topic_id = t.topic_id;
+                END IF;
             END IF;
         END $$;
     `);
+
+    await pool.query(`DROP TABLE IF EXISTS individual_topic_settings`);
 }
 
 async function ensureCourseInstructorSchema() {
@@ -271,7 +290,23 @@ async function ensureCourseInstructorSchema() {
         BEGIN
             IF to_regclass('public.courses') IS NOT NULL THEN
                 ALTER TABLE courses
+                ADD COLUMN IF NOT EXISTS instructor_id INTEGER;
+
+                ALTER TABLE courses
+                ALTER COLUMN instructor_id DROP NOT NULL;
+            END IF;
+        END $$;
+    `);
+
+    await pool.query(`
+        DO $$
+        BEGIN
+            IF to_regclass('public.courses') IS NOT NULL THEN
+                ALTER TABLE courses
                 ADD COLUMN IF NOT EXISTS instructor2_id INTEGER;
+
+                ALTER TABLE courses
+                ALTER COLUMN instructor2_id DROP NOT NULL;
             END IF;
         END $$;
     `);
@@ -451,6 +486,8 @@ export async function listAdminResource(resource) {
                  t.topic_name,
                  t.week,
                  t.show_topic,
+                 t.show_pre_test,
+                 t.show_post_test,
                  t.updated_at
              FROM topics t
              JOIN courses c ON c.course_id = t.course_id
@@ -615,7 +652,7 @@ export async function createAdminResource(resource, payload) {
                      SELECT 1
                      FROM users u
                      WHERE u.user_id = $3
-                       AND u.role_id = $6
+                       AND u.role_id = $7
                        AND u.deleted_at IS NULL
                  )
                )
@@ -653,14 +690,16 @@ export async function createAdminResource(resource, payload) {
     if (resource === "topics") {
         await ensureTopicAdminSchema();
         const result = await pool.query(
-            `INSERT INTO topics (course_id, topic_name, week, show_topic, updated_at)
-             VALUES ($1, $2, $3, $4, NOW())
+            `INSERT INTO topics (course_id, topic_name, week, show_topic, show_pre_test, show_post_test, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, NOW())
              RETURNING topic_id`,
             [
                 nullableInteger(payload.course_id),
                 nullableText(payload.topic_name),
                 nullableInteger(payload.week),
                 booleanValue(payload.show_topic),
+                booleanValue(payload.show_pre_test),
+                booleanValue(payload.show_post_test),
             ]
         );
         return result.rows[0];
@@ -844,6 +883,8 @@ export async function updateAdminResource(resource, id, payload) {
                  topic_name = $3,
                  week = $4,
                  show_topic = $5,
+                 show_pre_test = $6,
+                 show_post_test = $7,
                  updated_at = NOW()
              WHERE topic_id = $1
                AND deleted_at IS NULL
@@ -854,6 +895,8 @@ export async function updateAdminResource(resource, id, payload) {
                 nullableText(payload.topic_name),
                 nullableInteger(payload.week),
                 booleanValue(payload.show_topic),
+                booleanValue(payload.show_pre_test),
+                booleanValue(payload.show_post_test),
             ]
         );
         return result.rows[0] || null;

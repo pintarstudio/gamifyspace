@@ -6,13 +6,19 @@ import AvatarIcon from "../components/AvatarIcon";
 const InstructorLoginPage = ({setLoggedIn, setUser}) => {
     const navigate = useNavigate();
     const [avatars, setAvatars] = useState([]);
+    const [courses, setCourses] = useState([]);
+    const [coursesLoading, setCoursesLoading] = useState(false);
+    const [courseMessage, setCourseMessage] = useState("");
     const [busy, setBusy] = useState(false);
     const [message, setMessage] = useState("");
     const [form, setForm] = useState({
         username: "",
         password: "",
+        course_id: "",
         avatar_id: "",
     });
+    const instructorUsername = form.username;
+    const instructorPassword = form.password;
 
     useEffect(() => {
         apiGet("/avatars").then((data) => {
@@ -25,6 +31,52 @@ const InstructorLoginPage = ({setLoggedIn, setUser}) => {
         });
     }, []);
 
+    useEffect(() => {
+        const username = instructorUsername.trim();
+        const password = instructorPassword;
+        let active = true;
+
+        setCourses([]);
+        setCourseMessage("");
+        setForm((current) => current.course_id ? {...current, course_id: ""} : current);
+
+        if (!username || !password) {
+            setCoursesLoading(false);
+            return undefined;
+        }
+
+        const timeoutId = window.setTimeout(() => {
+            setCoursesLoading(true);
+            apiPost("/instructor-login/courses", {username, password})
+                .then((data) => {
+                    if (!active) return;
+                    const courseRows = Array.isArray(data.courses) ? data.courses : [];
+                    setCourses(courseRows);
+                    setForm((current) => {
+                        if (current.username.trim() !== username || current.password !== password) return current;
+                        if (courseRows.some((course) => String(course.course_id) === String(current.course_id))) {
+                            return current;
+                        }
+                        return {...current, course_id: courseRows[0]?.course_id || ""};
+                    });
+                    if (username && password && courseRows.length === 0) {
+                        setCourseMessage(data.message || "No active course found for this instructor.");
+                    }
+                })
+                .catch(() => {
+                    if (active) setCourseMessage("Unable to load instructor courses.");
+                })
+                .finally(() => {
+                    if (active) setCoursesLoading(false);
+                });
+        }, 450);
+
+        return () => {
+            active = false;
+            window.clearTimeout(timeoutId);
+        };
+    }, [instructorUsername, instructorPassword]);
+
     const updateForm = (event) => {
         setForm({...form, [event.target.name]: event.target.value});
     };
@@ -34,19 +86,26 @@ const InstructorLoginPage = ({setLoggedIn, setUser}) => {
         setBusy(true);
         setMessage("");
 
-        const data = await apiPost("/instructor-login", form);
-        if (data.user) {
-            localStorage.removeItem("studentAccessLogin");
-            setUser(data.user);
-            setLoggedIn(true);
-            navigate("/virtualspace");
-        } else {
-            setMessage(data.message || "Login instructor gagal.");
+        try {
+            const data = await apiPost("/instructor-login", form);
+            if (data.user) {
+                localStorage.removeItem("studentAccessLogin");
+                setUser(data.user);
+                setLoggedIn(true);
+                navigate("/virtualspace");
+            } else {
+                setMessage(data.message || "Login instructor gagal.");
+                if (Array.isArray(data.courses)) setCourses(data.courses);
+            }
+        } catch (error) {
+            setMessage("Login instructor gagal.");
+        } finally {
+            setBusy(false);
         }
-        setBusy(false);
     };
 
     const selectedAvatar = avatars.find((avatar) => String(avatar.avatar_id) === String(form.avatar_id));
+    const selectedCourse = courses.find((course) => String(course.course_id) === String(form.course_id));
 
     return (
         <div className="login-container">
@@ -57,7 +116,7 @@ const InstructorLoginPage = ({setLoggedIn, setUser}) => {
                         <span className="login-eyebrow">Instructor Access</span>
                         <h1 className="login-title">GamifyIt Instructor</h1>
                         <p className="login-subtitle">
-                            Sign in with your instructor account and choose an avatar for the virtual classroom.
+                            Sign in with your instructor account, choose the course session, and enter the virtual classroom.
                         </p>
                     </div>
                 </div>
@@ -87,6 +146,35 @@ const InstructorLoginPage = ({setLoggedIn, setUser}) => {
                                 autoComplete="current-password"
                                 required
                             />
+                        </label>
+
+                        <label className="login-field login-field--full">
+                            <span>Course</span>
+                            <select
+                                name="course_id"
+                                value={form.course_id}
+                                onChange={updateForm}
+                                required
+                                disabled={coursesLoading || courses.length === 0}
+                            >
+                                <option value="">
+                                    {coursesLoading
+                                        ? "Loading courses..."
+                                        : courses.length > 0
+                                            ? "Choose course"
+                                            : "Enter valid instructor credentials"}
+                                </option>
+                                {courses.map((course) => (
+                                    <option key={course.course_id} value={course.course_id}>
+                                        {course.course_code ? `${course.course_code} - ${course.course_name}` : course.course_name}
+                                    </option>
+                                ))}
+                            </select>
+                            {(courseMessage || selectedCourse) && (
+                                <small className="login-field-help">
+                                    {courseMessage || `Session course: ${selectedCourse.course_name}`}
+                                </small>
+                            )}
                         </label>
                     </div>
 
@@ -129,7 +217,7 @@ const InstructorLoginPage = ({setLoggedIn, setUser}) => {
                     <button
                         className="login-submit"
                         type="submit"
-                        disabled={busy || !form.username || !form.password || !form.avatar_id}
+                        disabled={busy || coursesLoading || !form.username || !form.password || !form.course_id || !form.avatar_id}
                     >
                         Login Instructor
                     </button>

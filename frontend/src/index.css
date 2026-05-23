@@ -297,6 +297,13 @@ code {
     box-shadow: 0 0 0 3px rgba(47, 113, 151, 0.16);
 }
 
+.login-field-help {
+    color: #657386;
+    font-size: 12px;
+    font-weight: 750;
+    line-height: 1.35;
+}
+
 .login-avatar-panel {
     background: #f8fafc;
     border: 1px solid #dbe4ee;

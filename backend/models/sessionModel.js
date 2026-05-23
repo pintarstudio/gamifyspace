@@ -22,7 +22,6 @@ export async function findSession(session_id) {
              s.*,
              u.name,
              u.email,
-             u.course_id,
              c.course_name,
              u.course_group_id,
              cg.group_name AS course_group_name,
@@ -42,7 +41,7 @@ export async function findSession(session_id) {
          FROM sessions s
          JOIN users u ON s.user_id = u.user_id
          JOIN courses c
-           ON c.course_id = u.course_id
+           ON c.course_id = s.course_id
           AND c.deleted_at IS NULL
          LEFT JOIN course_groups cg
                 ON cg.course_group_id = u.course_group_id
