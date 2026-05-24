@@ -226,6 +226,10 @@
     padding: 9px;
 }
 
+.instructor-student-row--no-avatar {
+    grid-template-columns: minmax(0, 1fr) auto;
+}
+
 .instructor-student-row .avatar-icon {
     height: 36px;
     width: 36px;

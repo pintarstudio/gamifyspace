@@ -286,6 +286,7 @@ export async function getInstructorDashboard(req, res) {
                      u.email,
                      u.course_group_id,
                      cg.group_name AS course_group_name,
+                     cg.virtual_space_enabled,
                      a.avatar_public_path,
                      latest_session.created_at AS last_login_at
                  FROM users u

@@ -374,8 +374,13 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
         <div className="instructor-student-list">
             {students.length > 0 ? (
                 students.map((student) => (
-                    <article className="instructor-student-row" key={student.user_id}>
-                        <AvatarIcon path={student.avatar_public_path} alt={student.name} />
+                    <article
+                        className={`instructor-student-row ${student.virtual_space_enabled === false ? "instructor-student-row--no-avatar" : ""}`}
+                        key={student.user_id}
+                    >
+                        {student.virtual_space_enabled !== false && (
+                            <AvatarIcon path={student.avatar_public_path} alt={student.name} />
+                        )}
                         <div className="instructor-student-row__main">
                             <strong>{student.name}</strong>
                             <span>{student.course_group_name || "No group"} · {student.room || "No room"}</span>
