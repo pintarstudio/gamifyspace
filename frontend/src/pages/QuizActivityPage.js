@@ -617,6 +617,7 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
                         <div className="quiz-member" key={member.member_id}>
                             {showStudentAvatars && <AvatarIcon path={member.avatar_public_path} alt={member.name} />}
                             <span>{member.name}</span>
+                            {member.is_host && <em>Host</em>}
                         </div>
                     ))}
                 </aside>
@@ -943,9 +944,11 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
                             <p>A quiz is already active at this big table. New users can only join while a seat is available.</p>
                             <div className="quiz-member-strip">
                                 {activeSession.members.map((member) => (
-                                    showStudentAvatars
-                                        ? <AvatarIcon key={member.member_id} path={member.avatar_public_path} alt={member.name} />
-                                        : <span key={member.member_id}>{member.name}</span>
+                                    <div className="quiz-strip-member" key={member.member_id}>
+                                        {showStudentAvatars && <AvatarIcon path={member.avatar_public_path} alt={member.name} />}
+                                        <span>{member.name}</span>
+                                        {member.is_host && <em>Host</em>}
+                                    </div>
                                 ))}
                             </div>
                             <button className="quiz-button quiz-button--primary" onClick={handleJoinQuiz} disabled={!canJoin || busy}>

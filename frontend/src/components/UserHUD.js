@@ -6,11 +6,20 @@ const UserHUD = ({ currentUser, handleLogout, summary, hideAvatar = false }) => 
   if (!currentUser) return null;
 
   const gamificationEnabled = !!currentUser.gamification_enabled;
+  const roleName = currentUser.role_name || "Student";
+  const isStudent = String(roleName).toLowerCase() === "student" || String(currentUser.role_id || "") === "1";
+  const virtualSpaceEnabled = currentUser.virtual_space_enabled !== undefined
+    ? !!currentUser.virtual_space_enabled
+    : !currentUser.use_no_virtual_space;
+  const surveyLink = gamificationEnabled && isStudent
+    ? (virtualSpaceEnabled
+      ? "https://forms.gle/TrJo8XzcZGy82eub8"
+      : "https://forms.gle/JCEfscoijjJ8D6an8")
+    : "";
   const groupXp = summary?.total_group_xp || 0;
   const individualXp = summary?.total_individual_exercise_xp || 0;
   const courseName = currentUser.course_name || "Course";
   const groupName = currentUser.course_group_name || "No group";
-  const roleName = currentUser.role_name || "Student";
   const individualLevel = summary?.individual_level || {
     level: 1,
     name: "Rookie",
@@ -64,9 +73,23 @@ const UserHUD = ({ currentUser, handleLogout, summary, hideAvatar = false }) => 
         )}
       </div>
 
-      <button onClick={handleLogout} className="user-hud__logout">
-        Logout
-      </button>
+      <div className="user-hud__actions">
+        <button onClick={handleLogout} className="user-hud__logout">
+          Logout
+        </button>
+        {surveyLink && (
+          <a
+            className="user-hud__survey"
+            href={surveyLink}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Open feedback form"
+            title="Open feedback form"
+          >
+            ↗
+          </a>
+        )}
+      </div>
     </section>
   );
 };

@@ -232,6 +232,29 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
         return () => window.removeEventListener("keydown", handleEscape);
     }, [activeSession, completionNotice, embedded, onBack]);
 
+    useEffect(() => {
+        const shouldBlockAssessmentCopy = activeSession?.status === "in_progress"
+            && ["pre_test", "post_test"].includes(activeSession.activity_type);
+        if (!shouldBlockAssessmentCopy) return undefined;
+
+        const blockAssessmentCopy = (event) => {
+            event.preventDefault();
+            setMessage("Menyalin soal pre-test/post-test tidak diizinkan.");
+        };
+
+        window.addEventListener("copy", blockAssessmentCopy);
+        window.addEventListener("cut", blockAssessmentCopy);
+        window.addEventListener("contextmenu", blockAssessmentCopy);
+        window.addEventListener("dragstart", blockAssessmentCopy);
+
+        return () => {
+            window.removeEventListener("copy", blockAssessmentCopy);
+            window.removeEventListener("cut", blockAssessmentCopy);
+            window.removeEventListener("contextmenu", blockAssessmentCopy);
+            window.removeEventListener("dragstart", blockAssessmentCopy);
+        };
+    }, [activeSession?.status, activeSession?.activity_type]);
+
     const requestStart = () => {
         if (!selectedTopicId) {
             setMessage("Pilih topic terlebih dahulu.");
@@ -414,13 +437,19 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
     if (activeSession?.status === "in_progress") {
         const currentQuestion = activeSession.current_question;
         const isCaseStudy = activeSession.question_kind === "case_study";
+        const isAssessment = ["pre_test", "post_test"].includes(activeSession.activity_type);
         const isTimeUp = sessionTimer?.secondsLeft <= 0;
         const progress = isCaseStudy
             ? "Case study"
             : `${activeSession.current_question_index + 1}/${activeSession.question_count}`;
 
         return (
-            <main className={`individual-app individual-workspace${embedded ? " individual-app--embedded" : ""}`}>
+            <main className={[
+                "individual-app",
+                "individual-workspace",
+                isAssessment ? "individual-workspace--assessment" : "",
+                embedded ? "individual-app--embedded" : "",
+            ].filter(Boolean).join(" ")}>
                 <header className="individual-header">
                     <div>
                         <span className="individual-label">{context?.course?.course_name}</span>
@@ -473,7 +502,7 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
                         </section>
                     </>
                 ) : (
-                    <section className="individual-panel individual-question">
+                    <section className={`individual-panel individual-question${isAssessment ? " individual-question--protected" : ""}`}>
                         <div className="individual-section-title">
                             <h2>Question {activeSession.current_question_index + 1}</h2>
                             <span>{activeSession.question_count} questions</span>
@@ -612,6 +641,7 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
     }
 
     const canStart = !!selectedTopicId && availableActivityTypes.includes(activityType);
+    const showComputerLabel = !String(objectId).startsWith("novirtual-computer-");
 
     return (
         <main className={`individual-app individual-landing${embedded ? " individual-app--embedded" : ""}`}>
@@ -652,7 +682,7 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
                 <div className="individual-panel individual-setup">
                     <div className="individual-section-title">
                         <h2>Activity</h2>
-                        <span>Computer {objectId}</span>
+                        {showComputerLabel && <span>Computer {objectId}</span>}
                     </div>
 
                     <div className="individual-segment">

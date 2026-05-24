@@ -1,4 +1,4 @@
-import React, {useEffect, useRef, useState} from "react";
+import React, {useCallback, useEffect, useRef, useState} from "react";
 import * as PIXI from "pixi.js";
 import socket from "../utils/socketClient";
 import {initMap} from "../pixi/mapRenderer";
@@ -407,9 +407,14 @@ const VirtualSpacePixi = ({user, onOpenActivity, activityPanelOpen = false}) => 
     );
     const [roomData, setRoomData] = useState(null);
     const localUserRef = useRef(null);
+    const currentRoomRef = useRef(currentRoom);
     const activityPanelOpenRef = useRef(activityPanelOpen);
     const onOpenActivityRef = useRef(onOpenActivity);
     // console.log("User", user);
+
+    useEffect(() => {
+        currentRoomRef.current = currentRoom;
+    }, [currentRoom]);
 
     useEffect(() => {
         activityPanelOpenRef.current = activityPanelOpen;
@@ -425,7 +430,7 @@ const VirtualSpacePixi = ({user, onOpenActivity, activityPanelOpen = false}) => 
     }, [onOpenActivity]);
 
     // Handle room switching
-    const handleRoomChange = (newRoom) => {
+    const handleRoomChange = useCallback((newRoom) => {
         //console.log("🏠 Switching to:", newRoom);
         const nextRoom = normalizeRoomName(newRoom);
 
@@ -441,13 +446,15 @@ const VirtualSpacePixi = ({user, onOpenActivity, activityPanelOpen = false}) => 
         }
 
         // Update displayed room and notify server
-        setCurrentRoom(roomFileName(nextRoom));
+        currentRoomRef.current = roomFileName(nextRoom);
+        setCurrentRoom(currentRoomRef.current);
         socket.emit("join_room", {
             user: localUserRef.current,
             room: nextRoom,
         });
-    };
-    const initAvatars = (app, worldContainer, checkCollision, TILE_SIZE, mapWidth, mapHeight, user, zoomFactor, localUserRef) => {
+    }, [user]);
+
+    const initAvatars = useCallback((app, worldContainer, checkCollision, TILE_SIZE, mapWidth, mapHeight, user, zoomFactor, localUserRef) => {
         const localKeyRef = {current: null};
         const avatars = {};
         window.__avatars = avatars;
@@ -464,7 +471,7 @@ const VirtualSpacePixi = ({user, onOpenActivity, activityPanelOpen = false}) => 
             name: user.name || "User",
             course_id: user.course_id,
             direction: restoredPosition?.direction || localStorage.getItem("lastDirection") || "right",
-            room: normalizeRoomName(restoredPosition?.room || localUserRef.current?.room || user.room || currentRoom || "room1"),
+            room: normalizeRoomName(restoredPosition?.room || localUserRef.current?.room || user.room || currentRoomRef.current || "room1"),
         };
         localUserRef.current = localUser;
 
@@ -537,7 +544,7 @@ const VirtualSpacePixi = ({user, onOpenActivity, activityPanelOpen = false}) => 
         const cleanupMovement = initAvatarMovement(app, worldContainer, avatars, localUserRef, localKeyRef, checkCollision, TILE_SIZE, mapWidth, mapHeight, zoomFactor, user);
 
         return {localUserRef, localKeyRef, cleanupMovement};
-    }
+    }, []);
     // Fetch current room data
     useEffect(() => {
         // Fetch room JSON from public folder
@@ -644,7 +651,7 @@ const VirtualSpacePixi = ({user, onOpenActivity, activityPanelOpen = false}) => 
                         const position = {
                             x: localUser.x,
                             y: localUser.y,
-                            room: localUser.room || currentRoom,
+                            room: localUser.room || currentRoomRef.current,
                             direction: localUser.direction || "right",
                         };
                         saveStoredAvatarPosition(user, position, "activity-start");
@@ -656,7 +663,7 @@ const VirtualSpacePixi = ({user, onOpenActivity, activityPanelOpen = false}) => 
             });
             socket.emit("request_update_users", {
                 course_id: user.course_id,
-                room: normalizeRoomName(localUserRef.current?.room || currentRoom || "room1"),
+                room: normalizeRoomName(localUserRef.current?.room || currentRoomRef.current || "room1"),
             });
 
             cleanupPixi = () => {
@@ -675,7 +682,7 @@ const VirtualSpacePixi = ({user, onOpenActivity, activityPanelOpen = false}) => 
             cancelled = true;
             if (cleanupPixi) cleanupPixi();
         };
-    }, [roomData, user]);
+    }, [handleRoomChange, initAvatars, roomData, user]);
 
     if (!roomData) {
         return null; // or loading indicator if desired

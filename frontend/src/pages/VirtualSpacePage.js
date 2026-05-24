@@ -530,6 +530,10 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
                     <button
                         className={[
                             "activity-card",
+                            activity.activity_type === "individual"
+                                && ["pre_test", "post_test"].includes(activity.individual_activity_type)
+                                ? "activity-card--assessment"
+                                : "",
                             activity.activity_type === "quiz" && activity.quiz_outcome
                                 ? `activity-card--quiz-outcome activity-card--quiz-outcome-${activity.quiz_outcome}`
                                 : "",

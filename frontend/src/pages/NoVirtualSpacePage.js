@@ -80,11 +80,13 @@ const formatSeconds = (value) => {
     return `${minutes}:${String(seconds).padStart(2, "0")}`;
 };
 
-const buildNoVirtualActivityFromStatus = (status) => {
+const noVirtualComputerObjectId = (userId) => `novirtual-computer-${userId || "student"}`;
+
+const buildNoVirtualActivityFromStatus = (status, userId) => {
     if (!isActivityStatusActive(status)) return null;
 
     if (["individual_exercise", "individual_pre_test", "individual_post_test"].includes(status.type)) {
-        const objectId = status.object_id || "computer";
+        const objectId = status.object_id || noVirtualComputerObjectId(userId);
         const searchParams = new URLSearchParams({object_id: objectId});
         return {
             type: "individual",
@@ -188,7 +190,7 @@ const NoVirtualSpacePage = ({user, setLoggedIn, setUser}) => {
         let active = true;
         apiGet("/activity-status/current").then((data) => {
             if (!active || activeActivity) return;
-            const restoredActivity = buildNoVirtualActivityFromStatus(data.status);
+            const restoredActivity = buildNoVirtualActivityFromStatus(data.status, currentUserId);
             if (restoredActivity) setActiveActivity(restoredActivity);
         }).catch(() => {});
 
@@ -360,6 +362,10 @@ const NoVirtualSpacePage = ({user, setLoggedIn, setUser}) => {
                     className={[
                         "activity-card",
                         "no-virtual-history-card",
+                        activity.activity_type === "individual"
+                            && ["pre_test", "post_test"].includes(activity.individual_activity_type)
+                            ? "activity-card--assessment"
+                            : "",
                         activity.activity_type === "quiz" && activity.quiz_outcome
                             ? `activity-card--quiz-outcome activity-card--quiz-outcome-${activity.quiz_outcome}`
                             : "",
@@ -559,7 +565,10 @@ const NoVirtualSpacePage = ({user, setLoggedIn, setUser}) => {
                                             <h2>Scoreboard</h2>
                                             <div className="quiz-history-scoreboard">
                                                 {(selectedActivity.results?.scoreboard || []).map((item, index) => (
-                                                    <article key={item.user_id}>
+                                                    <article
+                                                        className={showHistoryAvatars ? "" : "quiz-history-scoreboard__row--no-avatar"}
+                                                        key={item.user_id}
+                                                    >
                                                         <div className="quiz-history-rank">{index + 1}</div>
                                                         {showHistoryAvatars && <AvatarIcon path={item.avatar_public_path} alt={item.name} />}
                                                         <div>
@@ -590,7 +599,11 @@ const NoVirtualSpacePage = ({user, setLoggedIn, setUser}) => {
                                                             const feedback = quizAnswerFeedback(selectedActivity, answer, question);
                                                             return (
                                                                 <div
-                                                                    className={`quiz-history-answer${showGameLayer ? "" : " quiz-history-answer--no-score"}`}
+                                                                    className={[
+                                                                        "quiz-history-answer",
+                                                                        showGameLayer ? "" : "quiz-history-answer--no-score",
+                                                                        showHistoryAvatars ? "" : "quiz-history-answer--no-avatar",
+                                                                    ].filter(Boolean).join(" ")}
                                                                     key={answer.answer_id}
                                                                 >
                                                                     {showHistoryAvatars && <AvatarIcon path={answer.avatar_public_path} alt={answer.name} />}
@@ -738,10 +751,15 @@ const NoVirtualSpacePage = ({user, setLoggedIn, setUser}) => {
         const restoredSearchParams = activeActivity && typeof activeActivity === "object"
             ? activeActivity.searchParams
             : null;
+        const individualSearchParams = activityType === "individual"
+            ? (restoredSearchParams || new URLSearchParams({
+                object_id: noVirtualComputerObjectId(currentUserId),
+            }).toString())
+            : restoredSearchParams;
         const activityProps = {
             embedded: true,
             noVirtual: activityType === "group" || activityType === "quiz",
-            activitySearchParams: restoredSearchParams,
+            activitySearchParams: individualSearchParams,
             exitOnBack: !!activeActivity,
             onBack: () => setActiveActivity(null),
         };

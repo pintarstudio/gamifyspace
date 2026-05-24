@@ -250,6 +250,7 @@ function normalizeQuizSession(session, members, questions, answers, userId, save
             avatar_public_path: member.avatar_public_path,
             joined_at: member.joined_at,
             last_seen_at: member.last_seen_at,
+            is_host: String(member.user_id) === String(session.hosted_by),
         })),
         current_question: currentQuestion
             ? serializeQuestion(currentQuestion, !!myCurrentAnswer || includeFinalAnswers)

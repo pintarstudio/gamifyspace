@@ -644,6 +644,10 @@
     padding: 8px 10px;
 }
 
+.table-member-status--no-avatar {
+    grid-template-columns: minmax(0, 1fr) auto;
+}
+
 .table-member-status img,
 .table-member-status .avatar-icon {
     background: #f0f3f6;
@@ -666,7 +670,9 @@
     color: #8a4f08;
     font-size: 12px;
     font-weight: 800;
+    justify-self: end;
     padding: 5px 9px;
+    width: fit-content;
     white-space: nowrap;
 }
 

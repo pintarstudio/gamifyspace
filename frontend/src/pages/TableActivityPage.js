@@ -828,7 +828,10 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack, activit
                             {activeSession.members.map((member) => {
                                 const answered = answeredUserIds.has(String(member.user_id));
                                 return (
-                                    <div className="table-member-status" key={member.member_id}>
+                                    <div
+                                        className={`table-member-status ${showStudentAvatars ? "" : "table-member-status--no-avatar"}`}
+                                        key={member.member_id}
+                                    >
                                         {showStudentAvatars && <AvatarIcon path={member.avatar_public_path} alt={member.name} />}
                                         <strong>{member.name}</strong>
                                         <span className={answered ? "is-ready" : ""}>

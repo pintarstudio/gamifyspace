@@ -181,6 +181,13 @@
   font-weight: 800;
 }
 
+.user-hud__actions {
+  align-items: stretch;
+  display: grid;
+  gap: 8px;
+  justify-items: end;
+}
+
 .user-hud__logout {
   background: #c94f4f;
   border: 0;
@@ -189,6 +196,32 @@
   cursor: pointer;
   font-weight: 800;
   padding: 9px 11px;
+}
+
+.user-hud__survey {
+  align-items: center;
+  background: #24516d;
+  border: 1px solid #18384d;
+  border-radius: 8px;
+  box-sizing: border-box;
+  color: #ffffff;
+  display: inline-flex;
+  font-size: 18px;
+  font-weight: 900;
+  height: 38px;
+  justify-content: center;
+  line-height: 1;
+  text-decoration: none;
+  width: 38px;
+}
+
+.user-hud__survey:hover {
+  background: #2f6f95;
+}
+
+.user-hud__survey:focus-visible {
+  outline: 3px solid rgba(47, 111, 149, 0.3);
+  outline-offset: 2px;
 }
 
 @media (max-width: 960px) {

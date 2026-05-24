@@ -90,8 +90,8 @@ export async function getVirtualSpaceDashboard(req, res) {
         ] = await Promise.all([
             pool.query(
                 `SELECT
-                     COALESCE(SUM(ggs.xp_total), 0)::int AS total_group_xp,
-                     COALESCE(SUM(gus.xp_earned), 0)::int AS total_individual_xp,
+                     COALESCE(SUM(gus.xp_earned), 0)::int AS total_group_xp,
+                     COALESCE(SUM(ggs.xp_total), 0)::int AS total_shared_group_xp,
                      COUNT(DISTINCT s.session_id)::int AS completed_activities
                  FROM table_group_sessions s
                  JOIN table_group_members m ON m.session_id = s.session_id
