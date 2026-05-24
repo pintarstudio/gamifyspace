@@ -893,11 +893,11 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack, activit
                                     <h3>Combined Answer</h3>
                                     <div className="feedback-grid">
                                         <article>
-                                            <strong>WWW</strong>
+                                            <strong>What Went Well</strong>
                                             <p>{combinedFeedback.www}</p>
                                         </article>
                                         <article>
-                                            <strong>EBI</strong>
+                                            <strong>Even Better If</strong>
                                             <p>{combinedFeedback.ebi}</p>
                                         </article>
                                     </div>
@@ -917,11 +917,11 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack, activit
                                                 </div>
                                                 <div className="feedback-grid">
                                                     <article>
-                                                        <strong>WWW</strong>
+                                                        <strong>What Went Well</strong>
                                                         <p>{group.www}</p>
                                                     </article>
                                                     <article>
-                                                        <strong>EBI</strong>
+                                                        <strong>Even Better If</strong>
                                                         <p>{group.ebi}</p>
                                                     </article>
                                                 </div>

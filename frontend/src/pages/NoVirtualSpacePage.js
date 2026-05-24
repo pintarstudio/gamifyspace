@@ -26,7 +26,7 @@ const activityCards = [
     },
     {
         id: "quiz",
-        title: "Competition Quiz",
+        title: "Fun Quiz",
         label: "Compete",
         description: "Host or join a live quiz match with a code from 101 to 150.",
     },
@@ -724,7 +724,6 @@ const NoVirtualSpacePage = ({user, setLoggedIn, setUser}) => {
     const renderMainMenu = () => (
         <main className="no-virtual-main" aria-label="No virtual space activity menu">
             <section className="no-virtual-hero">
-                <span>No Map Mode</span>
                 <h1>{course?.course_name || currentUser?.course_name || "Course Activity"}</h1>
                 <p>Choose an activity from the menu and keep your progress dashboard visible while you work.</p>
             </section>

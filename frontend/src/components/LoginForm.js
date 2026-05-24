@@ -158,7 +158,7 @@ const LoginForm = ({onLoginSuccess}) => {
                 )}
                 {isDemoResolved && (
                     <section className="login-demo-card">
-                        <span>Resolved from demo URL</span>
+                        <span>Resolved from URL</span>
                         <strong>{demoLogin.course.course_name}</strong>
                         <div>
                             <b>{demoLogin.user.name}</b>
