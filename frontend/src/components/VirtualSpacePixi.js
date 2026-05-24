@@ -1,6 +1,7 @@
 import React, {useCallback, useEffect, useRef, useState} from "react";
 import * as PIXI from "pixi.js";
 import socket from "../utils/socketClient";
+import {apiGet} from "../api/apiClient";
 import {initMap} from "../pixi/mapRenderer";
 import {initObjects} from "../pixi/objectHandler";
 import {
@@ -154,6 +155,129 @@ const normalizeRoomName = (room) => {
 };
 
 const roomFileName = (room) => `${normalizeRoomName(room)}.json`;
+
+const getObjectProperty = (obj, name) =>
+    obj.properties?.find((property) => property.name === name)?.value;
+
+const normalizeTableObjectKey = (objectId) => {
+    const value = String(objectId || "").trim();
+    return value ? value : null;
+};
+
+const tableGroupIdsFromRoom = (roomData) => {
+    const objectLayer = roomData?.layers?.find(
+        (layer) => layer.type === "objectgroup" && layer.name === "interactables"
+    );
+    if (!objectLayer?.objects) return [];
+
+    return Array.from(new Set(
+        objectLayer.objects
+            .filter((obj) => {
+                const name = String(getObjectProperty(obj, "name") || "").toLowerCase();
+                const url = String(getObjectProperty(obj, "url") || "").toLowerCase();
+                return name === "table" && url.includes("/table");
+            })
+            .map((obj) => Number.parseInt(getObjectProperty(obj, "group"), 10))
+            .filter((groupId) => Number.isFinite(groupId) && groupId > 0)
+    ));
+};
+
+const computerObjectIdsFromRoom = (roomData) => {
+    const objectLayer = roomData?.layers?.find(
+        (layer) => layer.type === "objectgroup" && layer.name === "interactables"
+    );
+    if (!objectLayer?.objects) return [];
+
+    return Array.from(new Set(
+        objectLayer.objects
+            .filter((obj) => {
+                const name = String(getObjectProperty(obj, "name") || "").toLowerCase();
+                const url = String(getObjectProperty(obj, "url") || "").toLowerCase();
+                return name === "computer" && url.includes("/individual");
+            })
+            .map((obj) => normalizeTableObjectKey(getObjectProperty(obj, "id") || obj.id))
+            .filter(Boolean)
+    ));
+};
+
+const buildLiveTableOccupancy = (usersData, currentUser) => {
+    const currentUserId = String(currentUser?.user_id || currentUser?.id || "");
+    const currentCourseGroupId = currentUser?.course_group_id == null
+        ? null
+        : String(currentUser.course_group_id);
+    const groups = {};
+
+    Object.values(usersData || {}).forEach((presence) => {
+        const status = presence?.activity_status;
+        if (!isActiveAvatarStatus(status) || status.type !== "group_discussion") return;
+
+        if (
+            currentCourseGroupId !== null
+            && presence?.course_group_id != null
+            && String(presence.course_group_id) !== currentCourseGroupId
+        ) {
+            return;
+        }
+
+        const key = normalizeTableObjectKey(status.object_id);
+        if (!key) return;
+
+        if (!groups[key]) {
+            groups[key] = {
+                group_id: Number.parseInt(status.group_id, 10) || null,
+                object_id: status.object_id,
+                is_member: false,
+                is_occupied: true,
+                member_count: 0,
+                member_names: [],
+                user_ids: [],
+                source: "live",
+            };
+        }
+
+        const userId = String(presence.user_id || presence.id || "");
+        groups[key].member_count += 1;
+        if (presence.name) groups[key].member_names.push(presence.name);
+        if (userId) groups[key].user_ids.push(userId);
+        if (userId && currentUserId && userId === currentUserId) {
+            groups[key].is_member = true;
+            groups[key].is_occupied = false;
+        }
+    });
+
+    return groups;
+};
+
+const INDIVIDUAL_STATUS_TYPES = new Set([
+    "individual_exercise",
+    "individual_pre_test",
+    "individual_post_test",
+]);
+
+const buildLiveComputerOccupancy = (usersData, currentUser) => {
+    const currentUserId = String(currentUser?.user_id || currentUser?.id || "");
+    const computers = {};
+
+    Object.values(usersData || {}).forEach((presence) => {
+        const status = presence?.activity_status;
+        if (!isActiveAvatarStatus(status) || !INDIVIDUAL_STATUS_TYPES.has(status.type)) return;
+
+        const key = normalizeTableObjectKey(status.object_id);
+        if (!key) return;
+
+        const userId = String(presence.user_id || presence.id || "");
+        computers[key] = {
+            object_id: key,
+            user_id: presence.user_id || presence.id || null,
+            user_name: presence.name || "",
+            is_owner: !!userId && !!currentUserId && userId === currentUserId,
+            is_occupied: !(!!userId && !!currentUserId && userId === currentUserId),
+            source: "live",
+        };
+    });
+
+    return computers;
+};
 
 const createAvatarNameTag = (name) => {
     const paddingX = 8;
@@ -410,6 +534,10 @@ const VirtualSpacePixi = ({user, onOpenActivity, activityPanelOpen = false}) => 
     const currentRoomRef = useRef(currentRoom);
     const activityPanelOpenRef = useRef(activityPanelOpen);
     const onOpenActivityRef = useRef(onOpenActivity);
+    const tableOccupancyRef = useRef({});
+    const liveTableOccupancyRef = useRef({});
+    const computerOccupancyRef = useRef({});
+    const liveComputerOccupancyRef = useRef({});
     // console.log("User", user);
 
     useEffect(() => {
@@ -429,6 +557,78 @@ const VirtualSpacePixi = ({user, onOpenActivity, activityPanelOpen = false}) => 
         onOpenActivityRef.current = onOpenActivity;
     }, [onOpenActivity]);
 
+    useEffect(() => {
+        if (!roomData || !user?.course_id) {
+            tableOccupancyRef.current = {};
+            computerOccupancyRef.current = {};
+            return undefined;
+        }
+
+        const groupIds = tableGroupIdsFromRoom(roomData);
+        const computerObjectIds = computerObjectIdsFromRoom(roomData);
+        if (groupIds.length === 0 && computerObjectIds.length === 0) {
+            tableOccupancyRef.current = {};
+            computerOccupancyRef.current = {};
+            return undefined;
+        }
+
+        let active = true;
+        const loadOccupancy = async () => {
+            try {
+                const [tableData, computerData] = await Promise.all([
+                    groupIds.length > 0
+                        ? apiGet(`/table/occupancy?groups=${groupIds.join(",")}`)
+                        : Promise.resolve({occupancy: []}),
+                    computerObjectIds.length > 0
+                        ? apiGet(`/individual/occupancy?objects=${computerObjectIds.map(encodeURIComponent).join(",")}`)
+                        : Promise.resolve({occupancy: []}),
+                ]);
+                if (!active) return;
+
+                tableOccupancyRef.current = (tableData.occupancy || []).reduce((map, item) => {
+                    const occupiedObjectIds = Array.isArray(item.occupied_object_ids) && item.occupied_object_ids.length > 0
+                        ? item.occupied_object_ids
+                        : [item.object_id];
+                    occupiedObjectIds.forEach((occupiedObjectId) => {
+                        const key = normalizeTableObjectKey(occupiedObjectId);
+                        if (key) {
+                            map[key] = {
+                                ...item,
+                                object_id: occupiedObjectId,
+                                is_occupied: !!item.is_occupied,
+                                is_member: !!item.is_member,
+                                source: "database",
+                            };
+                        }
+                    });
+                    return map;
+                }, {});
+                computerOccupancyRef.current = (computerData.occupancy || []).reduce((map, item) => {
+                    const key = normalizeTableObjectKey(item.object_id);
+                    if (key) {
+                        map[key] = {
+                            ...item,
+                            is_occupied: !!item.is_occupied,
+                            is_owner: !!item.is_owner,
+                            source: "database",
+                        };
+                    }
+                    return map;
+                }, {});
+            } catch (error) {
+                if (active) console.warn("Unable to load object occupancy:", error);
+            }
+        };
+
+        loadOccupancy();
+        const intervalId = window.setInterval(loadOccupancy, 5000);
+
+        return () => {
+            active = false;
+            window.clearInterval(intervalId);
+        };
+    }, [roomData, user?.course_id, user?.course_group_id, user?.user_id, user?.id]);
+
     // Handle room switching
     const handleRoomChange = useCallback((newRoom) => {
         //console.log("🏠 Switching to:", newRoom);
@@ -439,6 +639,7 @@ const VirtualSpacePixi = ({user, onOpenActivity, activityPanelOpen = false}) => 
             const spawnPosition = randomSpawnPosition();
             localUserRef.current.room = nextRoom;
             localUserRef.current.course_id = user.course_id;
+            localUserRef.current.course_group_id = user.course_group_id || null;
             localUserRef.current.x = spawnPosition.x;
             localUserRef.current.y = spawnPosition.y;
             saveStoredAvatarPosition(user, localUserRef.current);
@@ -470,6 +671,7 @@ const VirtualSpacePixi = ({user, onOpenActivity, activityPanelOpen = false}) => 
             y: spawnPosition.y,
             name: user.name || "User",
             course_id: user.course_id,
+            course_group_id: user.course_group_id || null,
             direction: restoredPosition?.direction || localStorage.getItem("lastDirection") || "right",
             room: normalizeRoomName(restoredPosition?.room || localUserRef.current?.room || user.room || currentRoomRef.current || "room1"),
         };
@@ -491,6 +693,8 @@ const VirtualSpacePixi = ({user, onOpenActivity, activityPanelOpen = false}) => 
             const filteredUsers = Object.fromEntries(
                 Object.entries(usersData).filter(([_, u]) => u.room === currentRoom)
             );
+            liveTableOccupancyRef.current = buildLiveTableOccupancy(filteredUsers, user);
+            liveComputerOccupancyRef.current = buildLiveComputerOccupancy(filteredUsers, user);
             //console.log("🏠 Filtered users for room:", currentRoom, filteredUsers);
 
             for (const [id, u] of Object.entries(filteredUsers)) {
@@ -660,6 +864,40 @@ const VirtualSpacePixi = ({user, onOpenActivity, activityPanelOpen = false}) => 
                     return onOpenActivityRef.current?.(launch);
                 },
                 isInteractionDisabled: () => activityPanelOpenRef.current,
+                getTableOccupancy: ({objectId}) => {
+                    const key = normalizeTableObjectKey(objectId);
+                    if (!key) return null;
+
+                    const live = liveTableOccupancyRef.current[key] || null;
+                    const database = tableOccupancyRef.current[key] || null;
+
+                    if (live?.is_member || database?.is_member) {
+                        return {
+                            ...(database || live || {}),
+                            is_member: true,
+                            is_occupied: false,
+                        };
+                    }
+
+                    return live || database || null;
+                },
+                getComputerOccupancy: ({objectId}) => {
+                    const key = normalizeTableObjectKey(objectId);
+                    if (!key) return null;
+
+                    const live = liveComputerOccupancyRef.current[key] || null;
+                    const database = computerOccupancyRef.current[key] || null;
+
+                    if (live?.is_owner || database?.is_owner) {
+                        return {
+                            ...(database || live || {}),
+                            is_owner: true,
+                            is_occupied: false,
+                        };
+                    }
+
+                    return live || database || null;
+                },
             });
             socket.emit("request_update_users", {
                 course_id: user.course_id,

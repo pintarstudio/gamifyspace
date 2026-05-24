@@ -8,6 +8,7 @@ import {
     getIndividualActivityDuration,
     getActiveIndividualSession,
     getActiveIndividualSessionForObject,
+    getActiveIndividualOccupancy,
     getCompletedIndividualAssessmentsForTopics,
     getIndividualAnswers,
     getIndividualQuestionCount,
@@ -53,6 +54,15 @@ async function getAuthenticatedUser(req, res) {
 
 function normalizeObjectId(value) {
     return String(value || "computer").trim() || "computer";
+}
+
+function parseObjectIds(value) {
+    return Array.from(new Set(
+        String(value || "")
+            .split(",")
+            .map((item) => item.trim())
+            .filter(Boolean)
+    ));
 }
 
 function normalizeActivityType(value) {
@@ -338,6 +348,37 @@ async function completeTimedOutIndividualSession(session, questions, user, answe
         return completeCaseSession(session, caseQuestion, user, answerText, {timedOut: true});
     }
     return completeMultipleChoiceSession(session, questions, user, {timedOut: true});
+}
+
+export async function getIndividualOccupancy(req, res) {
+    try {
+        await ensureIndividualActivityTables();
+        const user = await getAuthenticatedUser(req, res);
+        if (!user) return;
+
+        const objectIds = parseObjectIds(req.query.objects);
+        const rows = await getActiveIndividualOccupancy({
+            courseId: user.course_id,
+            objectIds,
+            userId: user.user_id,
+        });
+
+        res.json({
+            occupancy: rows.map((row) => ({
+                session_id: row.session_id,
+                object_id: row.object_id,
+                user_id: row.user_id,
+                user_name: row.user_name,
+                activity_type: row.activity_type,
+                question_kind: row.question_kind,
+                is_owner: !!row.is_owner,
+                is_occupied: !row.is_owner,
+            })),
+        });
+    } catch (error) {
+        console.error("Individual occupancy error:", error);
+        res.status(500).json({message: "Gagal memuat status komputer"});
+    }
 }
 
 export async function getIndividualContext(req, res) {

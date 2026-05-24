@@ -330,7 +330,7 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack, activit
         const status = ACTIVITY_STATUS.group_discussion;
         const activityKey = `${status.type}:${activeSession.session_id}`;
         const metadata = {
-            object_id: activeSession.object_id || objectId,
+            object_id: objectId || activeSession.object_id,
             group_id: activeSession.group_id,
         };
         const refreshStatus = () => {
@@ -419,7 +419,7 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack, activit
         setBusy(true);
         setMessage("");
         const statusResult = await reserveGroupActivityStatus(`${ACTIVITY_STATUS.group_discussion.type}:${session.session_id}`, {
-            object_id: session.object_id || objectId,
+            object_id: objectId || session.object_id,
             group_id: session.group_id || nextGroupId,
         });
         if (!statusResult.ok) {
@@ -427,7 +427,9 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack, activit
             return;
         }
 
-        const data = await apiPost(`/table/sessions/${session.session_id}/join`, {});
+        const data = await apiPost(`/table/sessions/${session.session_id}/join`, {
+            object_id: objectId || null,
+        });
         if (data.session) {
             if (noVirtual) setSelectedEntryGroupId(nextGroupId);
             setActiveSession(stampSession(data.session));

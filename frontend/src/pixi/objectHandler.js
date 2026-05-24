@@ -38,6 +38,36 @@ const GUIDE_MESSAGES = {
 
 const getGuideMessage = (name) => GUIDE_MESSAGES[String(name || "").toLowerCase()] || null;
 
+const isTableActivityObject = (object) =>
+    String(object?.nameProp || "").toLowerCase() === "table"
+    && String(object?.urlProp || "").toLowerCase().includes("/table");
+
+const isComputerActivityObject = (object) =>
+    String(object?.nameProp || "").toLowerCase() === "computer"
+    && String(object?.urlProp || "").toLowerCase().includes("/individual");
+
+const getTableOccupancy = (object, options = {}) => {
+    if (!isTableActivityObject(object)) return null;
+    const objectId = hasValue(object.idProp) ? object.idProp : object.obj?.id || null;
+    return options.getTableOccupancy?.({
+        objectId,
+        groupId: object.groupProp,
+    }) || null;
+};
+
+const getComputerOccupancy = (object, options = {}) => {
+    if (!isComputerActivityObject(object)) return null;
+    const objectId = hasValue(object.idProp) ? object.idProp : object.obj?.id || null;
+    return options.getComputerOccupancy?.({
+        objectId,
+    }) || null;
+};
+
+const isObjectOccupiedByOtherUser = (object, options = {}) => {
+    const occupancy = getTableOccupancy(object, options) || getComputerOccupancy(object, options);
+    return !!occupancy?.is_occupied && !occupancy?.is_member && !occupancy?.is_owner;
+};
+
 const getGuideBubbleColors = (name) => {
     const normalized = String(name || "").toLowerCase();
     if (normalized === "guide-computer") return {fill: 0x30260f, border: 0xfacc15};
@@ -243,7 +273,32 @@ export function initObjects(app, worldContainer, roomData, user, localUserRef, z
                 worldContainer.addChild(infoText);
             }
 
-            objects.push({sprite, hintText, infoText, actionProp, urlProp, idProp, nameProp, groupProp, obj, targetRoomProp, hasInteraction});
+            const occupiedMessage = String(nameProp || "").toLowerCase() === "table" && String(urlProp || "").toLowerCase().includes("/table")
+                ? "Meja sedang digunakan"
+                : String(nameProp || "").toLowerCase() === "computer" && String(urlProp || "").toLowerCase().includes("/individual")
+                    ? "Komputer sedang digunakan"
+                    : null;
+
+            const occupiedText = occupiedMessage
+                ? createPixelBubble({
+                    text: occupiedMessage,
+                    fontSize: 11,
+                    maxWidth: 170,
+                    fill: 0x321525,
+                    border: 0xfb7185,
+                    textFill: "#fff7ed",
+                })
+                : null;
+
+            if (occupiedText) {
+                occupiedText.visible = false;
+                occupiedText.x = sprite.x + sprite.width / 2;
+                occupiedText.y = sprite.y - 18;
+                occupiedText.zIndex = sprite.zIndex + 1;
+                worldContainer.addChild(occupiedText);
+            }
+
+            objects.push({sprite, hintText, infoText, occupiedText, actionProp, urlProp, idProp, nameProp, groupProp, obj, targetRoomProp, hasInteraction});
         });
     });
 
@@ -263,7 +318,7 @@ export function initObjects(app, worldContainer, roomData, user, localUserRef, z
 
         if (options.isInteractionDisabled?.()) return;
 
-        const activeObject = objects.find((o) => o.hintText?.visible);
+        const activeObject = objects.find((o) => o.hintText?.visible || o.occupiedText?.visible);
         if (!activeObject) return;
 
         e.preventDefault();
@@ -273,6 +328,30 @@ export function initObjects(app, worldContainer, roomData, user, localUserRef, z
         const objectId = hasValue(activeObject.idProp) ? activeObject.idProp : activeObject.obj.id || null;
         const objectKind = String(objectName).toLowerCase();
         const activeActivityStatus = localUserRef.current?.activity_status;
+        const bigTablePairId = Number.isFinite(Number(objectId))
+            ? `bigtable-${Math.ceil(Number(objectId) / 2)}`
+            : objectId;
+        const tableId = objectKind === "bigtable" ? (activeObject.groupProp || bigTablePairId) : null;
+        const groupId = objectKind === "table" ? activeObject.groupProp : tableId;
+
+        if (isObjectOccupiedByOtherUser(activeObject, options)) {
+            if (activeObject.occupiedText) {
+                activeObject.occupiedText.visible = true;
+                activeObject.occupiedText.x = activeObject.sprite.x + activeObject.sprite.width / 2;
+                activeObject.occupiedText.y = activeObject.sprite.y - 18;
+                activeObject.occupiedText.__hideAt = performance.now() + 3000;
+            }
+            socket.emit("interact_obj", {
+                user_id: userId,
+                object_name: objectName,
+                object_id: objectId,
+                group_id: groupId,
+                table_id: tableId,
+                action: "occupied",
+            });
+            return;
+        }
+
         if (getGuideMessage(objectName)) {
             if (activeObject.infoText) {
                 activeObject.infoText.visible = true;
@@ -304,11 +383,6 @@ export function initObjects(app, worldContainer, roomData, user, localUserRef, z
             return;
         }
 
-        const bigTablePairId = Number.isFinite(Number(objectId))
-            ? `bigtable-${Math.ceil(Number(objectId) / 2)}`
-            : objectId;
-        const tableId = objectKind === "bigtable" ? (activeObject.groupProp || bigTablePairId) : null;
-        const groupId = objectKind === "table" ? activeObject.groupProp : tableId;
         const finalUrl = buildInteractionUrl(activeObject.urlProp, {
             user_id: userId,
             object_name: objectName,
@@ -437,11 +511,12 @@ export function initObjects(app, worldContainer, roomData, user, localUserRef, z
             const isGuideObject = !!getGuideMessage(o.nameProp);
             const suppressActivityPrompt = hasActiveActivity && !isGuideObject && !!o.urlProp;
             const isActive = !suppressActivityPrompt && o === nearest;
+            const isOccupied = isActive && isObjectOccupiedByOtherUser(o, options);
 
             // Hint: show only for the nearest interactable
             if (o.hintText) {
-                o.hintText.visible = !!isActive;
-                if (isActive) {
+                o.hintText.visible = !!isActive && !isOccupied;
+                if (isActive && !isOccupied) {
                     o.hintText.x = o.sprite.x + o.sprite.width / 2;
                     o.hintText.y = o.sprite.y - 18;
                     const nextPromptRect = labelRect(o.hintText, 4);
@@ -453,6 +528,29 @@ export function initObjects(app, worldContainer, roomData, user, localUserRef, z
                         );
                     o.hintText.visible = !overlapsProtectedLabel;
                     if (!overlapsProtectedLabel) activePromptRect = nextPromptRect;
+                }
+            }
+
+            if (o.occupiedText) {
+                o.occupiedText.visible = !!isOccupied;
+                if (isOccupied || o.occupiedText.__hideAt) {
+                    if (o.occupiedText.__hideAt && performance.now() > o.occupiedText.__hideAt) {
+                        o.occupiedText.__hideAt = null;
+                        o.occupiedText.visible = false;
+                    }
+                    if (o.occupiedText.visible) {
+                        o.occupiedText.x = o.sprite.x + o.sprite.width / 2;
+                        o.occupiedText.y = o.sprite.y - 18;
+                        const nextPromptRect = labelRect(o.occupiedText, 4);
+                        const overlapsProtectedLabel = (worldContainer.__labelCollisionRects || [])
+                            .some((item) =>
+                                item.type !== "object-prompt"
+                                && (item.priority || 0) >= 100
+                                && rectsOverlap(nextPromptRect, item.rect)
+                            );
+                        o.occupiedText.visible = !overlapsProtectedLabel;
+                        if (!overlapsProtectedLabel) activePromptRect = nextPromptRect;
+                    }
                 }
             }
 
@@ -469,7 +567,7 @@ export function initObjects(app, worldContainer, roomData, user, localUserRef, z
 
             if (isActive) {
                 // Glow-ish highlight via tint + gentle scale pulse
-                o.sprite.tint = HIGHLIGHT_TINT;
+                o.sprite.tint = isOccupied ? 0xffc4d6 : HIGHLIGHT_TINT;
                 o.sprite.alpha = 1;
                 const bx = o.sprite.__baseScaleX ?? o.sprite.scale.x;
                 const by = o.sprite.__baseScaleY ?? o.sprite.scale.y;
@@ -478,6 +576,7 @@ export function initObjects(app, worldContainer, roomData, user, localUserRef, z
                 // Keep sorting stable (object remains correctly in front/behind)
                 o.sprite.zIndex = o.sprite.y + o.sprite.height;
                 if (o.hintText) o.hintText.zIndex = o.sprite.zIndex + 1;
+                if (o.occupiedText) o.occupiedText.zIndex = o.sprite.zIndex + 1;
                 if (o.infoText) o.infoText.zIndex = o.sprite.zIndex + 2;
             } else {
                 // Restore normal look

@@ -295,6 +295,36 @@ export async function getActiveIndividualSessionForObject({courseId, objectId}) 
     return result.rows[0] || null;
 }
 
+export async function getActiveIndividualOccupancy({courseId, objectIds = [], userId = null}) {
+    const safeObjectIds = Array.from(new Set(
+        (Array.isArray(objectIds) ? objectIds : [])
+            .map((objectId) => String(objectId || "").trim())
+            .filter(Boolean)
+    ));
+    if (safeObjectIds.length === 0) return [];
+
+    const result = await pool.query(
+        `SELECT
+             ias.session_id,
+             ias.object_id,
+             ias.user_id,
+             u.name AS user_name,
+             ias.activity_type,
+             ias.question_kind,
+             ias.started_at,
+             ias.duration_seconds,
+             (ias.user_id = $3) AS is_owner
+         FROM individual_activity_sessions ias
+         LEFT JOIN users u ON u.user_id = ias.user_id
+         WHERE ias.course_id = $1
+           AND COALESCE(ias.object_id, '') = ANY($2::text[])
+           AND ias.status = 'in_progress'
+         ORDER BY ias.started_at DESC`,
+        [courseId, safeObjectIds, userId || null]
+    );
+    return result.rows;
+}
+
 export async function getIndividualSessionById(sessionId) {
     const result = await pool.query(
         `SELECT *

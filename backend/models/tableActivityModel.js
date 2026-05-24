@@ -154,12 +154,14 @@ export async function ensureTableActivityTables() {
             session_id INTEGER NOT NULL REFERENCES table_group_sessions(session_id) ON DELETE CASCADE,
             user_id INTEGER NOT NULL,
             avatar_public_path TEXT,
+            object_id TEXT,
             is_active BOOLEAN NOT NULL DEFAULT TRUE,
             joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             UNIQUE (session_id, user_id)
         )
     `);
+    await pool.query(`ALTER TABLE table_group_members ADD COLUMN IF NOT EXISTS object_id TEXT`);
 
     await pool.query(`
         CREATE TABLE IF NOT EXISTS table_group_answers (
@@ -358,6 +360,68 @@ export async function getActiveGroupSession(courseId, groupId, courseGroupId = n
     return result.rows[0] || null;
 }
 
+export async function getActiveGroupOccupancy({courseId, courseGroupId = null, groupIds = [], userId = null}) {
+    const safeGroupIds = Array.from(new Set(
+        (Array.isArray(groupIds) ? groupIds : [])
+            .map((groupId) => Number.parseInt(groupId, 10))
+            .filter((groupId) => Number.isFinite(groupId) && groupId > 0)
+    ));
+
+    await Promise.all(
+        safeGroupIds.map((groupId) => cleanupStaleMembersForGroup(courseId, groupId, courseGroupId))
+    );
+
+    const params = [courseId, courseGroupId || null, userId || null];
+    const groupFilter = safeGroupIds.length > 0
+        ? `AND s.group_id = ANY($${params.push(safeGroupIds)}::int[])`
+        : "";
+
+    const result = await pool.query(
+        `SELECT
+             s.session_id,
+             s.group_id,
+             s.object_id,
+             s.created_by,
+             s.work_started_at,
+             s.submitted_at,
+             s.feedback_status,
+             COALESCE(
+                 JSON_AGG(
+                     JSON_BUILD_OBJECT(
+                         'user_id', m.user_id,
+                         'name', u.name,
+                         'avatar_public_path', m.avatar_public_path,
+                         'object_id', m.object_id
+                     )
+                     ORDER BY m.joined_at ASC
+                 ) FILTER (WHERE m.member_id IS NOT NULL AND m.is_active = TRUE),
+                 '[]'::json
+             ) AS members,
+             COALESCE(BOOL_OR(m.is_active = TRUE AND m.user_id = $3), FALSE) AS is_member
+         FROM table_group_sessions s
+         LEFT JOIN table_group_members m
+           ON m.session_id = s.session_id
+          AND m.is_active = TRUE
+         LEFT JOIN users u ON u.user_id = m.user_id
+         WHERE s.course_id = $1
+           AND s.course_group_id IS NOT DISTINCT FROM $2
+           AND s.is_active = TRUE
+           ${groupFilter}
+         GROUP BY
+             s.session_id,
+             s.group_id,
+             s.object_id,
+             s.created_by,
+             s.work_started_at,
+             s.submitted_at,
+             s.feedback_status
+         ORDER BY s.group_id ASC`,
+        params
+    );
+
+    return result.rows;
+}
+
 export async function getSessionById(sessionId) {
     await cleanupStaleMembers(sessionId);
 
@@ -381,6 +445,7 @@ export async function getSessionMembers(sessionId) {
              u.name,
              u.email,
              m.avatar_public_path,
+             m.object_id,
              m.joined_at,
              m.last_seen_at,
              m.is_active
@@ -440,16 +505,17 @@ export async function getSessionFeedbackGroups(sessionId) {
     return result.rows;
 }
 
-export async function addMemberToSession(sessionId, user) {
+export async function addMemberToSession(sessionId, user, objectId = null) {
     await pool.query(
-        `INSERT INTO table_group_members (session_id, user_id, avatar_public_path)
-         VALUES ($1, $2, $3)
+        `INSERT INTO table_group_members (session_id, user_id, avatar_public_path, object_id)
+         VALUES ($1, $2, $3, $4)
          ON CONFLICT (session_id, user_id)
          DO UPDATE SET
              is_active = TRUE,
              avatar_public_path = EXCLUDED.avatar_public_path,
+             object_id = COALESCE(EXCLUDED.object_id, table_group_members.object_id),
              last_seen_at = NOW()`,
-        [sessionId, user.user_id, user.avatar_public_path || null]
+        [sessionId, user.user_id, user.avatar_public_path || null, objectId || null]
     );
 }
 
@@ -569,10 +635,10 @@ export async function createGroupSession({course, topic, caseStudy, groupId, obj
 
         const sessionId = created.rows[0].session_id;
         await client.query(
-            `INSERT INTO table_group_members (session_id, user_id, avatar_public_path)
-             VALUES ($1, $2, $3)
+            `INSERT INTO table_group_members (session_id, user_id, avatar_public_path, object_id)
+             VALUES ($1, $2, $3, $4)
              ON CONFLICT (session_id, user_id) DO NOTHING`,
-            [sessionId, user.user_id, user.avatar_public_path || null]
+            [sessionId, user.user_id, user.avatar_public_path || null, objectId || null]
         );
 
         await client.query("COMMIT");

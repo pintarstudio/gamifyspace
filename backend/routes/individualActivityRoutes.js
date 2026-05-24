@@ -3,6 +3,7 @@ import {
     answerIndividualQuestion,
     exitIndividualSession,
     getIndividualContext,
+    getIndividualOccupancy,
     getIndividualSession,
     startIndividualSession,
     submitIndividualCase,
@@ -13,6 +14,7 @@ import {
 const router = express.Router();
 
 router.get("/context", getIndividualContext);
+router.get("/occupancy", getIndividualOccupancy);
 router.post("/sessions", startIndividualSession);
 router.get("/sessions/:sessionId", getIndividualSession);
 router.post("/sessions/:sessionId/answer", answerIndividualQuestion);

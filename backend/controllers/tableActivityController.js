@@ -12,6 +12,7 @@ import {
     exitSessionMember,
     GROUP_ACTIVITY_DURATION_SECONDS,
     GROUP_START_DELAY_SECONDS,
+    getActiveGroupOccupancy,
     getActiveGroupSession,
     getCourseById,
     getSessionAnswers,
@@ -50,6 +51,15 @@ async function getAuthenticatedUser(req, res) {
 function normalizeGroupId(groupId) {
     const parsed = Number.parseInt(groupId || "1", 10);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+}
+
+function parseGroupIds(value) {
+    return Array.from(new Set(
+        String(value || "")
+            .split(",")
+            .map((item) => Number.parseInt(item.trim(), 10))
+            .filter((item) => Number.isFinite(item) && item > 0)
+    ));
 }
 
 function sameCourseGroup(session, user) {
@@ -260,6 +270,51 @@ async function submitTimedOutGroupSession(session, user, answerText = "") {
     return submitted;
 }
 
+export async function getTableOccupancy(req, res) {
+    try {
+        await ensureTableActivityTables();
+        const user = await getAuthenticatedUser(req, res);
+        if (!user) return;
+
+        const groupIds = parseGroupIds(req.query.groups);
+        const rows = await getActiveGroupOccupancy({
+            courseId: user.course_id,
+            courseGroupId: user.course_group_id || null,
+            groupIds,
+            userId: user.user_id,
+        });
+
+        res.json({
+            occupancy: rows.map((row) => {
+                const members = Array.isArray(row.members) ? row.members : [];
+                const occupiedObjectIds = Array.from(new Set(
+                    [row.object_id, ...members.map((member) => member.object_id)]
+                        .map((value) => String(value || "").trim())
+                        .filter(Boolean)
+                ));
+                const isMember = !!row.is_member;
+                return {
+                    session_id: row.session_id,
+                    group_id: row.group_id,
+                    object_id: row.object_id,
+                    occupied_object_ids: occupiedObjectIds,
+                    status: row.submitted_at
+                        ? "submitted"
+                        : row.work_started_at ? "started" : "waiting",
+                    feedback_status: row.feedback_status || "idle",
+                    is_member: isMember,
+                    is_occupied: !isMember,
+                    member_count: members.length,
+                    member_names: members.map((member) => member.name).filter(Boolean),
+                };
+            }),
+        });
+    } catch (error) {
+        console.error("Table occupancy error:", error);
+        res.status(500).json({message: "Gagal memuat status meja"});
+    }
+}
+
 export async function getTableContext(req, res) {
     try {
         await ensureTableActivityTables();
@@ -374,7 +429,7 @@ export async function joinTableSession(req, res) {
             return res.status(409).json({message: "Group sudah penuh"});
         }
 
-        await addMemberToSession(session.session_id, user);
+        await addMemberToSession(session.session_id, user, req.body.object_id || null);
         const {members, answers, feedbackGroups, gamification} = await loadSessionActivity(session, user);
         emitGroupEvent(req, session.session_id, "group:lobby_updated", {status: "lobby"});
 

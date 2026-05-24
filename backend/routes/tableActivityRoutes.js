@@ -1,6 +1,7 @@
 import express from "express";
 import {
     getTableContext,
+    getTableOccupancy,
     getTableSession,
     beginTableSessionWork,
     exitTableSession,
@@ -15,6 +16,7 @@ import {
 const router = express.Router();
 
 router.get("/context", getTableContext);
+router.get("/occupancy", getTableOccupancy);
 router.post("/sessions", startTableSession);
 router.get("/sessions/:sessionId", getTableSession);
 router.post("/sessions/:sessionId/join", joinTableSession);
