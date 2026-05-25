@@ -10,6 +10,7 @@ import IndividualActivityPage from "./IndividualActivityPage";
 import TableActivityPage from "./TableActivityPage";
 import QuizActivityPage from "./QuizActivityPage";
 import {ACTIVITY_STATUS, clearActivityStatus, isActivityStatusActive, setActivityStatus} from "../utils/activityStatus";
+import socket from "../utils/socketClient";
 import "./VirtualSpacePage.css";
 
 const choiceLabel = (index) => ["A", "B", "C", "D"][index] || String(index + 1);
@@ -79,6 +80,8 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
     const navigate = useNavigate();
     const isInstructor = String(currentUser?.role_name || "").toLowerCase() === "instructor"
         || String(currentUser?.role_id || "") === "2";
+    const currentUserCourseId = currentUser?.course_id;
+    const currentUserId = currentUser?.user_id;
 
     useEffect(() => {
         if (!user) {
@@ -121,9 +124,10 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
     }, [currentUser?.user_id, isInstructor]);
 
     useEffect(() => {
-        if (!currentUser || !isInstructor) return undefined;
+        if (!currentUserId || !isInstructor) return undefined;
 
         let active = true;
+        let refreshTimeoutId = null;
         const loadInstructorDashboard = () => {
             apiGet("/instructor/dashboard").then((data) => {
                 if (!active) return;
@@ -132,15 +136,35 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
                 console.error("Unable to load instructor dashboard:", error);
             });
         };
+        const scheduleDashboardRefresh = () => {
+            if (refreshTimeoutId) window.clearTimeout(refreshTimeoutId);
+            refreshTimeoutId = window.setTimeout(loadInstructorDashboard, 150);
+        };
+        const joinMonitor = () => {
+            if (currentUserCourseId) {
+                socket.emit("instructor:monitor:join", {course_id: currentUserCourseId});
+            }
+        };
+        const handleSocketConnect = () => {
+            joinMonitor();
+            loadInstructorDashboard();
+        };
 
         loadInstructorDashboard();
-        const intervalId = window.setInterval(loadInstructorDashboard, 5000);
+        joinMonitor();
+        socket.on("connect", handleSocketConnect);
+        socket.on("instructor:monitor:update", scheduleDashboardRefresh);
 
         return () => {
             active = false;
-            window.clearInterval(intervalId);
+            if (refreshTimeoutId) window.clearTimeout(refreshTimeoutId);
+            if (currentUserCourseId) {
+                socket.emit("instructor:monitor:leave", {course_id: currentUserCourseId});
+            }
+            socket.off("connect", handleSocketConnect);
+            socket.off("instructor:monitor:update", scheduleDashboardRefresh);
         };
-    }, [currentUser, isInstructor]);
+    }, [currentUserCourseId, currentUserId, isInstructor]);
 
     const handleLogout = async () => {
         // kirim event ke server agar broadcast "user_left"
@@ -363,10 +387,18 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
     const currentDashboardTab = activeDashboardTab && visibleTabs.some((tab) => tab.id === activeDashboardTab)
         ? activeDashboardTab
         : (showGameLayer ? "leaderboard" : "individual");
-    const instructorSummary = instructorDashboard?.summary || {};
-    const instructorGroups = instructorDashboard?.groups || [];
-    const instructorStudents = instructorDashboard?.students || [];
+    const instructorMonitor = instructorDashboard?.monitor || {};
+    const instructorSummary = instructorMonitor.summary || instructorDashboard?.summary || {};
+    const instructorGroups = instructorMonitor.groups || instructorDashboard?.groups || [];
+    const instructorStudents = instructorMonitor.students || instructorDashboard?.students || [];
     const activeInstructorStudents = instructorStudents.filter((student) => student.status === "active");
+    const individualActivityStudents = activeInstructorStudents.filter((student) =>
+        ["individual", "individual_exercise", "individual_pre_test", "individual_post_test"].includes(student.activity?.type)
+    );
+    const groupActivityStudents = activeInstructorStudents.filter((student) =>
+        ["table", "group_discussion"].includes(student.activity?.type)
+    );
+    const quizActivityStudents = activeInstructorStudents.filter((student) => student.activity?.type === "quiz");
     const idleInstructorStudents = instructorStudents.filter((student) => student.status === "idle");
     const offlineInstructorStudents = instructorStudents.filter((student) => student.status === "offline");
 
@@ -398,43 +430,6 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
                 <p className="panel-empty">No students here yet.</p>
             )}
         </div>
-    );
-
-    const renderInstructorSessions = (title, sessions, type) => (
-        <section className="instructor-monitor-section">
-            <div className="side-panel__title">
-                <h2>{title}</h2>
-                <span>{sessions.length}</span>
-            </div>
-            <div className="instructor-session-list">
-                {sessions.length > 0 ? (
-                    sessions.map((session) => {
-                        const sessionKey = session.session_id || session.quiz_session_id;
-                        const members = session.members || [];
-                        return (
-                            <article className="instructor-session-card" key={`${type}-${sessionKey}`}>
-                                <strong>
-                                    {session.topic_name || "Topic"}
-                                    {session.case_title ? ` · ${session.case_title}` : ""}
-                                </strong>
-                                <span>
-                                    {type === "quiz"
-                                        ? `${session.status} · Question ${Math.min((session.current_question_index || 0) + 1, session.total_questions || 1)} of ${session.total_questions || 1}`
-                                        : type === "individual"
-                                            ? `${session.name} · ${session.course_group_name || "No group"}`
-                                            : `${members.length} members`}
-                                </span>
-                                {members.length > 0 && (
-                                    <small>{members.map((member) => member.name).join(", ")}</small>
-                                )}
-                            </article>
-                        );
-                    })
-                ) : (
-                    <p className="panel-empty">No active sessions.</p>
-                )}
-            </div>
-        </section>
     );
 
     const renderInstructorDashboard = () => (
@@ -500,10 +495,26 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
 
             <section className="instructor-monitor-section">
                 <div className="side-panel__title">
-                    <h2>Doing Something</h2>
-                    <span>{activeInstructorStudents.length}</span>
+                    <h2>Individual Activity</h2>
+                    <span>{individualActivityStudents.length}</span>
                 </div>
-                {renderInstructorStudentRows(activeInstructorStudents)}
+                {renderInstructorStudentRows(individualActivityStudents)}
+            </section>
+
+            <section className="instructor-monitor-section">
+                <div className="side-panel__title">
+                    <h2>Group Activity</h2>
+                    <span>{groupActivityStudents.length}</span>
+                </div>
+                {renderInstructorStudentRows(groupActivityStudents)}
+            </section>
+
+            <section className="instructor-monitor-section">
+                <div className="side-panel__title">
+                    <h2>Quiz Activity</h2>
+                    <span>{quizActivityStudents.length}</span>
+                </div>
+                {renderInstructorStudentRows(quizActivityStudents)}
             </section>
 
             <section className="instructor-monitor-section">
@@ -522,9 +533,6 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
                 {renderInstructorStudentRows(offlineInstructorStudents)}
             </section>
 
-            {renderInstructorSessions("Group Cases", instructorDashboard?.active_sessions?.table || [], "table")}
-            {renderInstructorSessions("Quiz Sessions", instructorDashboard?.active_sessions?.quiz || [], "quiz")}
-            {renderInstructorSessions("Individual Sessions", instructorDashboard?.active_sessions?.individual || [], "individual")}
         </section>
     );
 

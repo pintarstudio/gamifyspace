@@ -16,6 +16,11 @@ import {
     listRoles,
     updateRole,
 } from "./roleModel.js";
+import {
+    ensureSettingsTable,
+    listSettings,
+    updateSetting,
+} from "./settingsModel.js";
 
 let adminReadyPromise = null;
 const DEFAULT_INSTRUCTOR_ADMIN_PASSWORD = "12345678";
@@ -154,6 +159,7 @@ async function createAdminTables() {
 
     await ensureTopicAdminSchema();
     await ensureCourseInstructorSchema();
+    await ensureSettingsTable();
     await ensureUserAdminsForExistingInstructors();
 }
 
@@ -432,6 +438,7 @@ export async function listAdminResource(resource) {
     if (resource === "levels") await ensureGamificationTables();
     if (resource === "course-groups") return listCourseGroups();
     if (resource === "roles") return listRoles();
+    if (resource === "settings") return listSettings();
 
     if (resource === "levels") {
         const result = await pool.query(
@@ -790,6 +797,7 @@ export async function updateAdminResource(resource, id, payload) {
     if (resource === "levels") await ensureGamificationTables();
     if (resource === "course-groups") return updateCourseGroup(id, payload);
     if (resource === "roles") return updateRole(id, payload);
+    if (resource === "settings") return updateSetting(id, payload);
 
     if (resource === "levels") {
         const result = await pool.query(

@@ -76,6 +76,11 @@ function validatePayload(resource, payload, mode = "create") {
         return null;
     }
 
+    if (resource === "settings") {
+        if (mode !== "update") return "Settings hanya bisa diedit";
+        return null;
+    }
+
     if (resource === "courses") {
         if (!payload.course_code) return "Course code wajib diisi";
         if (!payload.course_name) return "Course name wajib diisi";

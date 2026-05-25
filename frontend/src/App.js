@@ -135,6 +135,7 @@ function App() {
                 <Route path="/leveladmin" element={<AdminPage/>}/>
                 <Route path="/avataradmin" element={<AdminPage/>}/>
                 <Route path="/roleadmin" element={<AdminPage/>}/>
+                <Route path="/settingsadmin" element={<AdminPage/>}/>
                 <Route path="/courseadmin" element={<AdminPage/>}/>
                 <Route path="/topicadmin" element={<AdminPage/>}/>
                 <Route path="/coursegroupadmin" element={<AdminPage/>}/>

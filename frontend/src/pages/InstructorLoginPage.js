@@ -51,13 +51,14 @@ const InstructorLoginPage = ({setLoggedIn, setUser}) => {
                 .then((data) => {
                     if (!active) return;
                     const courseRows = Array.isArray(data.courses) ? data.courses : [];
+                    const defaultCourseId = data.default_course_id || courseRows[0]?.course_id || "";
                     setCourses(courseRows);
                     setForm((current) => {
                         if (current.username.trim() !== username || current.password !== password) return current;
                         if (courseRows.some((course) => String(course.course_id) === String(current.course_id))) {
                             return current;
                         }
-                        return {...current, course_id: courseRows[0]?.course_id || ""};
+                        return {...current, course_id: defaultCourseId};
                     });
                     if (username && password && courseRows.length === 0) {
                         setCourseMessage(data.message || "No active course found for this instructor.");

@@ -284,6 +284,7 @@ export async function getInstructorDashboard(req, res) {
                      u.user_id,
                      u.name,
                      u.email,
+                     u.course_id,
                      u.course_group_id,
                      cg.group_name AS course_group_name,
                      cg.virtual_space_enabled,
@@ -494,9 +495,13 @@ export async function getInstructorDashboard(req, res) {
                 status: isActive ? "active" : isOnline ? "idle" : "offline",
             };
         });
+        const monitorStudents = students.filter((student) => String(student.course_id) === String(courseId));
 
         const groups = groupsResult.rows.map((group) => {
-            const groupStudents = students.filter((student) => String(student.course_group_id) === String(group.course_group_id));
+            const groupStudents = students.filter((student) =>
+                String(student.course_id) === String(group.course_id)
+                && String(student.course_group_id) === String(group.course_group_id)
+            );
             return {
                 ...group,
                 online_count: groupStudents.filter((student) => student.online).length,
@@ -513,13 +518,14 @@ export async function getInstructorDashboard(req, res) {
                 }).length,
             };
         });
+        const monitorGroups = groups.filter((group) => String(group.course_id) === String(courseId));
 
-        const summary = {
-            total_students: students.length,
-            online_students: students.filter((student) => student.online).length,
-            active_students: students.filter((student) => student.status === "active").length,
-            idle_students: students.filter((student) => student.status === "idle").length,
-            offline_students: students.filter((student) => student.status === "offline").length,
+        const monitorSummary = {
+            total_students: monitorStudents.length,
+            online_students: monitorStudents.filter((student) => student.online).length,
+            active_students: monitorStudents.filter((student) => student.status === "active").length,
+            idle_students: monitorStudents.filter((student) => student.status === "idle").length,
+            offline_students: monitorStudents.filter((student) => student.status === "offline").length,
             active_table_sessions: activeTableSessions.length,
             active_quiz_sessions: activeQuizSessions.length,
             active_individual_sessions: activeIndividualSessions.length,
@@ -528,6 +534,7 @@ export async function getInstructorDashboard(req, res) {
             completed_quizzes: totalsResult.rows[0]?.completed_quizzes || 0,
             completed_individual: totalsResult.rows[0]?.completed_individual || 0,
         };
+        const summary = {...monitorSummary};
 
         const [
             individualHistoryResult,
@@ -952,6 +959,7 @@ export async function getInstructorDashboard(req, res) {
         summary.managed_courses = analyticsCourses.length;
         summary.total_topics = analyticsCourses.reduce((total, course) => total + course.summary.total_topics, 0);
         summary.total_groups = analyticsCourses.reduce((total, course) => total + course.summary.total_groups, 0);
+        summary.total_students = analyticsCourses.reduce((total, course) => total + course.summary.total_students, 0);
         summary.total_activities = analyticsCourses.reduce((total, course) => total + course.summary.total_activities, 0);
         summary.total_group_xp = analyticsCourses.reduce((total, course) => total + course.summary.total_group_xp, 0);
         summary.total_individual_xp = analyticsCourses.reduce((total, course) => total + course.summary.total_individual_xp, 0);
@@ -967,8 +975,18 @@ export async function getInstructorDashboard(req, res) {
             },
             generated_at: new Date().toISOString(),
             summary,
-            groups,
-            students,
+            monitor: {
+                summary: monitorSummary,
+                groups: monitorGroups,
+                students: monitorStudents,
+                active_sessions: {
+                    table: activeTableSessions,
+                    quiz: activeQuizSessions,
+                    individual: activeIndividualSessions,
+                },
+            },
+            groups: monitorGroups,
+            students: monitorStudents,
             active_sessions: {
                 table: activeTableSessions,
                 quiz: activeQuizSessions,

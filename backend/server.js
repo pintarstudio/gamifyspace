@@ -142,6 +142,22 @@ function buildScopedRoom({courseId, room}) {
     return `course:${normalizedCourseId}:room:${normalizeRoomName(room)}`;
 }
 
+function buildInstructorMonitorRoom(courseId) {
+    const normalizedCourseId = normalizeCourseId(courseId);
+    return normalizedCourseId ? `instructor:monitor:${normalizedCourseId}` : null;
+}
+
+function emitInstructorMonitorUpdate(courseId, reason, payload = {}) {
+    const room = buildInstructorMonitorRoom(courseId);
+    if (!room) return;
+    io.to(room).emit("instructor:monitor:update", {
+        course_id: normalizeCourseId(courseId),
+        reason,
+        updated_at: new Date().toISOString(),
+        ...payload,
+    });
+}
+
 function buildQuizSessionRoom(sessionId) {
     const parsed = Number.parseInt(sessionId, 10);
     return Number.isFinite(parsed) && parsed > 0 ? `quiz:session:${parsed}` : null;
@@ -222,6 +238,7 @@ function clearActivityStatusForUser({courseId, userId, activityKey = null, broad
         delete u.activity_status;
     });
     if (broadcast) broadcastRoomsForEntries(entries);
+    emitInstructorMonitorUpdate(courseId, "activity_status_cleared", {user_id: userId});
     return true;
 }
 
@@ -294,6 +311,7 @@ function setActivityStatusForUser({courseId, userId, status}) {
     });
     scheduleActivityStatusTimeout(courseId, userId, nextStatus.activity_key);
     broadcastRoomsForEntries(entries);
+    emitInstructorMonitorUpdate(courseId, "activity_status_set", {user_id: userId});
 
     return {ok: true, status: sanitizeActivityStatus(nextStatus)};
 }
@@ -487,6 +505,16 @@ io.on("connection", (socket) => {
         if (room) socket.leave(room);
     });
 
+    socket.on("instructor:monitor:join", (data = {}) => {
+        const room = buildInstructorMonitorRoom(data.course_id);
+        if (room) socket.join(room);
+    });
+
+    socket.on("instructor:monitor:leave", (data = {}) => {
+        const room = buildInstructorMonitorRoom(data.course_id);
+        if (room) socket.leave(room);
+    });
+
     // Join room handler
     socket.on("join_room", ({user, room}) => {
         if (!user || !room) return;
@@ -535,6 +563,7 @@ io.on("connection", (socket) => {
         io.to(scopedRoom).emit("update_users", getUsersInRoom(scopedRoom));
 
         logUserAction(user.user_id, "enter_room", {course_id: courseId, room: visibleRoom, position: {x: spawnX, y: spawnY}});
+        emitInstructorMonitorUpdate(courseId, "presence_joined", {user_id: user.user_id});
     });
 
     socket.on("move", (pos) => {
@@ -589,6 +618,7 @@ io.on("connection", (socket) => {
             io.to(scopedRoom).emit("user_left", u.user_id);
             delete users[socket.id];
             io.to(scopedRoom).emit("update_users", getUsersInRoom(scopedRoom));
+            emitInstructorMonitorUpdate(u.course_id, "presence_left", {user_id: u.user_id});
         }
         delete userRooms[socket.id];
         console.log("👋 User logged out:", socket.id);
@@ -603,6 +633,7 @@ io.on("connection", (socket) => {
             io.to(scopedRoom).emit("user_left", u.user_id); // 🔹 notify others
             delete users[socket.id];
             io.to(scopedRoom).emit("update_users", getUsersInRoom(scopedRoom));
+            emitInstructorMonitorUpdate(u.course_id, "presence_left", {user_id: u.user_id});
         }
         delete userRooms[socket.id];
         console.log("🔴 User disconnected:", socket.id);

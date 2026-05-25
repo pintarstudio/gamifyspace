@@ -6,6 +6,7 @@ import {findAvatarById, getDefaultAvatar} from "../models/avatarModel.js";
 import {INSTRUCTOR_ROLE_ID, STUDENT_ROLE_ID} from "../models/roleModel.js";
 import {findAdminByUsername, updateAdminLastLogin, verifyAdminPassword} from "../models/adminModel.js";
 import {leaveStudentGroupRoomsForLogout} from "../models/chatModel.js";
+import {getBooleanSetting, SETTING_KEYS} from "../models/settingsModel.js";
 import {v4 as uuidv4} from "uuid";
 
 const normalizeLookupText = (value) =>
@@ -191,6 +192,16 @@ export async function resolveDemoLogin(req, res) {
 
                 user = existingEmailUser;
             } else {
+                const allowUrlLoginUserCreation = await getBooleanSetting(
+                    SETTING_KEYS.ALLOW_URL_LOGIN_USER_CREATION,
+                    true
+                );
+                if (!allowUrlLoginUserCreation) {
+                    return res.status(403).json({
+                        message: "Pembuatan akun baru dari link login tidak diizinkan. Silakan hubungi administrator.",
+                    });
+                }
+
                 user = await createDemoUser({
                     name: studentName,
                     email: studentEmail,
@@ -245,6 +256,9 @@ export async function instructorLoginCourses(req, res) {
 
         res.json({
             courses: context.courses.map(instructorCoursePayload),
+            default_course_id: context.courses.some((course) => String(course.course_id) === String(context.user.course_id))
+                ? context.user.course_id
+                : context.courses[0]?.course_id || null,
         });
     } catch (error) {
         console.error("Instructor course lookup error:", error);

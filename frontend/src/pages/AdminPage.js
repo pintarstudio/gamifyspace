@@ -187,6 +187,23 @@ const MENU_GROUPS = [
                     {key: "role_name", label: "Role Name", required: true},
                 ],
             },
+            {
+                label: "Settings",
+                path: "/settingsadmin",
+                resource: "settings",
+                idKey: "setting_id",
+                canAdd: false,
+                canDelete: false,
+                description: "Manage small system settings for access and behavior.",
+                tableColumns: [
+                    {key: "setting_name", label: "Setting"},
+                    {key: "setting_description", label: "Description"},
+                    {key: "boolean_value", label: "Enabled", type: "boolean", trueLabel: "Allowed", falseLabel: "Disabled"},
+                ],
+                fields: [
+                    {key: "boolean_value", label: "Enabled", type: "checkbox", trueLabel: "Allowed", falseLabel: "Disabled"},
+                ],
+            },
             COURSE_ITEM,
             TOPIC_ITEM,
             STUDENT_INSTRUCTOR_ITEM,
