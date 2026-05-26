@@ -4,6 +4,7 @@ import {useNavigate} from "react-router-dom";
 import {apiGet, apiPost} from "../api/apiClient";
 import AvatarIcon from "../components/AvatarIcon";
 import ChatLauncher from "../components/ChatLauncher";
+import DashboardTabIcon from "../components/DashboardTabIcon";
 import VirtualSpacePixi from "../components/VirtualSpacePixi";
 import UserHUD from "../components/UserHUD";
 import IndividualActivityPage from "./IndividualActivityPage";
@@ -44,6 +45,13 @@ const individualActivityLabel = (activity) => {
 const individualAnswerFeedback = (activity, answer) =>
     (activity.results?.wrong_answer_feedback || activity.feedback?.wrong_answer_feedback || [])
         .find((item) => String(item.question_id) === String(answer.question_id));
+
+const dashboardTabCopy = {
+    leaderboard: "Lihat peringkat XP group, skor quiz, dan progres individual di kelas.",
+    individual: "Riwayat latihan individual, pre-test, post-test, dan case study kamu ada di sini.",
+    group: "Riwayat diskusi group dan feedback case study tersimpan di sini.",
+    quiz: "Riwayat pertandingan quiz, skor, dan hasil menang/kalah dapat dicek di sini.",
+};
 
 const rankToneClass = (index) => {
     if (index === 0) return "course-leaderboard__rank--first";
@@ -401,14 +409,17 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
     const groupCaseActivities = groupActivities.filter((activity) => activity.activity_type !== "quiz");
     const quizActivities = groupActivities.filter((activity) => activity.activity_type === "quiz");
     const visibleTabs = [
-        ...(showGameLayer ? [{id: "leaderboard", label: "Leaderboard"}] : []),
-        {id: "individual", label: "Individual"},
-        {id: "group", label: "Group"},
-        {id: "quiz", label: "Quiz"},
+        ...(showGameLayer ? [{id: "leaderboard", label: "Leaderboard", caption: "Peringkat"}] : []),
+        {id: "individual", label: "Individual", caption: "Riwayat pribadi"},
+        {id: "group", label: "Group", caption: "Riwayat kolaborasi"},
+        {id: "quiz", label: "Quiz", caption: "Riwayat skor"},
     ];
     const currentDashboardTab = activeDashboardTab && visibleTabs.some((tab) => tab.id === activeDashboardTab)
         ? activeDashboardTab
         : (showGameLayer ? "leaderboard" : "individual");
+    const dashboardHistoryIntro = showGameLayer
+        ? "Buka tab di bawah untuk melihat leaderboard dan riwayat aktivitas yang sudah kamu kerjakan."
+        : "Buka tab di bawah untuk melihat riwayat aktivitas yang sudah kamu kerjakan.";
     const instructorMonitor = instructorDashboard?.monitor || {};
     const instructorSummary = instructorMonitor.summary || instructorDashboard?.summary || {};
     const instructorGroups = instructorMonitor.groups || instructorDashboard?.groups || [];
@@ -751,6 +762,10 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
 
                 {isInstructor ? renderInstructorDashboard() : (
                 <section className="side-panel dashboard-tabs-panel">
+                    <div className="dashboard-history-note">
+                        <strong>Riwayat aktivitas kamu</strong>
+                        <span>{dashboardHistoryIntro}</span>
+                    </div>
                     <div className="dashboard-tabs" role="tablist" aria-label="Dashboard sections">
                         {visibleTabs.map((tab) => (
                             <button
@@ -761,7 +776,13 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
                                 aria-selected={currentDashboardTab === tab.id}
                                 onClick={() => setActiveDashboardTab(tab.id)}
                             >
-                                {tab.label}
+                                <span className="dashboard-tab-icon">
+                                    <DashboardTabIcon type={tab.id} />
+                                </span>
+                                <span className="dashboard-tab-text">
+                                    <strong>{tab.label}</strong>
+                                    <small>{tab.caption}</small>
+                                </span>
                             </button>
                         ))}
                     </div>
@@ -772,6 +793,7 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
                                 <h2>Leaderboards</h2>
                                 <span>Course</span>
                             </div>
+                            <p className="dashboard-tab-copy">{dashboardTabCopy.leaderboard}</p>
                             {renderLeaderboards()}
                         </div>
                     )}
@@ -782,6 +804,7 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
                                 <h2>Individual Activity</h2>
                                 <span>{individualActivities.length}</span>
                             </div>
+                            <p className="dashboard-tab-copy">{dashboardTabCopy.individual}</p>
                             {renderActivityList(individualActivities, "No individual activities yet.")}
                         </div>
                     )}
@@ -792,6 +815,7 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
                                 <h2>Group Activity</h2>
                                 <span>{groupCaseActivities.length}</span>
                             </div>
+                            <p className="dashboard-tab-copy">{dashboardTabCopy.group}</p>
                             {renderActivityList(groupCaseActivities, "No group activities yet.")}
                         </div>
                     )}
@@ -802,6 +826,7 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
                                 <h2>Big Table Quiz</h2>
                                 <span>{quizActivities.length}</span>
                             </div>
+                            <p className="dashboard-tab-copy">{dashboardTabCopy.quiz}</p>
                             {renderActivityList(quizActivities, "No quiz activities yet.")}
                         </div>
                     )}

@@ -4,7 +4,6 @@ import {
     upsertTableSessionScores,
 } from "../models/gamificationModel.js";
 import {
-    addMemberToSession,
     beginFeedbackGeneration,
     beginFeedbackRetry,
     createGroupSession,
@@ -22,6 +21,7 @@ import {
     getSessionMembers,
     getTopicById,
     getTopicsForCourse,
+    joinTableMemberWithLimit,
     saveSessionAnswer,
     saveSessionFeedbackResult,
     selectAvailableCaseForStudent,
@@ -446,22 +446,24 @@ export async function joinTableSession(req, res) {
             return res.status(404).json({message: "Session tidak ditemukan"});
         }
 
-        const currentMembers = await getSessionMembers(session.session_id);
-        const alreadyMember = currentMembers.some((member) => String(member.user_id) === String(user.user_id));
-        if (!alreadyMember && session.work_started_at) {
+        const joinResult = await joinTableMemberWithLimit(session.session_id, user, req.body.object_id || null, MAX_GROUP_MEMBERS);
+        if (joinResult.reason === "STARTED") {
             return res.status(409).json({message: "Group discussion sudah dimulai. Student baru tidak bisa join sesi ini."});
         }
-        if (!alreadyMember && currentMembers.length >= MAX_GROUP_MEMBERS) {
+        if (joinResult.reason === "FULL") {
             return res.status(409).json({message: "Group sudah penuh"});
         }
+        if (joinResult.reason === "NOT_JOINABLE") {
+            return res.status(409).json({message: "Session tidak bisa dijoin saat ini."});
+        }
 
-        await addMemberToSession(session.session_id, user, req.body.object_id || null);
-        const {members, answers, feedbackGroups, gamification} = await loadSessionActivity(session, user);
+        const joinedSession = joinResult.session || session;
+        const {members, answers, feedbackGroups, gamification} = await loadSessionActivity(joinedSession, user);
         emitGroupEvent(req, session.session_id, "group:lobby_updated", {status: "lobby"});
 
         res.json({
             message: "Berhasil join group",
-            session: normalizeSession(session, members, answers, user.user_id, feedbackGroups, gamification),
+            session: normalizeSession(joinedSession, members, answers, user.user_id, feedbackGroups, gamification),
         });
     } catch (error) {
         console.error("Join table session error:", error);

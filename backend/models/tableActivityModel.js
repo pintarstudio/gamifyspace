@@ -519,6 +519,79 @@ export async function addMemberToSession(sessionId, user, objectId = null) {
     );
 }
 
+export async function joinTableMemberWithLimit(sessionId, user, objectId = null, maxMembers = 4) {
+    const client = await pool.connect();
+
+    try {
+        await client.query("BEGIN");
+
+        const locked = await client.query(
+            `SELECT *
+             FROM table_group_sessions
+             WHERE session_id = $1
+             FOR UPDATE`,
+            [sessionId]
+        );
+        const session = locked.rows[0];
+        if (!session) {
+            await client.query("ROLLBACK");
+            return {session: null, reason: "NOT_FOUND"};
+        }
+        if (!session.is_active || session.submitted_at) {
+            await client.query("ROLLBACK");
+            return {session, reason: "NOT_JOINABLE"};
+        }
+
+        const members = await client.query(
+            `SELECT user_id
+             FROM table_group_members
+             WHERE session_id = $1
+               AND is_active = TRUE`,
+            [sessionId]
+        );
+        const alreadyMember = members.rows.some((member) => String(member.user_id) === String(user.user_id));
+        if (!alreadyMember && session.work_started_at) {
+            await client.query("ROLLBACK");
+            return {session, reason: "STARTED"};
+        }
+        if (!alreadyMember && members.rows.length >= maxMembers) {
+            await client.query("ROLLBACK");
+            return {session, reason: "FULL"};
+        }
+
+        await client.query(
+            `INSERT INTO table_group_members (session_id, user_id, avatar_public_path, object_id)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (session_id, user_id)
+             DO UPDATE SET
+                 is_active = TRUE,
+                 avatar_public_path = EXCLUDED.avatar_public_path,
+                 object_id = COALESCE(EXCLUDED.object_id, table_group_members.object_id),
+                 last_seen_at = NOW()`,
+            [sessionId, user.user_id, user.avatar_public_path || null, objectId || null]
+        );
+
+        const updated = await client.query(
+            `UPDATE table_group_sessions
+             SET updated_at = NOW()
+             WHERE session_id = $1
+             RETURNING *`,
+            [sessionId]
+        );
+
+        await client.query("COMMIT");
+        return {
+            session: updated.rows[0] || session,
+            reason: alreadyMember ? "ALREADY_MEMBER" : "JOINED",
+        };
+    } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+    } finally {
+        client.release();
+    }
+}
+
 export async function touchSessionMember(sessionId, user) {
     const result = await pool.query(
         `UPDATE table_group_members

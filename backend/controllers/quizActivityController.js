@@ -1,6 +1,5 @@
 import {findSession} from "../models/sessionModel.js";
 import {
-    addQuizMember,
     beginQuizFeedbackRetry,
     beginQuizResultSave,
     createQuizSession,
@@ -13,6 +12,7 @@ import {
     getQuizQuestionsForTopic,
     getQuizSavedResult,
     getQuizSessionById,
+    joinQuizMemberWithLimit,
     MAX_QUIZ_MEMBERS,
     QUESTION_COUNT,
     QUESTION_REVEAL_SECONDS,
@@ -401,13 +401,14 @@ export async function joinQuizSession(req, res) {
             return res.status(409).json({message: "Quiz ini sudah selesai"});
         }
 
-        const members = await getQuizMembers(session.quiz_session_id);
-        const alreadyMember = members.some((member) => String(member.user_id) === String(user.user_id));
-        if (!alreadyMember && members.length >= MAX_QUIZ_MEMBERS) {
+        const joinResult = await joinQuizMemberWithLimit(session.quiz_session_id, user, MAX_QUIZ_MEMBERS);
+        if (joinResult.reason === "FULL") {
             return res.status(409).json({message: "Meja quiz sudah penuh"});
         }
+        if (joinResult.reason === "NOT_JOINABLE") {
+            return res.status(409).json({message: "Quiz ini sudah selesai"});
+        }
 
-        await addQuizMember(session.quiz_session_id, user);
         const updated = await getQuizSessionById(session.quiz_session_id);
         emitQuizEvent(req, session.quiz_session_id, "quiz:lobby_updated", {status: updated?.status || session.status});
         res.json({

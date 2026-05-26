@@ -349,6 +349,74 @@ export async function addQuizMember(sessionId, user) {
     );
 }
 
+export async function joinQuizMemberWithLimit(sessionId, user, maxMembers = MAX_QUIZ_MEMBERS) {
+    const client = await pool.connect();
+
+    try {
+        await client.query("BEGIN");
+
+        const locked = await client.query(
+            `SELECT *
+             FROM quiz_sessions
+             WHERE quiz_session_id = $1
+             FOR UPDATE`,
+            [sessionId]
+        );
+        const session = locked.rows[0];
+        if (!session) {
+            await client.query("ROLLBACK");
+            return {session: null, reason: "NOT_FOUND"};
+        }
+        if (!["lobby", "in_progress"].includes(session.status)) {
+            await client.query("ROLLBACK");
+            return {session, reason: "NOT_JOINABLE"};
+        }
+
+        const members = await client.query(
+            `SELECT user_id
+             FROM quiz_members
+             WHERE quiz_session_id = $1
+               AND is_active = TRUE`,
+            [sessionId]
+        );
+        const alreadyMember = members.rows.some((member) => String(member.user_id) === String(user.user_id));
+        if (!alreadyMember && members.rows.length >= maxMembers) {
+            await client.query("ROLLBACK");
+            return {session, reason: "FULL"};
+        }
+
+        await client.query(
+            `INSERT INTO quiz_members (quiz_session_id, user_id, avatar_public_path)
+             VALUES ($1, $2, $3)
+             ON CONFLICT (quiz_session_id, user_id)
+             DO UPDATE SET
+                 is_active = TRUE,
+                 avatar_public_path = EXCLUDED.avatar_public_path,
+                 last_seen_at = NOW()`,
+            [sessionId, user.user_id, user.avatar_public_path || null]
+        );
+
+        const updated = await client.query(
+            `UPDATE quiz_sessions
+             SET updated_at = NOW()
+             WHERE quiz_session_id = $1
+             RETURNING *`,
+            [sessionId]
+        );
+
+        await client.query("COMMIT");
+        return {
+            session: updated.rows[0] || session,
+            reason: alreadyMember ? "ALREADY_MEMBER" : "JOINED",
+        };
+    } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+    } finally {
+        client.release();
+    }
+}
+
 export async function exitQuizMember(sessionId, userId) {
     const client = await pool.connect();
 

@@ -783,12 +783,18 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
                         {showComputerLabel && <span>Computer {objectId}</span>}
                     </div>
 
-                    <div className="individual-segment">
+                    <div className="individual-choice-helper" role="note">
+                        <strong>Pilih jenis aktivitas</strong>
+                        <span>Klik salah satu pilihan di bawah ini. Pilihan yang aktif ditandai warna biru.</span>
+                    </div>
+
+                    <div className="individual-segment" role="group" aria-label="Pilih jenis aktivitas individual">
                         {availableActivityTypes.map((type) => (
                             <button
                                 key={type}
                                 className={activityType === type ? "is-selected" : ""}
                                 type="button"
+                                aria-pressed={activityType === type}
                                 onClick={() => {
                                     setActivityType(type);
                                     if (type !== "exercise") setQuestionKind("multiple_choice");
@@ -800,21 +806,26 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
                     </div>
 
                     {activityType === "exercise" && (
-                        <div className="individual-segment individual-segment--secondary">
-                            <button
-                                className={questionKind === "multiple_choice" ? "is-selected" : ""}
-                                type="button"
-                                onClick={() => setQuestionKind("multiple_choice")}
-                            >
-                                Multiple Choice
-                            </button>
-                            <button
-                                className={questionKind === "case_study" ? "is-selected" : ""}
-                                type="button"
-                                onClick={() => setQuestionKind("case_study")}
-                            >
-                                Case Study
-                            </button>
+                        <div className="individual-choice-subgroup">
+                            <span>Pilih bentuk soal untuk Individual Exercise:</span>
+                            <div className="individual-segment individual-segment--secondary" role="group" aria-label="Pilih bentuk soal individual exercise">
+                                <button
+                                    className={questionKind === "multiple_choice" ? "is-selected" : ""}
+                                    type="button"
+                                    aria-pressed={questionKind === "multiple_choice"}
+                                    onClick={() => setQuestionKind("multiple_choice")}
+                                >
+                                    Multiple Choice
+                                </button>
+                                <button
+                                    className={questionKind === "case_study" ? "is-selected" : ""}
+                                    type="button"
+                                    aria-pressed={questionKind === "case_study"}
+                                    onClick={() => setQuestionKind("case_study")}
+                                >
+                                    Case Study
+                                </button>
+                            </div>
                         </div>
                     )}
 

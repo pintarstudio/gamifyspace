@@ -5,6 +5,7 @@ import "./ChatLauncher.css";
 
 const INSTRUCTOR_ROLE_ID = 2;
 const POLL_MS = 30000;
+const ATTENTION_MS = 8000;
 const CHAT_UNAVAILABLE_MESSAGE = "Chat is unavailable. Please restart the backend and try again.";
 
 function formatTime(value, {withDate = false} = {}) {
@@ -77,12 +78,14 @@ export default function ChatLauncher({currentUser}) {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
     const [toast, setToast] = useState("");
+    const [launcherAttention, setLauncherAttention] = useState(null);
     const [reactionPickerId, setReactionPickerId] = useState(null);
     const [confirmLeaveRoomId, setConfirmLeaveRoomId] = useState(null);
     const [invitePanelOpen, setInvitePanelOpen] = useState(false);
     const [inviteUserId, setInviteUserId] = useState("");
     const lastUnreadRef = useRef(null);
     const toastTimerRef = useRef(null);
+    const attentionTimerRef = useRef(null);
 
     const isInstructor = String(currentUser?.role_id) === String(INSTRUCTOR_ROLE_ID);
     const maxLength = bootstrap.max_message_length || 160;
@@ -111,6 +114,18 @@ export default function ChatLauncher({currentUser}) {
         setToast(text);
         if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
         toastTimerRef.current = window.setTimeout(() => setToast(""), 3600);
+    }, []);
+
+    const showLauncherAttention = useCallback((type, label, roomId = null) => {
+        setLauncherAttention({type, label, roomId: roomId ? String(roomId) : null});
+        if (attentionTimerRef.current) window.clearTimeout(attentionTimerRef.current);
+        attentionTimerRef.current = window.setTimeout(() => setLauncherAttention(null), ATTENTION_MS);
+    }, []);
+
+    const clearLauncherAttention = useCallback(() => {
+        setLauncherAttention(null);
+        if (attentionTimerRef.current) window.clearTimeout(attentionTimerRef.current);
+        attentionTimerRef.current = null;
     }, []);
 
     const blockMessageClipboard = (event) => {
@@ -168,6 +183,7 @@ export default function ChatLauncher({currentUser}) {
         return () => {
             window.clearInterval(intervalId);
             if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+            if (attentionTimerRef.current) window.clearTimeout(attentionTimerRef.current);
         };
     }, [loadBootstrap]);
 
@@ -189,6 +205,19 @@ export default function ChatLauncher({currentUser}) {
             markRead(selectedRoomId);
         }
     }, [activeTab, broadcastRoomId, loadRoom, markRead, open, selectedRoomId]);
+
+    useEffect(() => {
+        if (!open || !launcherAttention) return;
+        if (activeTab === "announcements" && launcherAttention.type === "announcement") {
+            clearLauncherAttention();
+            return;
+        }
+        if (activeTab === "groups" && ["group", "invite"].includes(launcherAttention.type)) {
+            if (!launcherAttention.roomId || String(selectedRoomId) === launcherAttention.roomId) {
+                clearLauncherAttention();
+            }
+        }
+    }, [activeTab, clearLauncherAttention, launcherAttention, open, selectedRoomId]);
 
     useEffect(() => {
         if (!currentUser?.user_id || !currentUser?.course_id) return undefined;
@@ -215,14 +244,23 @@ export default function ChatLauncher({currentUser}) {
                 if (String(event.message?.sender_user_id) === String(currentUser.user_id)) return;
                 if (broadcastRoomId && String(event.room_id) === String(broadcastRoomId)) {
                     showToast("New announcement from instructor");
+                    if (!open || activeTab !== "announcements") {
+                        showLauncherAttention("announcement", "New announcement", event.room_id);
+                    }
                     return;
                 }
                 showToast(`New message in ${roomLabel(event)}`);
+                if (!open || activeTab !== "groups" || String(selectedRoomId) !== String(event.room_id)) {
+                    showLauncherAttention("group", "New group chat", event.room_id);
+                }
                 return;
             }
             if (eventName === "chat:invite:new") {
                 if (String(event.invited_user_id) === String(currentUser.user_id)) {
                     showToast(`You were invited to ${roomLabel(event)}`);
+                    if (!open || activeTab !== "groups") {
+                        showLauncherAttention("invite", "Group invite", event.room_id);
+                    }
                 }
                 return;
             }
@@ -304,6 +342,7 @@ export default function ChatLauncher({currentUser}) {
         open,
         selectedRoomId,
         showToast,
+        showLauncherAttention,
     ]);
 
     const tabs = useMemo(() => {
@@ -746,7 +785,7 @@ export default function ChatLauncher({currentUser}) {
     return (
         <>
             <button
-                className="chat-launcher"
+                className={`chat-launcher${launcherAttention ? ` chat-launcher--attention chat-launcher--${launcherAttention.type}` : ""}`}
                 type="button"
                 onClick={() => setOpen(true)}
                 aria-label={`Open chat${unreadTotal ? `, ${unreadTotal} unread` : ""}`}
@@ -754,6 +793,11 @@ export default function ChatLauncher({currentUser}) {
                 <span>Chat</span>
                 {unreadTotal > 0 && <b>{unreadTotal > 99 ? "99+" : unreadTotal}</b>}
             </button>
+            {launcherAttention && (
+                <div className={`chat-launcher-notice chat-launcher-notice--${launcherAttention.type}`} role="status">
+                    {launcherAttention.label}
+                </div>
+            )}
 
             {open && (
                 <div className="chat-drawer" role="dialog" aria-modal="true" aria-label="Course chat">

@@ -1051,6 +1051,296 @@
     color: #0f766e;
 }
 
+.instructor-topic-actions {
+    align-items: center;
+    background: #ffffff;
+    border: 1px solid #cde7e2;
+    border-radius: 8px;
+    box-shadow: 0 12px 28px rgba(15, 118, 110, 0.08);
+    display: flex;
+    gap: 14px;
+    justify-content: space-between;
+    padding: 14px 16px;
+}
+
+.instructor-topic-actions div {
+    display: grid;
+    gap: 4px;
+}
+
+.instructor-topic-actions strong {
+    color: #172033;
+    font-size: 15px;
+}
+
+.instructor-topic-actions span {
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 850;
+}
+
+.instructor-topic-actions button {
+    background: #0f766e;
+    border: 0;
+    border-radius: 8px;
+    color: #ffffff;
+    cursor: pointer;
+    flex: 0 0 auto;
+    font-size: 13px;
+    font-weight: 950;
+    min-height: 42px;
+    padding: 0 16px;
+    white-space: nowrap;
+    width: auto;
+}
+
+.instructor-topic-actions button:hover {
+    background: #115e59;
+}
+
+.instructor-comparison {
+    background: #ffffff;
+    border: 1px solid #d9e3ea;
+    border-radius: 8px;
+    box-shadow: 0 14px 34px rgba(23, 32, 51, 0.06);
+    display: grid;
+    gap: 14px;
+    padding: 16px;
+}
+
+.instructor-comparison-header {
+    align-items: center;
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.instructor-comparison-header span {
+    color: #0f766e;
+    font-size: 11px;
+    font-weight: 950;
+    text-transform: uppercase;
+}
+
+.instructor-comparison-header h3 {
+    color: #172033;
+    font-size: 22px;
+    margin: 3px 0 0;
+}
+
+.instructor-comparison-header small {
+    color: #64748b;
+    font-weight: 850;
+    text-align: right;
+}
+
+.instructor-comparison-grid {
+    display: grid;
+    gap: 14px;
+    grid-template-columns: repeat(2, minmax(260px, 1fr));
+}
+
+.comparison-panel {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    display: grid;
+    gap: 12px;
+    padding: 14px;
+}
+
+.comparison-panel--wide {
+    grid-column: 1 / -1;
+}
+
+.comparison-panel h4 {
+    color: #172033;
+    font-size: 15px;
+    margin: 0;
+}
+
+.comparison-bars,
+.comparison-activity-list,
+.comparison-levels {
+    display: grid;
+    gap: 12px;
+}
+
+.comparison-bar-row {
+    align-items: center;
+    display: grid;
+    gap: 8px;
+    grid-template-columns: minmax(90px, 0.8fr) minmax(180px, 2fr) auto minmax(110px, 1fr);
+}
+
+.comparison-bar-row > span,
+.comparison-activity-row strong,
+.comparison-level-group header strong {
+    color: #334155;
+    font-size: 13px;
+    font-weight: 950;
+}
+
+.comparison-bar-track {
+    background: #e5eaf0;
+    border-radius: 999px;
+    display: grid;
+    gap: 3px;
+    padding: 4px;
+}
+
+.comparison-bar {
+    border-radius: 999px;
+    display: block;
+    height: 9px;
+}
+
+.comparison-bar--individual {
+    background: #2563eb;
+}
+
+.comparison-bar--group {
+    background: #7c3aed;
+}
+
+.comparison-bar-row b,
+.comparison-level-row b {
+    color: #172033;
+    font-size: 12px;
+    font-weight: 950;
+    text-align: right;
+}
+
+.comparison-bar-row small,
+.comparison-level-row small,
+.comparison-level-group header span {
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 850;
+}
+
+.comparison-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.comparison-legend span {
+    align-items: center;
+    color: #64748b;
+    display: inline-flex;
+    font-size: 12px;
+    font-weight: 900;
+    gap: 6px;
+}
+
+.comparison-dot {
+    border-radius: 999px;
+    display: inline-block;
+    height: 9px;
+    width: 9px;
+}
+
+.comparison-dot--individual {
+    background: #2563eb;
+}
+
+.comparison-dot--group {
+    background: #7c3aed;
+}
+
+.comparison-activity-row {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    display: grid;
+    gap: 8px;
+    padding: 10px;
+}
+
+.comparison-activity-row > div {
+    align-items: center;
+    display: grid;
+    gap: 8px;
+    grid-template-columns: minmax(110px, 0.9fr) minmax(120px, 2fr) 34px;
+}
+
+.comparison-activity-row span {
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 900;
+}
+
+.comparison-mini-bar {
+    border-radius: 999px;
+    display: block;
+    height: 9px;
+}
+
+.comparison-mini-bar--individual {
+    background: #2563eb;
+}
+
+.comparison-mini-bar--case {
+    background: #0f766e;
+}
+
+.comparison-mini-bar--group {
+    background: #7c3aed;
+}
+
+.comparison-mini-bar--quiz {
+    background: #be123c;
+}
+
+.comparison-activity-row b {
+    color: #172033;
+    font-size: 12px;
+    font-weight: 950;
+    text-align: right;
+}
+
+.comparison-level-group {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    display: grid;
+    gap: 9px;
+    padding: 10px;
+}
+
+.comparison-level-group header {
+    align-items: center;
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.comparison-level-row {
+    align-items: center;
+    display: grid;
+    gap: 8px;
+    grid-template-columns: minmax(100px, 0.8fr) minmax(150px, 1.5fr) 48px minmax(180px, 2fr);
+}
+
+.comparison-level-row > span {
+    color: #334155;
+    font-size: 12px;
+    font-weight: 950;
+}
+
+.comparison-level-row > div {
+    background: #e5eaf0;
+    border-radius: 999px;
+    padding: 4px;
+}
+
+.comparison-level-row i {
+    border-radius: 999px;
+    display: block;
+    height: 9px;
+}
+
 .instructor-group-list {
     display: grid;
     gap: 14px;
@@ -1136,7 +1426,7 @@
 
 .instructor-activity-table {
     border-collapse: collapse;
-    min-width: 760px;
+    min-width: 680px;
     width: 100%;
 }
 
@@ -1156,6 +1446,67 @@
     text-transform: uppercase;
 }
 
+.instructor-activity-summary {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: repeat(3, minmax(150px, 1fr));
+    margin-top: 12px;
+}
+
+.instructor-activity-summary article {
+    background: #f8fafc;
+    border: 1px solid #d9e3ea;
+    border-radius: 8px;
+    display: grid;
+    gap: 8px;
+    padding: 12px;
+}
+
+.instructor-activity-summary span {
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 950;
+    text-transform: uppercase;
+}
+
+.instructor-activity-summary strong {
+    color: #172033;
+    font-size: 24px;
+    line-height: 1;
+}
+
+.instructor-activity-groups {
+    display: grid;
+    gap: 10px;
+    margin-top: 12px;
+}
+
+.instructor-group-detail .instructor-activity-bucket {
+    background: #fbfdff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 0;
+}
+
+.instructor-activity-bucket summary {
+    align-items: center;
+    display: flex;
+    gap: 10px;
+    justify-content: space-between;
+    padding: 12px;
+}
+
+.instructor-activity-bucket summary b {
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 950;
+}
+
+.instructor-activity-bucket .instructor-activity-table-wrap {
+    margin: 0;
+    padding: 0 12px 12px;
+}
+
 .instructor-xp-summary {
     display: flex;
     flex-wrap: wrap;
@@ -1171,6 +1522,7 @@
 }
 
 .instructor-contribution-list,
+.instructor-student-xp-list,
 .instructor-levels,
 .score-chart {
     display: grid;
@@ -1179,6 +1531,7 @@
 }
 
 .instructor-contribution-list div,
+.instructor-student-xp-list div,
 .instructor-levels div {
     align-items: center;
     background: #f8fafc;
@@ -1190,10 +1543,38 @@
     padding: 10px 12px;
 }
 
+.instructor-student-xp-list div {
+    grid-template-columns: 36px minmax(140px, 1fr) auto minmax(120px, 1fr);
+}
+
 .instructor-contribution-list span,
+.instructor-student-xp-list span,
 .instructor-levels span {
     color: #334155;
     font-weight: 850;
+}
+
+.instructor-student-xp-list b {
+    align-items: center;
+    background: #172033;
+    border-radius: 999px;
+    color: #ffffff;
+    display: inline-flex;
+    font-size: 12px;
+    height: 28px;
+    justify-content: center;
+    width: 28px;
+}
+
+.instructor-student-xp-list strong {
+    color: #0f766e;
+    font-size: 16px;
+}
+
+.instructor-student-xp-list small {
+    color: #64748b;
+    font-weight: 850;
+    text-align: right;
 }
 
 .instructor-contribution-list small {
@@ -1201,10 +1582,28 @@
     line-height: 1.35;
 }
 
+.instructor-levels div {
+    align-items: start;
+    grid-template-columns: minmax(120px, 0.7fr) auto minmax(180px, 2fr);
+}
+
 .instructor-levels b {
     border-left: 5px solid #64748b;
     color: #172033;
     padding-left: 8px;
+}
+
+.instructor-levels strong {
+    background: #eef7f6;
+    border-radius: 999px;
+    color: #0f766e;
+    font-size: 11px;
+    padding: 5px 8px;
+    white-space: nowrap;
+}
+
+.instructor-levels span {
+    line-height: 1.4;
 }
 
 .score-chart-row {
@@ -1280,6 +1679,9 @@
 
     .instructor-analytics-hero,
     .instructor-topic-header,
+    .instructor-topic-actions,
+    .instructor-comparison-header,
+    .comparison-level-group header,
     .instructor-group-detail > header {
         align-items: stretch;
         flex-direction: column;
@@ -1293,15 +1695,38 @@
         grid-template-columns: repeat(2, minmax(130px, 1fr));
     }
 
+    .instructor-activity-summary {
+        grid-template-columns: 1fr;
+    }
+
+    .instructor-comparison-grid {
+        grid-template-columns: 1fr;
+    }
+
     .instructor-group-kpis,
     .instructor-topic-stats {
         justify-content: flex-start;
     }
 
+    .comparison-bar-row,
+    .comparison-activity-row > div,
+    .comparison-level-row,
     .instructor-contribution-list div,
+    .instructor-student-xp-list div,
     .instructor-levels div,
     .score-chart-row {
         grid-template-columns: 1fr;
+    }
+
+    .instructor-comparison-header small,
+    .comparison-bar-row b,
+    .comparison-activity-row b,
+    .comparison-level-row b {
+        text-align: left;
+    }
+
+    .instructor-student-xp-list small {
+        text-align: left;
     }
 
     .score-chart-row b,

@@ -3,3 +3,243 @@
 ✅ Server berjalan di port 4000
 🌐 Akses dari komputer lain di jaringan ini: http://<IP-lokal-Mac>:4000
 User connected: -pnDdnGFVuaAzVKuAAAB
+[dotenv@17.2.3] injecting env (10) from .env -- tip: 📡 add observability to secrets: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔐 prevent building .env in docker: https://dotenvx.com/prebuild
+✅ Server berjalan di port 4000
+🌐 Akses dari komputer lain di jaringan ini: http://<IP-lokal-Mac>:4000
+User connected: 9Bu0AD4A9SQLn3HPAAAB
+User connected: FsWhRqvepHWDGlm_AAAD
+User connected: bpqmIwJN92a6eWSpAAAF
+User connected: PStHLdDk1X77Y2s8AAAH
+🔴 User disconnected: FsWhRqvepHWDGlm_AAAD
+User connected: TvJVyqxKjJtt_VLJAAAJ
+SessionData:  {
+  id: 50,
+  session_id: 'eb84adfc-ce27-41a2-9696-cdbbf2cf6512',
+  user_id: 8,
+  created_at: 2026-05-26T14:17:37.075Z,
+  expired_at: 2026-05-26T16:17:37.075Z,
+  is_active: true,
+  course_id: 1,
+  avatar_id: 13,
+  name: 'Dika - C',
+  email: 'dikac@gmail.com',
+  course_name: 'Arsitektur Enterprise (12D)',
+  course_group_id: 3,
+  course_group_name: 'Group C',
+  role_id: 1,
+  role_name: 'Student',
+  gamification_enabled: true,
+  use_no_virtual_space: false,
+  virtual_space_enabled: true,
+  avatar_name: 'Student 13',
+  avatar_public_path: '/student13/'
+}
+Dika - C joined room1 in course 1
+🔴 User disconnected: bpqmIwJN92a6eWSpAAAF
+User connected: vdlqkjJF6TwE7uq3AAAL
+SessionData:  {
+  id: 52,
+  session_id: '2e32f65c-02c9-404c-82c8-3ab1a4fd1821',
+  user_id: 7,
+  created_at: 2026-05-26T14:27:40.347Z,
+  expired_at: 2026-05-26T16:27:40.347Z,
+  is_active: true,
+  course_id: 1,
+  avatar_id: 13,
+  name: 'Chandrakirana - C',
+  email: 'chandrakiranac@gmail.com',
+  course_name: 'Arsitektur Enterprise (12D)',
+  course_group_id: 3,
+  course_group_name: 'Group C',
+  role_id: 1,
+  role_name: 'Student',
+  gamification_enabled: true,
+  use_no_virtual_space: false,
+  virtual_space_enabled: true,
+  avatar_name: 'Student 13',
+  avatar_public_path: '/student13/'
+}
+Chandrakirana - C joined room1 in course 1
+SessionData:  {
+  id: 52,
+  session_id: '2e32f65c-02c9-404c-82c8-3ab1a4fd1821',
+  user_id: 7,
+  created_at: 2026-05-26T14:27:40.347Z,
+  expired_at: 2026-05-26T16:27:40.347Z,
+  is_active: true,
+  course_id: 1,
+  avatar_id: 13,
+  name: 'Chandrakirana - C',
+  email: 'chandrakiranac@gmail.com',
+  course_name: 'Arsitektur Enterprise (12D)',
+  course_group_id: 3,
+  course_group_name: 'Group C',
+  role_id: 1,
+  role_name: 'Student',
+  gamification_enabled: true,
+  use_no_virtual_space: false,
+  virtual_space_enabled: true,
+  avatar_name: 'Student 13',
+  avatar_public_path: '/student13/'
+}
+SessionData:  {
+  id: 50,
+  session_id: 'eb84adfc-ce27-41a2-9696-cdbbf2cf6512',
+  user_id: 8,
+  created_at: 2026-05-26T14:17:37.075Z,
+  expired_at: 2026-05-26T16:17:37.075Z,
+  is_active: true,
+  course_id: 1,
+  avatar_id: 13,
+  name: 'Dika - C',
+  email: 'dikac@gmail.com',
+  course_name: 'Arsitektur Enterprise (12D)',
+  course_group_id: 3,
+  course_group_name: 'Group C',
+  role_id: 1,
+  role_name: 'Student',
+  gamification_enabled: true,
+  use_no_virtual_space: false,
+  virtual_space_enabled: true,
+  avatar_name: 'Student 13',
+  avatar_public_path: '/student13/'
+}
+🔴 User disconnected: TvJVyqxKjJtt_VLJAAAJ
+User connected: jxg3Y176zxJFN8M2AAAN
+SessionData:  {
+  id: 50,
+  session_id: 'eb84adfc-ce27-41a2-9696-cdbbf2cf6512',
+  user_id: 8,
+  created_at: 2026-05-26T14:17:37.075Z,
+  expired_at: 2026-05-26T16:17:37.075Z,
+  is_active: true,
+  course_id: 1,
+  avatar_id: 13,
+  name: 'Dika - C',
+  email: 'dikac@gmail.com',
+  course_name: 'Arsitektur Enterprise (12D)',
+  course_group_id: 3,
+  course_group_name: 'Group C',
+  role_id: 1,
+  role_name: 'Student',
+  gamification_enabled: true,
+  use_no_virtual_space: false,
+  virtual_space_enabled: true,
+  avatar_name: 'Student 13',
+  avatar_public_path: '/student13/'
+}
+SessionData:  {
+  id: 50,
+  session_id: 'eb84adfc-ce27-41a2-9696-cdbbf2cf6512',
+  user_id: 8,
+  created_at: 2026-05-26T14:17:37.075Z,
+  expired_at: 2026-05-26T16:17:37.075Z,
+  is_active: true,
+  course_id: 1,
+  avatar_id: 13,
+  name: 'Dika - C',
+  email: 'dikac@gmail.com',
+  course_name: 'Arsitektur Enterprise (12D)',
+  course_group_id: 3,
+  course_group_name: 'Group C',
+  role_id: 1,
+  role_name: 'Student',
+  gamification_enabled: true,
+  use_no_virtual_space: false,
+  virtual_space_enabled: true,
+  avatar_name: 'Student 13',
+  avatar_public_path: '/student13/'
+}
+Dika - C joined room1 in course 1
+🔴 User disconnected: vdlqkjJF6TwE7uq3AAAL
+User connected: JN5WfJG1nhvZKiINAAAP
+SessionData:  {
+  id: 52,
+  session_id: '2e32f65c-02c9-404c-82c8-3ab1a4fd1821',
+  user_id: 7,
+  created_at: 2026-05-26T14:27:40.347Z,
+  expired_at: 2026-05-26T16:27:40.347Z,
+  is_active: true,
+  course_id: 1,
+  avatar_id: 13,
+  name: 'Chandrakirana - C',
+  email: 'chandrakiranac@gmail.com',
+  course_name: 'Arsitektur Enterprise (12D)',
+  course_group_id: 3,
+  course_group_name: 'Group C',
+  role_id: 1,
+  role_name: 'Student',
+  gamification_enabled: true,
+  use_no_virtual_space: false,
+  virtual_space_enabled: true,
+  avatar_name: 'Student 13',
+  avatar_public_path: '/student13/'
+}
+SessionData:  {
+  id: 52,
+  session_id: '2e32f65c-02c9-404c-82c8-3ab1a4fd1821',
+  user_id: 7,
+  created_at: 2026-05-26T14:27:40.347Z,
+  expired_at: 2026-05-26T16:27:40.347Z,
+  is_active: true,
+  course_id: 1,
+  avatar_id: 13,
+  name: 'Chandrakirana - C',
+  email: 'chandrakiranac@gmail.com',
+  course_name: 'Arsitektur Enterprise (12D)',
+  course_group_id: 3,
+  course_group_name: 'Group C',
+  role_id: 1,
+  role_name: 'Student',
+  gamification_enabled: true,
+  use_no_virtual_space: false,
+  virtual_space_enabled: true,
+  avatar_name: 'Student 13',
+  avatar_public_path: '/student13/'
+}
+Chandrakirana - C joined room1 in course 1
+SessionData:  {
+  id: 50,
+  session_id: 'eb84adfc-ce27-41a2-9696-cdbbf2cf6512',
+  user_id: 8,
+  created_at: 2026-05-26T14:17:37.075Z,
+  expired_at: 2026-05-26T16:17:37.075Z,
+  is_active: true,
+  course_id: 1,
+  avatar_id: 13,
+  name: 'Dika - C',
+  email: 'dikac@gmail.com',
+  course_name: 'Arsitektur Enterprise (12D)',
+  course_group_id: 3,
+  course_group_name: 'Group C',
+  role_id: 1,
+  role_name: 'Student',
+  gamification_enabled: true,
+  use_no_virtual_space: false,
+  virtual_space_enabled: true,
+  avatar_name: 'Student 13',
+  avatar_public_path: '/student13/'
+}
+SessionData:  {
+  id: 52,
+  session_id: '2e32f65c-02c9-404c-82c8-3ab1a4fd1821',
+  user_id: 7,
+  created_at: 2026-05-26T14:27:40.347Z,
+  expired_at: 2026-05-26T16:27:40.347Z,
+  is_active: true,
+  course_id: 1,
+  avatar_id: 13,
+  name: 'Chandrakirana - C',
+  email: 'chandrakiranac@gmail.com',
+  course_name: 'Arsitektur Enterprise (12D)',
+  course_group_id: 3,
+  course_group_name: 'Group C',
+  role_id: 1,
+  role_name: 'Student',
+  gamification_enabled: true,
+  use_no_virtual_space: false,
+  virtual_space_enabled: true,
+  avatar_name: 'Student 13',
+  avatar_public_path: '/student13/'
+}

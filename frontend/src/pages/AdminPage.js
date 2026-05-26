@@ -413,6 +413,291 @@ function activityClass(type) {
     return "individual";
 }
 
+const ACTIVITY_GROUPS = [
+    {type: "individual", label: "Individual"},
+    {type: "pre_test", label: "Pre-test"},
+    {type: "post_test", label: "Post-test"},
+    {type: "group", label: "Group"},
+    {type: "quiz", label: "Quiz"},
+];
+
+function sortBySubmittedDesc(items = []) {
+    return [...items].sort((a, b) => new Date(b.submitted_at || 0) - new Date(a.submitted_at || 0));
+}
+
+function groupedActivities(activities = []) {
+    return ACTIVITY_GROUPS.map((group) => ({
+        ...group,
+        activities: sortBySubmittedDesc(activities.filter((activity) => activity.type === group.type)),
+    }));
+}
+
+function studentsByXp(group) {
+    const byStudent = new Map((group.students || []).map((student) => [
+        String(student.user_id),
+        {
+            user_id: student.user_id,
+            name: student.name,
+            total_xp: 0,
+            activities: 0,
+            latest_reason: "",
+            level_name: student.level_name,
+            level_color: student.level_color,
+        },
+    ]));
+
+    for (const item of group.xp_contributions || []) {
+        const key = String(item.user_id);
+        const current = byStudent.get(key) || {
+            user_id: item.user_id,
+            name: item.student_name,
+            total_xp: 0,
+            activities: 0,
+            latest_reason: "",
+        };
+        current.total_xp += Number(item.xp_earned || 0);
+        current.activities += 1;
+        if (item.reason) current.latest_reason = item.reason;
+        byStudent.set(key, current);
+    }
+
+    return [...byStudent.values()].sort((a, b) => b.total_xp - a.total_xp || a.name.localeCompare(b.name));
+}
+
+function escapeXml(value) {
+    return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+}
+
+function slugifyFilePart(value) {
+    return String(value || "topic")
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "") || "topic";
+}
+
+function percentage(value, total) {
+    if (!total) return 0;
+    return Math.round((Number(value || 0) / Number(total || 0)) * 100);
+}
+
+function barWidth(value, max) {
+    if (!max || !Number(value || 0)) return 0;
+    return Math.max(4, Math.min(100, Math.round((Number(value || 0) / Number(max || 0)) * 100)));
+}
+
+function isIndividualCaseActivity(activity) {
+    return /case/i.test(`${activity.label || ""} ${activity.title || ""}`);
+}
+
+function groupActivityComparison(group) {
+    const activities = group.activities || [];
+    return {
+        individual_mc: activities.filter((activity) => activity.type === "individual" && !isIndividualCaseActivity(activity)).length,
+        individual_case: activities.filter((activity) => activity.type === "individual" && isIndividualCaseActivity(activity)).length,
+        group: activities.filter((activity) => activity.type === "group").length,
+        quiz: activities.filter((activity) => activity.type === "quiz").length,
+    };
+}
+
+function topicComparisonRows(groups = []) {
+    const rows = groups.map((group) => {
+        const activityCounts = groupActivityComparison(group);
+        return {
+            group,
+            groupName: group.group_name || "Ungrouped",
+            individualXp: Number(group.total_individual_xp || 0),
+            groupXp: Number(group.total_group_xp || 0),
+            totalXp: Number(group.total_individual_xp || 0) + Number(group.total_group_xp || 0),
+            totalActivities: Object.values(activityCounts).reduce((total, value) => total + value, 0),
+            activityCounts,
+        };
+    });
+    const maxXp = Math.max(0, ...rows.map((row) => row.totalXp));
+    const maxActivities = Math.max(0, ...rows.map((row) => row.totalActivities));
+    const leaderXp = maxXp;
+    return rows.map((row) => ({
+        ...row,
+        maxXp,
+        maxActivities,
+        xpPercent: percentage(row.totalXp, maxXp),
+        xpDifference: row.totalXp - leaderXp,
+    }));
+}
+
+function columnName(index) {
+    let name = "";
+    let current = index + 1;
+    while (current > 0) {
+        const remainder = (current - 1) % 26;
+        name = String.fromCharCode(65 + remainder) + name;
+        current = Math.floor((current - 1) / 26);
+    }
+    return name;
+}
+
+const crcTable = (() => {
+    const table = [];
+    for (let n = 0; n < 256; n += 1) {
+        let c = n;
+        for (let k = 0; k < 8; k += 1) {
+            c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+        }
+        table[n] = c >>> 0;
+    }
+    return table;
+})();
+
+function crc32(bytes) {
+    let crc = 0xffffffff;
+    for (const byte of bytes) {
+        crc = crcTable[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+    }
+    return (crc ^ 0xffffffff) >>> 0;
+}
+
+function writeUint16(bytes, value) {
+    bytes.push(value & 0xff, (value >>> 8) & 0xff);
+}
+
+function writeUint32(bytes, value) {
+    bytes.push(value & 0xff, (value >>> 8) & 0xff, (value >>> 16) & 0xff, (value >>> 24) & 0xff);
+}
+
+function concatBytes(parts) {
+    const totalLength = parts.reduce((total, part) => total + part.length, 0);
+    const output = new Uint8Array(totalLength);
+    let offset = 0;
+    for (const part of parts) {
+        output.set(part, offset);
+        offset += part.length;
+    }
+    return output;
+}
+
+function createStoredZip(entries) {
+    const encoder = new TextEncoder();
+    const localParts = [];
+    const centralParts = [];
+    let offset = 0;
+
+    for (const entry of entries) {
+        const nameBytes = encoder.encode(entry.name);
+        const dataBytes = encoder.encode(entry.content);
+        const crc = crc32(dataBytes);
+        const local = [];
+        writeUint32(local, 0x04034b50);
+        writeUint16(local, 20);
+        writeUint16(local, 0);
+        writeUint16(local, 0);
+        writeUint16(local, 0);
+        writeUint16(local, 0);
+        writeUint32(local, crc);
+        writeUint32(local, dataBytes.length);
+        writeUint32(local, dataBytes.length);
+        writeUint16(local, nameBytes.length);
+        writeUint16(local, 0);
+        const localBytes = concatBytes([new Uint8Array(local), nameBytes, dataBytes]);
+        localParts.push(localBytes);
+
+        const central = [];
+        writeUint32(central, 0x02014b50);
+        writeUint16(central, 20);
+        writeUint16(central, 20);
+        writeUint16(central, 0);
+        writeUint16(central, 0);
+        writeUint16(central, 0);
+        writeUint16(central, 0);
+        writeUint32(central, crc);
+        writeUint32(central, dataBytes.length);
+        writeUint32(central, dataBytes.length);
+        writeUint16(central, nameBytes.length);
+        writeUint16(central, 0);
+        writeUint16(central, 0);
+        writeUint16(central, 0);
+        writeUint16(central, 0);
+        writeUint32(central, 0);
+        writeUint32(central, offset);
+        centralParts.push(concatBytes([new Uint8Array(central), nameBytes]));
+        offset += localBytes.length;
+    }
+
+    const centralDirectory = concatBytes(centralParts);
+    const end = [];
+    writeUint32(end, 0x06054b50);
+    writeUint16(end, 0);
+    writeUint16(end, 0);
+    writeUint16(end, entries.length);
+    writeUint16(end, entries.length);
+    writeUint32(end, centralDirectory.length);
+    writeUint32(end, offset);
+    writeUint16(end, 0);
+
+    return concatBytes([...localParts, centralDirectory, new Uint8Array(end)]);
+}
+
+function worksheetCell(rowIndex, colIndex, value) {
+    const ref = `${columnName(colIndex)}${rowIndex + 1}`;
+    if (typeof value === "number" && Number.isFinite(value)) {
+        return `<c r="${ref}"><v>${value}</v></c>`;
+    }
+    return `<c r="${ref}" t="inlineStr"><is><t>${escapeXml(value)}</t></is></c>`;
+}
+
+function createXlsxBlob(rows) {
+    const sheetRows = rows.map((row, rowIndex) => (
+        `<row r="${rowIndex + 1}">${row.map((cell, colIndex) => worksheetCell(rowIndex, colIndex, cell)).join("")}</row>`
+    )).join("");
+    const entries = [
+        {
+            name: "[Content_Types].xml",
+            content: `<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+<Default Extension="xml" ContentType="application/xml"/>
+<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+</Types>`,
+        },
+        {
+            name: "_rels/.rels",
+            content: `<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>`,
+        },
+        {
+            name: "xl/workbook.xml",
+            content: `<?xml version="1.0" encoding="UTF-8"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<sheets><sheet name="Pre Post Scores" sheetId="1" r:id="rId1"/></sheets>
+</workbook>`,
+        },
+        {
+            name: "xl/_rels/workbook.xml.rels",
+            content: `<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+</Relationships>`,
+        },
+        {
+            name: "xl/worksheets/sheet1.xml",
+            content: `<?xml version="1.0" encoding="UTF-8"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<sheetData>${sheetRows}</sheetData>
+</worksheet>`,
+        },
+    ];
+
+    return new Blob([createStoredZip(entries)], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+}
+
 const QUESTION_BANK_TARGETS = [
     {
         value: "quiz_question_bank",
@@ -1235,6 +1520,234 @@ const AdminPage = () => {
         </ol>
     );
 
+    const exportSelectedTopicAssessments = () => {
+        const rows = (selectedDashboardTopic?.groups || []).flatMap((group) => (
+            (group.assessment_comparison || []).map((student) => ({
+                group_name: group.group_name || "Ungrouped",
+                student_name: student.student_name,
+                pre_score: student.pre_score ?? "",
+                post_score: student.post_score ?? "",
+                improvement: student.improvement ?? "",
+            }))
+        ));
+
+        if (!rows.length) {
+            setMessage("No pre-test and post-test data available for this topic.");
+            return;
+        }
+
+        const workbookRows = [
+            ["Course", "Topic", "Group", "Student", "Pre-test Score", "Post-test Score", "Improvement"],
+            ...rows.map((row) => [
+                selectedDashboardCourse?.course_name || "",
+                selectedDashboardTopic?.topic_name || "",
+                row.group_name,
+                row.student_name,
+                row.pre_score === "" ? "" : Number(row.pre_score),
+                row.post_score === "" ? "" : Number(row.post_score),
+                row.improvement === "" ? "" : Number(row.improvement),
+            ]),
+        ];
+        const blob = createXlsxBlob(workbookRows);
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `${slugifyFilePart(selectedDashboardCourse?.course_name)}-${slugifyFilePart(selectedDashboardTopic?.topic_name)}-pre-post.xlsx`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    };
+
+    const renderActivityTable = (activities) => {
+        const showScore = activities.some((activity) => activity.score !== undefined || activity.average_score !== undefined);
+        const showXp = activities.some((activity) => activity.xp !== undefined && activity.xp !== null);
+        const colSpan = 4 + (showScore ? 1 : 0) + (showXp ? 1 : 0);
+
+        return (
+            <div className="instructor-activity-table-wrap">
+                <table className="instructor-activity-table">
+                    <thead>
+                    <tr>
+                        <th>Type</th>
+                        <th>Activity</th>
+                        <th>Student / Members</th>
+                        {showScore && <th>Score</th>}
+                        {showXp && <th>XP</th>}
+                        <th>Submitted</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    {activities.map((activity) => (
+                        <tr key={activity.id}>
+                            <td><span className={`activity-pill activity-pill--${activityClass(activity.type)}`}>{activity.label}</span></td>
+                            <td>{activity.title}</td>
+                            <td>{activity.student_name || `${activity.member_count || 0} members`}</td>
+                            {showScore && <td>{activity.score ?? activity.average_score ?? "-"}</td>}
+                            {showXp && <td>{activity.xp ?? "-"}</td>}
+                            <td>{formatAdminDate(activity.submitted_at)}</td>
+                        </tr>
+                    ))}
+                    {activities.length === 0 && (
+                        <tr><td colSpan={colSpan}>No saved activity in this category yet.</td></tr>
+                    )}
+                    </tbody>
+                </table>
+            </div>
+        );
+    };
+
+    const renderActivityDetail = (group) => {
+        const buckets = groupedActivities(group.activities || []);
+        return (
+            <>
+                <div className="instructor-activity-summary">
+                    <article>
+                        <span>Total activities done</span>
+                        <strong>{formatAdminNumber(group.activity_counts?.total)}</strong>
+                    </article>
+                    <article>
+                        <span>Total group XP</span>
+                        <strong>{formatAdminNumber(group.total_group_xp)}</strong>
+                    </article>
+                    <article>
+                        <span>Total individual XP</span>
+                        <strong>{formatAdminNumber(group.total_individual_xp)}</strong>
+                    </article>
+                </div>
+                <div className="instructor-activity-groups">
+                    {buckets.map((bucket) => (
+                        <details className="instructor-activity-bucket" key={bucket.type}>
+                            <summary>
+                                <span className={`activity-pill activity-pill--${activityClass(bucket.type)}`}>{bucket.label}</span>
+                                <b>{formatAdminNumber(bucket.activities.length)} done</b>
+                            </summary>
+                            {renderActivityTable(bucket.activities)}
+                        </details>
+                    ))}
+                </div>
+            </>
+        );
+    };
+
+    const renderStudentsByXp = (group) => {
+        const rankedStudents = studentsByXp(group);
+        return (
+            <div className="instructor-student-xp-list">
+                {rankedStudents.map((student, index) => (
+                    <div key={student.user_id || student.name}>
+                        <b>{index + 1}</b>
+                        <span>{student.name}</span>
+                        <strong>{formatAdminNumber(student.total_xp)} XP</strong>
+                        <small>{student.activities ? `${student.activities} XP activities` : "No XP activity yet"}</small>
+                    </div>
+                ))}
+                {rankedStudents.length === 0 && <p>No student XP recorded yet.</p>}
+            </div>
+        );
+    };
+
+    const renderGroupComparison = (groups) => {
+        const rows = topicComparisonRows(groups);
+        const maxIndividualMc = Math.max(0, ...rows.map((row) => row.activityCounts.individual_mc));
+        const maxIndividualCase = Math.max(0, ...rows.map((row) => row.activityCounts.individual_case));
+        const maxGroup = Math.max(0, ...rows.map((row) => row.activityCounts.group));
+        const maxQuiz = Math.max(0, ...rows.map((row) => row.activityCounts.quiz));
+        const maxStudents = Math.max(0, ...groups.map((group) => Number(group.student_count || group.students?.length || 0)));
+
+        return (
+            <section className="instructor-comparison">
+                <div className="instructor-comparison-header">
+                    <div>
+                        <span>Between Groups</span>
+                        <h3>Topic comparison</h3>
+                    </div>
+                    <small>Group and quiz activity counts are counted by saved session.</small>
+                </div>
+
+                <div className="instructor-comparison-grid">
+                    <article className="comparison-panel">
+                        <h4>XP difference</h4>
+                        <div className="comparison-bars">
+                            {rows.map((row) => (
+                                <div className="comparison-bar-row" key={`xp-${row.group.course_group_id}`}>
+                                    <span>{row.groupName}</span>
+                                    <div className="comparison-bar-track">
+                                        <i className="comparison-bar comparison-bar--individual" style={{width: `${barWidth(row.individualXp, row.maxXp)}%`}}/>
+                                        <i className="comparison-bar comparison-bar--group" style={{width: `${barWidth(row.groupXp, row.maxXp)}%`}}/>
+                                    </div>
+                                    <b>{formatAdminNumber(row.totalXp)} XP</b>
+                                    <small>{row.xpPercent}% of leader{row.xpDifference < 0 ? ` (${formatAdminNumber(row.xpDifference)} XP)` : ""}</small>
+                                </div>
+                            ))}
+                        </div>
+                        <div className="comparison-legend">
+                            <span><i className="comparison-dot comparison-dot--individual"/>Individual XP</span>
+                            <span><i className="comparison-dot comparison-dot--group"/>Group XP</span>
+                        </div>
+                    </article>
+
+                    <article className="comparison-panel">
+                        <h4>Activities done</h4>
+                        <div className="comparison-activity-list">
+                            {rows.map((row) => (
+                                <div className="comparison-activity-row" key={`activity-${row.group.course_group_id}`}>
+                                    <strong>{row.groupName}</strong>
+                                    {[
+                                        ["Individual MC", row.activityCounts.individual_mc, maxIndividualMc, "individual"],
+                                        ["Individual Case", row.activityCounts.individual_case, maxIndividualCase, "case"],
+                                        ["Group", row.activityCounts.group, maxGroup, "group"],
+                                        ["Quiz", row.activityCounts.quiz, maxQuiz, "quiz"],
+                                    ].map(([label, value, max, className]) => (
+                                        <div key={label}>
+                                            <span>{label}</span>
+                                            <i className={`comparison-mini-bar comparison-mini-bar--${className}`} style={{width: `${barWidth(value, max)}%`}}/>
+                                            <b>{formatAdminNumber(value)}</b>
+                                        </div>
+                                    ))}
+                                </div>
+                            ))}
+                        </div>
+                    </article>
+
+                    <article className="comparison-panel comparison-panel--wide">
+                        <h4>Students by level</h4>
+                        <div className="comparison-levels">
+                            {groups.map((group) => {
+                                const groupTotal = Number(group.student_count || group.students?.length || 0);
+                                return (
+                                    <div className="comparison-level-group" key={`level-${group.course_group_id}`}>
+                                        <header>
+                                            <strong>{group.group_name || "Ungrouped"}</strong>
+                                            <span>{formatAdminNumber(groupTotal)} students</span>
+                                        </header>
+                                        {(group.level_distribution || []).map((level) => {
+                                            const count = level.students?.length || 0;
+                                            const percent = percentage(count, groupTotal || maxStudents);
+                                            return (
+                                                <div className="comparison-level-row" key={`${group.course_group_id}-${level.level_id}`}>
+                                                    <span>{level.level_name}</span>
+                                                    <div>
+                                                        <i style={{width: `${barWidth(count, groupTotal || maxStudents)}%`, background: level.color_hex}}/>
+                                                    </div>
+                                                    <b>{percent}%</b>
+                                                    <small>{level.students.map((student) => student.name).join(", ")}</small>
+                                                </div>
+                                            );
+                                        })}
+                                        {(!group.level_distribution || group.level_distribution.length === 0) && (
+                                            <p>No level data yet.</p>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </article>
+                </div>
+            </section>
+        );
+    };
+
     const renderInstructorDashboard = () => {
         const summary = instructorDashboard?.summary || {};
         if (!instructorDashboard && busy) {
@@ -1255,6 +1768,7 @@ const AdminPage = () => {
         }
 
         const topicGroups = selectedDashboardTopic?.groups || [];
+        const selectedAssessmentCount = topicGroups.reduce((total, group) => total + (group.assessment_comparison?.length || 0), 0);
         const changedCourse = (courseId) => {
             const nextCourse = dashboardCourses.find((course) => String(course.course_id) === String(courseId));
             setSelectedDashboardCourseId(courseId);
@@ -1328,6 +1842,19 @@ const AdminPage = () => {
                         </div>
                     </div>
 
+                    <div className="instructor-topic-actions">
+                        <div>
+                            <strong>Pre-test & post-test export</strong>
+                            <span>{formatAdminNumber(selectedAssessmentCount)} student comparisons in this topic</span>
+                        </div>
+                        <button type="button" onClick={exportSelectedTopicAssessments}>
+                            Export Excel
+                        </button>
+                    </div>
+                    {message && <div className="admin-inline-message">{message}</div>}
+
+                    {renderGroupComparison(topicGroups)}
+
                     <div className="instructor-group-list">
                         {topicGroups.map((group) => (
                             <article
@@ -1349,62 +1876,21 @@ const AdminPage = () => {
                                 <div className="activity-type-strip">
                                     {["individual", "pre_test", "post_test", "group", "quiz"].map((type) => (
                                         <span className={`activity-pill activity-pill--${activityClass(type)}`} key={type}>
-                                            {type.replace("_", " ")} {group.activity_counts?.[type] || 0}
+                                            {type.replace("_", " ")}: {formatAdminNumber(group.activity_counts?.[type] || 0)} done
                                         </span>
                                     ))}
                                 </div>
 
                                 <details open>
                                     <summary>Activity detail</summary>
-                                    <div className="instructor-activity-table-wrap">
-                                        <table className="instructor-activity-table">
-                                            <thead>
-                                            <tr>
-                                                <th>Type</th>
-                                                <th>Activity</th>
-                                                <th>Student / Members</th>
-                                                <th>Score</th>
-                                                <th>XP</th>
-                                                <th>Submitted</th>
-                                            </tr>
-                                            </thead>
-                                            <tbody>
-                                            {(group.activities || []).map((activity) => (
-                                                <tr key={activity.id}>
-                                                    <td><span className={`activity-pill activity-pill--${activityClass(activity.type)}`}>{activity.label}</span></td>
-                                                    <td>{activity.title}</td>
-                                                    <td>{activity.student_name || `${activity.member_count || 0} members`}</td>
-                                                    <td>{activity.score ?? activity.average_score ?? "-"}</td>
-                                                    <td>{activity.xp ?? "-"}</td>
-                                                    <td>{formatAdminDate(activity.submitted_at)}</td>
-                                                </tr>
-                                            ))}
-                                            {(!group.activities || group.activities.length === 0) && (
-                                                <tr><td colSpan="6">No saved activity for this group and topic yet.</td></tr>
-                                            )}
-                                            </tbody>
-                                        </table>
-                                    </div>
+                                    {renderActivityDetail(group)}
                                 </details>
 
                                 {group.gamification_enabled && (
                                     <>
                                         <details>
-                                            <summary>XP contribution</summary>
-                                            <div className="instructor-xp-summary">
-                                                <strong>{formatAdminNumber(group.total_group_xp)} group XP</strong>
-                                                <strong>{formatAdminNumber(group.total_individual_xp)} individual XP</strong>
-                                            </div>
-                                            <div className="instructor-contribution-list">
-                                                {(group.xp_contributions || []).map((item, index) => (
-                                                    <div key={`${item.activity_id}-${item.user_id}-${index}`}>
-                                                        <span>{item.student_name}</span>
-                                                        <b>{formatAdminNumber(item.xp_earned)} XP</b>
-                                                        <small>{item.reason || item.activity_type}</small>
-                                                    </div>
-                                                ))}
-                                                {(!group.xp_contributions || group.xp_contributions.length === 0) && <p>No XP contribution recorded yet.</p>}
-                                            </div>
+                                            <summary>Students by XP</summary>
+                                            {renderStudentsByXp(group)}
                                         </details>
 
                                         <details>
@@ -1413,9 +1899,8 @@ const AdminPage = () => {
                                                 {(group.level_distribution || []).map((level) => (
                                                     <div key={level.level_id}>
                                                         <b style={{borderColor: level.color_hex}}>{level.level_name}</b>
-                                                        <span>
-                                                            {level.students.map((student) => student.name).join(", ")}
-                                                        </span>
+                                                        <strong>{formatAdminNumber(level.students.length)} students</strong>
+                                                        <span>{level.students.map((student) => student.name).join(", ")}</span>
                                                     </div>
                                                 ))}
                                                 {(!group.level_distribution || group.level_distribution.length === 0) && <p>No level data yet.</p>}
