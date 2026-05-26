@@ -1649,10 +1649,8 @@ const AdminPage = () => {
 
     const renderGroupComparison = (groups) => {
         const rows = topicComparisonRows(groups);
-        const maxIndividualMc = Math.max(0, ...rows.map((row) => row.activityCounts.individual_mc));
-        const maxIndividualCase = Math.max(0, ...rows.map((row) => row.activityCounts.individual_case));
-        const maxGroup = Math.max(0, ...rows.map((row) => row.activityCounts.group));
-        const maxQuiz = Math.max(0, ...rows.map((row) => row.activityCounts.quiz));
+        const maxIndividualXp = Math.max(0, ...rows.map((row) => row.individualXp));
+        const maxGroupXp = Math.max(0, ...rows.map((row) => row.groupXp));
         const maxStudents = Math.max(0, ...groups.map((group) => Number(group.student_count || group.students?.length || 0)));
 
         return (
@@ -1670,20 +1668,28 @@ const AdminPage = () => {
                         <h4>XP difference</h4>
                         <div className="comparison-bars">
                             {rows.map((row) => (
-                                <div className="comparison-bar-row" key={`xp-${row.group.course_group_id}`}>
-                                    <span>{row.groupName}</span>
-                                    <div className="comparison-bar-track">
-                                        <i className="comparison-bar comparison-bar--individual" style={{width: `${barWidth(row.individualXp, row.maxXp)}%`}}/>
-                                        <i className="comparison-bar comparison-bar--group" style={{width: `${barWidth(row.groupXp, row.maxXp)}%`}}/>
+                                <div className="comparison-xp-group" key={`xp-${row.group.course_group_id}`}>
+                                    <header>
+                                        <strong>{row.groupName}</strong>
+                                        <span>{formatAdminNumber(row.totalXp)} total XP · {row.xpPercent}% of leader</span>
+                                    </header>
+                                    <div className="comparison-xp-row">
+                                        <span>Individual XP</span>
+                                        <div className="comparison-bar-track">
+                                            <i className="comparison-bar comparison-bar--individual" style={{width: `${barWidth(row.individualXp, maxIndividualXp)}%`}}/>
+                                        </div>
+                                        <b>{formatAdminNumber(row.individualXp)} XP</b>
                                     </div>
-                                    <b>{formatAdminNumber(row.totalXp)} XP</b>
-                                    <small>{row.xpPercent}% of leader{row.xpDifference < 0 ? ` (${formatAdminNumber(row.xpDifference)} XP)` : ""}</small>
+                                    <div className="comparison-xp-row">
+                                        <span>Group XP</span>
+                                        <div className="comparison-bar-track">
+                                            <i className="comparison-bar comparison-bar--group" style={{width: `${barWidth(row.groupXp, maxGroupXp)}%`}}/>
+                                        </div>
+                                        <b>{formatAdminNumber(row.groupXp)} XP</b>
+                                    </div>
+                                    {row.xpDifference < 0 && <small>{formatAdminNumber(Math.abs(row.xpDifference))} XP behind leader</small>}
                                 </div>
                             ))}
-                        </div>
-                        <div className="comparison-legend">
-                            <span><i className="comparison-dot comparison-dot--individual"/>Individual XP</span>
-                            <span><i className="comparison-dot comparison-dot--group"/>Group XP</span>
                         </div>
                     </article>
 
@@ -1694,15 +1700,16 @@ const AdminPage = () => {
                                 <div className="comparison-activity-row" key={`activity-${row.group.course_group_id}`}>
                                     <strong>{row.groupName}</strong>
                                     {[
-                                        ["Individual MC", row.activityCounts.individual_mc, maxIndividualMc, "individual"],
-                                        ["Individual Case", row.activityCounts.individual_case, maxIndividualCase, "case"],
-                                        ["Group", row.activityCounts.group, maxGroup, "group"],
-                                        ["Quiz", row.activityCounts.quiz, maxQuiz, "quiz"],
-                                    ].map(([label, value, max, className]) => (
+                                        ["Individual MC", row.activityCounts.individual_mc, "individual"],
+                                        ["Individual Case", row.activityCounts.individual_case, "case"],
+                                        ["Group", row.activityCounts.group, "group"],
+                                        ["Quiz", row.activityCounts.quiz, "quiz"],
+                                    ].map(([label, value, className]) => (
                                         <div key={label}>
                                             <span>{label}</span>
-                                            <i className={`comparison-mini-bar comparison-mini-bar--${className}`} style={{width: `${barWidth(value, max)}%`}}/>
-                                            <b>{formatAdminNumber(value)}</b>
+                                            <i className={`comparison-mini-bar comparison-mini-bar--${className}`} style={{width: `${barWidth(value, row.totalActivities)}%`}}/>
+                                            <b>{percentage(value, row.totalActivities)}%</b>
+                                            <small>{formatAdminNumber(value)} of {formatAdminNumber(row.totalActivities)}</small>
                                         </div>
                                     ))}
                                 </div>
