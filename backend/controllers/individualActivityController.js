@@ -333,6 +333,13 @@ export async function completeIndividualMultipleChoice(req, res) {
         if (!session || String(session.user_id) !== String(user.user_id) || String(session.course_id) !== String(user.course_id)) {
             return res.status(404).json({message: "Session tidak ditemukan"});
         }
+        if (session.status === "completed") {
+            const activity = await loadIndividualSession(session, user);
+            return res.json({
+                message: "Aktivitas sudah selesai",
+                session: normalizeSession(activity.session, activity.questions, activity.answers, user),
+            });
+        }
         if (session.status !== "in_progress" || session.activity_type !== "exercise" || session.question_kind !== "multiple_choice") {
             return res.status(409).json({message: "Session tidak bisa diselesaikan saat ini"});
         }
@@ -438,6 +445,13 @@ async function timeoutMultipleChoiceQuestion(session, questions, user) {
         return completeMultipleChoiceSession(session, questions, user, {timedOut: true});
     }
     return advanceIndividualSession(session.session_id);
+}
+
+async function completeAnsweredMultipleChoiceSessionIfReady(session, questions, user) {
+    if (!session || session.status !== "in_progress" || session.question_kind !== "multiple_choice") return session;
+    const answers = await getIndividualAnswers(session.session_id);
+    if (questions.length === 0 || answers.length < questions.length) return session;
+    return completeMultipleChoiceSession(session, questions, user);
 }
 
 async function retryCompletedExerciseFeedback(session, questions, answers, user) {
@@ -586,6 +600,9 @@ export async function getIndividualContext(req, res) {
             effectiveActiveSession = effectiveActiveSession.question_kind === "multiple_choice"
                 ? await timeoutMultipleChoiceQuestion(effectiveActiveSession, questions, user)
                 : await completeTimedOutIndividualSession(effectiveActiveSession, questions, user);
+        } else if (effectiveActiveSession?.question_kind === "multiple_choice") {
+            const questions = await getIndividualQuestionsByIds(effectiveActiveSession.question_ids);
+            effectiveActiveSession = await completeAnsweredMultipleChoiceSessionIfReady(effectiveActiveSession, questions, user);
         }
         const activity = effectiveActiveSession ? await loadIndividualSession(effectiveActiveSession, user) : null;
 
@@ -658,15 +675,20 @@ export async function startIndividualSession(req, res) {
 
         const objectId = normalizeObjectId(req.body.object_id);
         const activeObjectSession = await getActiveIndividualSessionForObject({courseId: user.course_id, objectId});
-        if (activeObjectSession) {
-            if (String(activeObjectSession.user_id) !== String(user.user_id)) {
+        let effectiveActiveObjectSession = activeObjectSession;
+        if (effectiveActiveObjectSession && String(effectiveActiveObjectSession.user_id) === String(user.user_id)) {
+            const questions = await getIndividualQuestionsByIds(effectiveActiveObjectSession.question_ids);
+            effectiveActiveObjectSession = await completeAnsweredMultipleChoiceSessionIfReady(effectiveActiveObjectSession, questions, user);
+        }
+        if (effectiveActiveObjectSession?.status === "in_progress") {
+            if (String(effectiveActiveObjectSession.user_id) !== String(user.user_id)) {
                 return res.status(409).json({
-                    message: `${activeObjectSession.user_name || "Student lain"} sedang menggunakan komputer ini. Silakan pilih komputer lain.`,
+                    message: `${effectiveActiveObjectSession.user_name || "Student lain"} sedang menggunakan komputer ini. Silakan pilih komputer lain.`,
                     reason: "COMPUTER_IN_USE",
                 });
             }
 
-            const activity = await loadIndividualSession(activeObjectSession, user);
+            const activity = await loadIndividualSession(effectiveActiveObjectSession, user);
             return res.status(409).json({
                 message: "Masih ada aktivitas individual aktif di komputer ini.",
                 active_session: normalizeSession(activity.session, activity.questions, activity.answers, user),
@@ -674,8 +696,13 @@ export async function startIndividualSession(req, res) {
         }
 
         const activeSession = await getActiveIndividualSession({courseId: user.course_id, userId: user.user_id, objectId});
-        if (activeSession) {
-            const activity = await loadIndividualSession(activeSession, user);
+        let effectiveActiveSession = activeSession;
+        if (effectiveActiveSession) {
+            const questions = await getIndividualQuestionsByIds(effectiveActiveSession.question_ids);
+            effectiveActiveSession = await completeAnsweredMultipleChoiceSessionIfReady(effectiveActiveSession, questions, user);
+        }
+        if (effectiveActiveSession?.status === "in_progress") {
+            const activity = await loadIndividualSession(effectiveActiveSession, user);
             return res.status(409).json({
                 message: "Masih ada aktivitas individual aktif di komputer ini.",
                 active_session: normalizeSession(activity.session, activity.questions, activity.answers, user),
@@ -766,6 +793,9 @@ export async function getIndividualSession(req, res) {
             effectiveSession = effectiveSession.question_kind === "multiple_choice"
                 ? await timeoutMultipleChoiceQuestion(effectiveSession, questions, user)
                 : await completeTimedOutIndividualSession(effectiveSession, questions, user);
+        } else if (effectiveSession.question_kind === "multiple_choice") {
+            const questions = await getIndividualQuestionsByIds(effectiveSession.question_ids);
+            effectiveSession = await completeAnsweredMultipleChoiceSessionIfReady(effectiveSession, questions, user);
         }
         const activity = await loadIndividualSession(effectiveSession, user);
         res.json({session: normalizeSession(activity.session, activity.questions, activity.answers, user)});

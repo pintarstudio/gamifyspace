@@ -479,6 +479,21 @@ async function findDatabaseBackedActivityStatus(sessionUser) {
     return null;
 }
 
+async function clearStaleActivityLockIfNeeded(courseId, userId) {
+    const key = activityLockKey(courseId, userId);
+    const current = key ? activityLocks[key] : null;
+    if (!current || !isStatusActive(current) || current.is_pending) return false;
+
+    const databaseStatus = await findDatabaseBackedActivityStatus({course_id: courseId, user_id: userId});
+    const isStillBacked = databaseStatus
+        && databaseStatus.type === current.type
+        && databaseStatus.activity_key === current.activity_key;
+    if (isStillBacked) return false;
+
+    clearActivityStatusForUser({courseId, userId});
+    return true;
+}
+
 app.get("/api/activity-status/current", async (req, res) => {
     const sessionUser = req.session?.user;
     if (!sessionUser?.user_id || !sessionUser?.course_id) {
@@ -487,7 +502,10 @@ app.get("/api/activity-status/current", async (req, res) => {
 
     const key = activityLockKey(sessionUser.course_id, sessionUser.user_id);
     const status = key ? sanitizeActivityStatus(activityLocks[key]) : null;
-    if (status) return res.json({ok: true, status});
+    if (status) {
+        const clearedStaleLock = await clearStaleActivityLockIfNeeded(sessionUser.course_id, sessionUser.user_id);
+        if (!clearedStaleLock) return res.json({ok: true, status});
+    }
 
     const databaseStatus = await findDatabaseBackedActivityStatus(sessionUser);
     if (!databaseStatus) return res.json({ok: true, status: null});
@@ -633,7 +651,8 @@ io.on("connection", (socket) => {
         logUserAction(user_id, "interact_obj", {object_name, object_id, group_id, url, action, targetRoom});
     });
 
-    socket.on("activity_status:set", (data, callback) => {
+    socket.on("activity_status:set", async (data, callback) => {
+        await clearStaleActivityLockIfNeeded(data?.course_id, data?.user_id);
         const result = setActivityStatusForUser({
             courseId: data?.course_id,
             userId: data?.user_id,

@@ -209,6 +209,14 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
     }, [currentUser, activeSession?.status, activeSession?.session_id, activeSession?.activity_type, activeSession?.object_id, objectId]);
 
     useEffect(() => {
+        if (!currentUser || activeSession?.status !== "completed") return;
+        const status = activityStatusForIndividual(activeSession.activity_type);
+        const activityKey = `${status.type}:${activeSession.session_id}`;
+        clearActivityStatus({user: currentUser, activityKey, keepalive: true});
+        if (activityStatusKeyRef.current === activityKey) activityStatusKeyRef.current = null;
+    }, [currentUser, activeSession?.status, activeSession?.session_id, activeSession?.activity_type]);
+
+    useEffect(() => {
         if (!completionNotice) return undefined;
 
         const preventUnload = (event) => {
