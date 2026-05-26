@@ -1011,6 +1011,33 @@
     background: #f8fbfe;
 }
 
+.history-feedback-retry {
+    align-items: flex-start;
+    background: #fff7eb;
+    border: 1px solid #efc37f;
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 12px;
+    padding: 12px;
+}
+
+.history-feedback-retry strong {
+    color: #8a4f08;
+    font-size: 13px;
+}
+
+.history-feedback-retry p {
+    color: #5b4630;
+    margin: 0;
+}
+
+.history-feedback-retry__button {
+    align-self: flex-start;
+    margin-top: 2px;
+}
+
 .history-feedback-label {
     border-radius: 999px;
     display: inline-block;

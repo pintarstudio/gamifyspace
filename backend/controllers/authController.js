@@ -21,6 +21,7 @@ const isSameLookupText = (left, right) =>
 const chatCourseRoom = (courseId) => `chat:course:${courseId}`;
 const chatUserRoom = (userId) => `chat:user:${userId}`;
 const chatRoom = (roomId) => `chat:room:${roomId}`;
+const STUDENT_MAINTENANCE_MESSAGE = "Sistem sedang dalam mode pemeliharaan. Login student sementara dinonaktifkan.";
 
 const instructorCoursePayload = (course) => ({
     course_id: course.course_id,
@@ -88,6 +89,11 @@ export async function login(req, res) {
     try {
         const { user_id, course_id, avatar_id, avatar_public_path, password } = req.body;
 
+        const maintenanceMode = await getBooleanSetting(SETTING_KEYS.MAINTENANCE_MODE, false);
+        if (maintenanceMode) {
+            return res.status(503).json({message: STUDENT_MAINTENANCE_MESSAGE, maintenance: true});
+        }
+
         if (!user_id) {
             return res.status(400).json({ message: "User wajib dipilih" });
         }
@@ -149,6 +155,11 @@ export async function login(req, res) {
 
 export async function resolveDemoLogin(req, res) {
     try {
+        const maintenanceMode = await getBooleanSetting(SETTING_KEYS.MAINTENANCE_MODE, false);
+        if (maintenanceMode) {
+            return res.status(503).json({message: STUDENT_MAINTENANCE_MESSAGE, maintenance: true});
+        }
+
         const courseName = normalizeLookupText(req.query.coursename);
         const studentName = normalizeLookupText(req.query.studentname);
         const studentEmail = normalizeLookupText(req.query.studentemail).toLowerCase();

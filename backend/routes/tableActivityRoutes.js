@@ -7,6 +7,7 @@ import {
     exitTableSession,
     heartbeatTableSession,
     joinTableSession,
+    retryTableFeedback,
     saveTableAnswer,
     submitTableAnswers,
     startTableSession,
@@ -25,6 +26,7 @@ router.post("/sessions/:sessionId/heartbeat", heartbeatTableSession);
 router.post("/sessions/:sessionId/exit", exitTableSession);
 router.post("/sessions/:sessionId/submit", submitTableAnswers);
 router.post("/sessions/:sessionId/timeout", timeoutTableSession);
+router.post("/sessions/:sessionId/retry-feedback", retryTableFeedback);
 router.patch("/sessions/:sessionId/answer", saveTableAnswer);
 
 export default router;

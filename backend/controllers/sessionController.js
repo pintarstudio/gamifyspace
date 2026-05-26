@@ -1,5 +1,9 @@
 // backend/controllers/sessionController.js
-import {findSession} from "../models/sessionModel.js";
+import {deactivateSession, findSession} from "../models/sessionModel.js";
+import {STUDENT_ROLE_ID} from "../models/roleModel.js";
+import {getBooleanSetting, SETTING_KEYS} from "../models/settingsModel.js";
+
+const STUDENT_MAINTENANCE_MESSAGE = "Sistem sedang dalam mode pemeliharaan. Login student sementara dinonaktifkan.";
 
 export async function checkSession(req, res) {
     try {
@@ -8,6 +12,16 @@ export async function checkSession(req, res) {
 
         const sessionData = await findSession(session_id);
         if (!sessionData) return res.json({loggedIn: false});
+        const maintenanceMode = await getBooleanSetting(SETTING_KEYS.MAINTENANCE_MODE, false);
+        if (maintenanceMode && String(sessionData.role_id) === String(STUDENT_ROLE_ID)) {
+            await deactivateSession(session_id);
+            req.session.destroy(() => {});
+            return res.json({
+                loggedIn: false,
+                maintenance: true,
+                message: STUDENT_MAINTENANCE_MESSAGE,
+            });
+        }
         console.log("SessionData: ",sessionData);
         res.json({
             loggedIn: true,

@@ -702,4 +702,15 @@ export async function saveQuizResult(sessionId, userId, questions, answers, resu
     }
 }
 
+export async function updateQuizResultFeedback(sessionId, resultsPatch) {
+    const result = await pool.query(
+        `UPDATE quiz_session_results
+         SET results_json = results_json || $2::jsonb
+         WHERE quiz_session_id = $1
+         RETURNING questions_json, answers_json, results_json, created_at`,
+        [sessionId, JSON.stringify(resultsPatch || {})]
+    );
+    return result.rows[0] || null;
+}
+
 export {MAX_QUIZ_MEMBERS, QUESTION_COUNT, QUESTION_REVEAL_SECONDS, QUESTION_START_DELAY_SECONDS, QUESTION_TIME_SECONDS};

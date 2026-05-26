@@ -7,6 +7,7 @@ import {
     getQuizSession,
     heartbeatQuizSession,
     joinQuizSession,
+    retryQuizFeedback,
     saveQuizSessionResult,
     startQuizLobby,
 } from "../controllers/quizActivityController.js";
@@ -22,5 +23,6 @@ router.post("/sessions/:sessionId/exit", exitQuizSession);
 router.post("/sessions/:sessionId/start", beginQuiz);
 router.post("/sessions/:sessionId/answer", answerQuizQuestion);
 router.post("/sessions/:sessionId/save", saveQuizSessionResult);
+router.post("/sessions/:sessionId/retry-feedback", retryQuizFeedback);
 
 export default router;

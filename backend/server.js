@@ -29,6 +29,9 @@ import {ensureGamificationTables} from "./models/gamificationModel.js";
 import {ensureCourseGroupSchema} from "./models/courseGroupModel.js";
 import {ensureRoleSchema} from "./models/roleModel.js";
 import {ensureChatSchema} from "./models/chatModel.js";
+import {getBooleanSetting, SETTING_KEYS} from "./models/settingsModel.js";
+import {deactivateSession, findSession} from "./models/sessionModel.js";
+import {STUDENT_ROLE_ID} from "./models/roleModel.js";
 
 const app = express();
 const server = http.createServer(app);
@@ -94,6 +97,45 @@ app.use(
         },
     })
 );
+
+const STUDENT_MAINTENANCE_MESSAGE = "Sistem sedang dalam mode pemeliharaan. Login student sementara dinonaktifkan.";
+
+app.use(async (req, res, next) => {
+    try {
+        if (!req.path.startsWith("/api") || req.path.startsWith("/api/admin")) return next();
+        const sessionId = req.session?.session_id;
+        if (!sessionId) return next();
+
+        const maintenanceMode = await getBooleanSetting(SETTING_KEYS.MAINTENANCE_MODE, false);
+        if (!maintenanceMode) return next();
+
+        const sessionUser = await findSession(sessionId);
+        if (!sessionUser || String(sessionUser.role_id) !== String(STUDENT_ROLE_ID)) return next();
+
+        await deactivateSession(sessionId);
+        req.session.destroy(() => {});
+
+        if (req.path === "/api/session") {
+            return res.json({
+                loggedIn: false,
+                maintenance: true,
+                message: STUDENT_MAINTENANCE_MESSAGE,
+            });
+        }
+
+        if (req.path === "/api/logout") {
+            return res.json({message: "Logout berhasil", maintenance: true});
+        }
+
+        return res.status(503).json({
+            message: STUDENT_MAINTENANCE_MESSAGE,
+            maintenance: true,
+        });
+    } catch (error) {
+        console.error("Maintenance guard error:", error);
+        return next();
+    }
+});
 
 app.use("/api", authRoutes);
 app.use("/api/courses", courseRoutes);

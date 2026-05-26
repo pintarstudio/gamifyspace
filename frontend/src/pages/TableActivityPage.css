@@ -286,6 +286,30 @@
     padding: 10px 12px;
 }
 
+.feedback-retry-block {
+    align-items: center;
+    background: #fff8e6;
+    border: 1px solid #f0d89a;
+    border-radius: 8px;
+    display: flex;
+    gap: 12px;
+    justify-content: space-between;
+    padding: 12px;
+}
+
+.feedback-retry-block strong {
+    color: #8a4f08;
+}
+
+.feedback-retry-block p {
+    margin: 4px 0 0;
+}
+
+.feedback-retry-block .table-button {
+    flex: 0 0 auto;
+    width: auto;
+}
+
 .table-workspace {
     display: grid;
     grid-template-columns: 190px minmax(0, 1fr);

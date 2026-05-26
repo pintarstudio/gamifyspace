@@ -1,5 +1,5 @@
 import React, {useEffect, useState} from "react";
-import {BrowserRouter, Routes, Route, Navigate, useLocation} from "react-router-dom";
+import {BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate} from "react-router-dom";
 import LandingPage from "./pages/LandingPage";
 import LoginPage from "./pages/LoginPage";
 import VirtualSpacePage from "./pages/VirtualSpacePage";
@@ -10,7 +10,8 @@ import IndividualActivityPage from "./pages/IndividualActivityPage";
 import NotFoundPage from "./pages/NotFoundPage";
 import AdminPage from "./pages/AdminPage";
 import InstructorLoginPage from "./pages/InstructorLoginPage";
-import {apiGet} from "./api/apiClient";
+import {apiGet, apiPost} from "./api/apiClient";
+import socket from "./utils/socketClient";
 
 const defaultStudentPath = (user) => user?.use_no_virtual_space ? "/novirtualspace" : "/virtualspace";
 
@@ -26,6 +27,29 @@ function HomeRoute({loggedIn, user, setLoggedIn, setUser}) {
     if (loggedIn) return <Navigate to={defaultStudentPath(user)}/>;
     if (isStudentAccess) return <LoginPage setLoggedIn={setLoggedIn} setUser={setUser}/>;
     return <LandingPage/>;
+}
+
+function MaintenanceListener({loggedIn, user, setLoggedIn, setUser}) {
+    const navigate = useNavigate();
+    const isStudent = String(user?.role_name || "").toLowerCase() === "student"
+        || String(user?.role_id || "") === "1";
+
+    useEffect(() => {
+        const handleMaintenance = async () => {
+            if (!loggedIn || !isStudent) return;
+            if (window.socket) window.socket.emit("logout");
+            await apiPost("/logout", {}).catch(() => null);
+            setLoggedIn(false);
+            setUser(null);
+            localStorage.clear();
+            navigate("/demo?maintenance=1");
+        };
+
+        socket.on("maintenance:active", handleMaintenance);
+        return () => socket.off("maintenance:active", handleMaintenance);
+    }, [loggedIn, isStudent, navigate, setLoggedIn, setUser]);
+
+    return null;
 }
 
 function App() {
@@ -49,6 +73,7 @@ function App() {
 
     return (
         <BrowserRouter>
+            <MaintenanceListener loggedIn={loggedIn} user={user} setLoggedIn={setLoggedIn} setUser={setUser}/>
             <Routes>
                 <Route
                     path="/"

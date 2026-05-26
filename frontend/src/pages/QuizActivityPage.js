@@ -76,6 +76,7 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
     const [loading, setLoading] = useState(true);
     const [busy, setBusy] = useState(false);
     const [savingResult, setSavingResult] = useState(false);
+    const [retryingFeedback, setRetryingFeedback] = useState(false);
     const [message, setMessage] = useState("");
     const [now, setNow] = useState(Date.now());
     const [currentUser, setCurrentUser] = useState(null);
@@ -579,6 +580,24 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
         setBusy(false);
     }, [activeSession?.quiz_session_id, currentUser]);
 
+    const handleRetryFeedback = async () => {
+        if (!activeSession?.quiz_session_id || retryingFeedback) return;
+        setRetryingFeedback(true);
+        setMessage("");
+        try {
+            const data = await apiPost(`/quiz/sessions/${activeSession.quiz_session_id}/retry-feedback`, {});
+            if (data.session) {
+                setActiveSession(stampSession(data.session));
+                setMessage(getMessage(data, "Feedback AI berhasil dibuat ulang."));
+            } else {
+                setMessage(getMessage(data, "Gagal mencoba ulang AI feedback."));
+            }
+        } catch (error) {
+            setMessage("Gagal mencoba ulang AI feedback.");
+        }
+        setRetryingFeedback(false);
+    };
+
     useEffect(() => {
         if (
             activeSession?.status !== "completed"
@@ -777,7 +796,22 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
                                     </div>
                                 )}
                                 {activeSession.wrong_answer_feedback_error && (
-                                    <p className="quiz-feedback-error">{activeSession.wrong_answer_feedback_error}</p>
+                                    <div className="quiz-feedback-error">
+                                        <div>
+                                            <strong>Feedback AI gagal dibuat.</strong>
+                                            <p>{activeSession.wrong_answer_feedback_error}</p>
+                                        </div>
+                                        {activeSession.status === "saved" && (
+                                            <button
+                                                className="quiz-button quiz-button--primary"
+                                                type="button"
+                                                onClick={handleRetryFeedback}
+                                                disabled={retryingFeedback}
+                                            >
+                                                {retryingFeedback ? "Retrying..." : "Retry AI Feedback"}
+                                            </button>
+                                        )}
+                                    </div>
                                 )}
                             </div>
 

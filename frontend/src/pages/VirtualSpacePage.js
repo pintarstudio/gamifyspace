@@ -75,6 +75,7 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
     const [selectedActivity, setSelectedActivity] = useState(null);
     const [activeMapActivity, setActiveMapActivity] = useState(null);
     const [detailLoading, setDetailLoading] = useState(false);
+    const [retryingHistoryFeedback, setRetryingHistoryFeedback] = useState(false);
     const [activeDashboardTab, setActiveDashboardTab] = useState(null);
     const [expandedLeaderboardGroups, setExpandedLeaderboardGroups] = useState({});
     const navigate = useNavigate();
@@ -216,6 +217,27 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
         const data = await apiGet(`/virtualspace/activities/${activity.activity_key || activity.session_id}`);
         setSelectedActivity(data.activity || null);
         setDetailLoading(false);
+    };
+
+    const retryHistoryFeedback = async () => {
+        if (!selectedActivity || retryingHistoryFeedback) return;
+        const rawSessionId = String(selectedActivity.session_id || "");
+        const numericSessionId = rawSessionId.replace(/^individual-/, "").replace(/^quiz-/, "").replace(/^table-/, "");
+        const endpoint = selectedActivity.activity_type === "individual"
+            ? `/individual/sessions/${numericSessionId}/retry-feedback`
+            : selectedActivity.activity_type === "quiz"
+                ? `/quiz/sessions/${numericSessionId}/retry-feedback`
+                : `/table/sessions/${numericSessionId}/retry-feedback`;
+
+        setRetryingHistoryFeedback(true);
+        try {
+            await apiPost(endpoint, {});
+            await openActivity({activity_key: rawSessionId});
+        } catch (error) {
+            alert(error.message || "Gagal mencoba ulang AI feedback.");
+        } finally {
+            setRetryingHistoryFeedback(false);
+        }
     };
 
     const buildActivityLaunchFromStatus = useCallback((status) => {
@@ -873,6 +895,20 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
                                         {selectedActivity.question_kind === "case_study" ? (
                                             <section className="activity-detail-section">
                                                 <h2>AI Feedback</h2>
+                                                {selectedActivity.feedback_status === "error" && (
+                                                    <div className="history-feedback-retry">
+                                                        <strong>AI feedback belum berhasil dibuat.</strong>
+                                                        <p>{selectedActivity.feedback_error || "Coba ulang untuk membuat feedback dan memperbarui XP."}</p>
+                                                        <button
+                                                            className="activity-modal__close history-feedback-retry__button"
+                                                            type="button"
+                                                            onClick={retryHistoryFeedback}
+                                                            disabled={retryingHistoryFeedback}
+                                                        >
+                                                            {retryingHistoryFeedback ? "Mencoba ulang..." : "Coba Ulang AI Feedback"}
+                                                        </button>
+                                                    </div>
+                                                )}
                                                 <div className="history-feedback-grid">
                                                     <article>
                                                         <strong className="history-feedback-label history-feedback-label--www">What Went Well</strong>
@@ -890,6 +926,20 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
                                         ) : (
                                             <section className="activity-detail-section">
                                                 <h2>Review</h2>
+                                                {selectedActivity.feedback_status === "error" && (
+                                                    <div className="history-feedback-retry">
+                                                        <strong>AI feedback untuk jawaban salah belum berhasil dibuat.</strong>
+                                                        <p>{selectedActivity.feedback_error || "Jawaban dan skor sudah tersimpan. Coba ulang untuk membuat feedback."}</p>
+                                                        <button
+                                                            className="activity-modal__close history-feedback-retry__button"
+                                                            type="button"
+                                                            onClick={retryHistoryFeedback}
+                                                            disabled={retryingHistoryFeedback}
+                                                        >
+                                                            {retryingHistoryFeedback ? "Mencoba ulang..." : "Coba Ulang AI Feedback"}
+                                                        </button>
+                                                    </div>
+                                                )}
                                                 <div className="individual-history-review">
                                                     {(selectedActivity.questions || []).map((question, index) => {
                                                         const answer = (selectedActivity.answers || [])
@@ -973,6 +1023,20 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
 
                                         <section className="activity-detail-section">
                                             <h2>Quiz Review</h2>
+                                            {(selectedActivity.results?.wrong_answer_feedback_error || selectedActivity.wrong_answer_feedback_error) && (
+                                                <div className="history-feedback-retry">
+                                                    <strong>AI feedback untuk jawaban salah belum berhasil dibuat.</strong>
+                                                    <p>{selectedActivity.results?.wrong_answer_feedback_error || selectedActivity.wrong_answer_feedback_error}</p>
+                                                    <button
+                                                        className="activity-modal__close history-feedback-retry__button"
+                                                        type="button"
+                                                        onClick={retryHistoryFeedback}
+                                                        disabled={retryingHistoryFeedback}
+                                                    >
+                                                        {retryingHistoryFeedback ? "Mencoba ulang..." : "Coba Ulang AI Feedback"}
+                                                    </button>
+                                                </div>
+                                            )}
                                             <div className="quiz-history-review">
                                                 {(selectedActivity.questions || []).map((question, index) => (
                                                     <article key={question.question_id}>
@@ -1042,6 +1106,27 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
                                                 <strong className="history-feedback-label history-feedback-label--ebi">Even Better If</strong>
                                                 <p>{selectedActivity.combined_feedback.ebi}</p>
                                             </article>
+                                        </div>
+                                    </section>
+                                )}
+
+                                {!selectedActivity.combined_feedback
+                                    && selectedActivity.activity_type !== "individual"
+                                    && selectedActivity.activity_type !== "quiz"
+                                    && selectedActivity.feedback_status === "error" && (
+                                    <section className="activity-detail-section">
+                                        <h2>AI Feedback for Group</h2>
+                                        <div className="history-feedback-retry">
+                                            <strong>AI feedback belum berhasil dibuat.</strong>
+                                            <p>{selectedActivity.feedback_error || "Jawaban sudah tersimpan. Coba ulang untuk membuat feedback group dan student."}</p>
+                                            <button
+                                                className="activity-modal__close history-feedback-retry__button"
+                                                type="button"
+                                                onClick={retryHistoryFeedback}
+                                                disabled={retryingHistoryFeedback}
+                                            >
+                                                {retryingHistoryFeedback ? "Mencoba ulang..." : "Coba Ulang AI Feedback"}
+                                            </button>
                                         </div>
                                     </section>
                                 )}

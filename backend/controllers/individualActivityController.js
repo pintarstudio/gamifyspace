@@ -6,6 +6,7 @@ import {
     createIndividualSession,
     ensureIndividualActivityTables,
     getIndividualActivityDuration,
+    getIndividualQuestionDuration,
     getActiveIndividualSession,
     getActiveIndividualSessionForObject,
     getActiveIndividualOccupancy,
@@ -21,6 +22,7 @@ import {
     saveIndividualCaseAnswer,
     saveIndividualMcAnswer,
     advanceIndividualSession,
+    updateCompletedIndividualFeedback,
     updateIndividualTopicSettings,
     upsertIndividualXpScore,
 } from "../models/individualActivityModel.js";
@@ -102,6 +104,7 @@ function serializeAnswer(answer, includeAnswerValue = true) {
         is_correct: answer.is_correct,
         score: answer.score,
         xp_earned: answer.xp_earned,
+        time_spent_seconds: answer.time_spent_seconds,
         answered_at: answer.answered_at,
     };
     if (includeAnswerValue) {
@@ -109,6 +112,14 @@ function serializeAnswer(answer, includeAnswerValue = true) {
         serialized.answer_text = answer.answer_text;
     }
     return serialized;
+}
+
+function normalizeExerciseAnswerReveal(question, answer) {
+    if (!question || !answer) return null;
+    return {
+        question: serializeQuestion(question, true),
+        answer: serializeAnswer(answer, true),
+    };
 }
 
 function canRevealIndividualCorrectAnswers(session) {
@@ -126,25 +137,43 @@ function getIndividualTimer(session) {
         };
     }
 
-    const durationSeconds = Number(session.duration_seconds)
+    const totalDurationSeconds = Number(session.duration_seconds)
         || getIndividualActivityDuration(session.activity_type, session.question_kind);
-    const startedAt = session.started_at ? new Date(session.started_at).getTime() : Date.now();
-    const elapsedSeconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
     const isRunning = session.status === "in_progress";
+    const isMultipleChoice = session.question_kind === "multiple_choice";
+    const activeDurationSeconds = isRunning && isMultipleChoice
+        ? getIndividualQuestionDuration(session.activity_type, session.question_kind)
+        : totalDurationSeconds;
+    const timerStartedAtValue = isRunning && isMultipleChoice
+        ? (session.current_question_started_at || session.started_at)
+        : session.started_at;
+    const startedAt = timerStartedAtValue ? new Date(timerStartedAtValue).getTime() : Date.now();
+    const elapsedSeconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
     const secondsSpent = isRunning
-        ? Math.min(durationSeconds, elapsedSeconds)
-        : Math.min(durationSeconds, Math.max(0, Number(session.seconds_spent || 0)));
+        ? Math.min(activeDurationSeconds, elapsedSeconds)
+        : Math.min(totalDurationSeconds, Math.max(0, Number(session.seconds_spent || 0)));
     const secondsLeft = isRunning
-        ? Math.max(0, durationSeconds - secondsSpent)
+        ? Math.max(0, activeDurationSeconds - secondsSpent)
         : Math.max(0, Number(session.seconds_left || 0));
 
     return {
-        duration_seconds: durationSeconds,
+        duration_seconds: activeDurationSeconds,
+        activity_duration_seconds: totalDurationSeconds,
+        question_duration_seconds: isMultipleChoice ? getIndividualQuestionDuration(session.activity_type, session.question_kind) : null,
         seconds_spent: secondsSpent,
         seconds_left: secondsLeft,
-        timer_expires_at: new Date(startedAt + durationSeconds * 1000).toISOString(),
+        timer_expires_at: new Date(startedAt + activeDurationSeconds * 1000).toISOString(),
         is_time_up: isRunning && secondsLeft <= 0,
     };
+}
+
+function getCurrentQuestionTimeSpent(session) {
+    if (!session) return 0;
+    const questionDuration = getIndividualQuestionDuration(session.activity_type, session.question_kind);
+    const startedAt = session.current_question_started_at
+        ? new Date(session.current_question_started_at).getTime()
+        : (session.started_at ? new Date(session.started_at).getTime() : Date.now());
+    return Math.min(questionDuration, Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
 }
 
 function isIndividualSessionTimeUp(session) {
@@ -260,6 +289,7 @@ function normalizeSession(session, questions, answers, user, options = {}) {
     const timer = getIndividualTimer(session);
 
     return {
+        server_time_ms: Date.now(),
         session_id: session.session_id,
         course_id: session.course_id,
         topic_id: session.topic_id,
@@ -291,6 +321,42 @@ function normalizeSession(session, questions, answers, user, options = {}) {
         completed_at: session.completed_at,
         ...options,
     };
+}
+
+export async function completeIndividualMultipleChoice(req, res) {
+    try {
+        await ensureIndividualActivityTables();
+        const user = await getAuthenticatedUser(req, res);
+        if (!user) return;
+
+        const session = await getIndividualSessionById(req.params.sessionId);
+        if (!session || String(session.user_id) !== String(user.user_id) || String(session.course_id) !== String(user.course_id)) {
+            return res.status(404).json({message: "Session tidak ditemukan"});
+        }
+        if (session.status !== "in_progress" || session.activity_type !== "exercise" || session.question_kind !== "multiple_choice") {
+            return res.status(409).json({message: "Session tidak bisa diselesaikan saat ini"});
+        }
+
+        const questions = await getIndividualQuestionsByIds(session.question_ids);
+        const answers = await getIndividualAnswers(session.session_id);
+        if (answers.length < questions.length) {
+            const activity = await loadIndividualSession(session, user);
+            return res.status(409).json({
+                message: "Jawab semua pertanyaan terlebih dahulu.",
+                session: normalizeSession(activity.session, activity.questions, activity.answers, user),
+            });
+        }
+
+        const completed = await completeMultipleChoiceSession(session, questions, user);
+        const activity = await loadIndividualSession(completed, user);
+        res.json({
+            message: "Aktivitas selesai",
+            session: normalizeSession(activity.session, activity.questions, activity.answers, user),
+        });
+    } catch (error) {
+        console.error("Complete individual multiple choice error:", error);
+        res.status(500).json({message: "Gagal menyelesaikan aktivitas multiple choice"});
+    }
 }
 
 async function completeMultipleChoiceSession(session, questions, user, options = {}) {
@@ -350,6 +416,120 @@ async function completeTimedOutIndividualSession(session, questions, user, answe
     return completeMultipleChoiceSession(session, questions, user, {timedOut: true});
 }
 
+async function timeoutMultipleChoiceQuestion(session, questions, user) {
+    const currentQuestion = questions[session.current_question_index];
+    if (!currentQuestion) return session;
+
+    const existingAnswers = await getIndividualAnswers(session.session_id);
+    const alreadyAnswered = existingAnswers.some((answer) => String(answer.question_id) === String(currentQuestion.question_id));
+    if (!alreadyAnswered) {
+        await saveIndividualMcAnswer({
+            session,
+            question: currentQuestion,
+            userId: user.user_id,
+            answerIndex: null,
+            awardXp: !!user.gamification_enabled,
+            timeSpentSeconds: getIndividualQuestionDuration(session.activity_type, session.question_kind),
+        });
+    }
+
+    const isLastQuestion = session.current_question_index >= questions.length - 1;
+    if (isLastQuestion) {
+        return completeMultipleChoiceSession(session, questions, user, {timedOut: true});
+    }
+    return advanceIndividualSession(session.session_id);
+}
+
+async function retryCompletedExerciseFeedback(session, questions, answers, user) {
+    const resultJson = session.result_json || {};
+    const wrongItems = buildWrongAnswerFeedbackInput(session, questions, answers, user);
+    let wrongAnswerFeedback = [];
+    let wrongAnswerFeedbackModel = null;
+    let wrongAnswerFeedbackError = null;
+
+    if (wrongItems.length > 0) {
+        try {
+            const feedbackResult = await generateQuizWrongAnswerFeedback({items: wrongItems});
+            wrongAnswerFeedback = feedbackResult.feedback;
+            wrongAnswerFeedbackModel = feedbackResult.model;
+        } catch (error) {
+            wrongAnswerFeedbackError = error.message || "Gagal membuat feedback";
+        }
+    }
+
+    return updateCompletedIndividualFeedback({
+        sessionId: session.session_id,
+        resultJson: {
+            ...resultJson,
+            wrong_answer_feedback: wrongAnswerFeedback,
+            wrong_answer_feedback_model: wrongAnswerFeedbackModel,
+            wrong_answer_feedback_error: wrongAnswerFeedbackError,
+        },
+        feedbackJson: {wrong_answer_feedback: wrongAnswerFeedback},
+        feedbackModel: wrongAnswerFeedbackModel,
+        feedbackError: wrongAnswerFeedbackError,
+        xpTotal: Number(session.xp_total || resultJson.xp_total || 0),
+    });
+}
+
+async function retryCompletedCaseFeedback(session, questions, answers) {
+    const caseQuestion = questions[0];
+    const answer = answers[0];
+    if (!caseQuestion) return session;
+
+    let feedback;
+    let model = null;
+    let feedbackError = null;
+    const answerText = String(answer?.answer_text || "").trim();
+
+    if (answerText.length >= 20) {
+        try {
+            const feedbackResult = await generateIndividualCaseFeedback({
+                caseTitle: caseQuestion.case_title,
+                casePrompt: caseQuestion.case_prompt,
+                answerText,
+            });
+            feedback = feedbackResult.feedback;
+            model = feedbackResult.model;
+        } catch (error) {
+            feedbackError = error.message || "Gagal membuat feedback";
+            feedback = {
+                www: "",
+                ebi: "Feedback AI gagal dibuat. Silakan coba lagi.",
+                xp: 0,
+                xp_reason: "0 XP sementara karena feedback AI gagal dibuat.",
+                error: feedbackError,
+            };
+        }
+    } else {
+        feedbackError = "Jawaban belum cukup panjang untuk dievaluasi.";
+        feedback = {
+            www: "",
+            ebi: feedbackError,
+            xp: 0,
+            xp_reason: "0 XP karena jawaban belum cukup lengkap untuk dievaluasi.",
+            error: feedbackError,
+        };
+    }
+
+    const updated = await updateCompletedIndividualFeedback({
+        sessionId: session.session_id,
+        resultJson: {
+            ...(session.result_json || {}),
+            xp_total: feedback.xp || 0,
+            case_feedback: feedback,
+        },
+        feedbackJson: feedback,
+        feedbackModel: model,
+        feedbackError,
+        xpTotal: feedback.xp || 0,
+    });
+    if (!feedbackError) {
+        await upsertIndividualXpScore(updated || session, feedback.xp || 0, feedback.xp_reason);
+    }
+    return updated;
+}
+
 export async function getIndividualOccupancy(req, res) {
     try {
         await ensureIndividualActivityTables();
@@ -403,7 +583,9 @@ export async function getIndividualContext(req, res) {
         let effectiveActiveSession = activeSession;
         if (effectiveActiveSession && isIndividualSessionTimeUp(effectiveActiveSession)) {
             const questions = await getIndividualQuestionsByIds(effectiveActiveSession.question_ids);
-            effectiveActiveSession = await completeTimedOutIndividualSession(effectiveActiveSession, questions, user);
+            effectiveActiveSession = effectiveActiveSession.question_kind === "multiple_choice"
+                ? await timeoutMultipleChoiceQuestion(effectiveActiveSession, questions, user)
+                : await completeTimedOutIndividualSession(effectiveActiveSession, questions, user);
         }
         const activity = effectiveActiveSession ? await loadIndividualSession(effectiveActiveSession, user) : null;
 
@@ -431,6 +613,40 @@ export async function getIndividualContext(req, res) {
     } catch (error) {
         console.error("Individual context error:", error);
         res.status(500).json({message: "Gagal memuat aktivitas individual"});
+    }
+}
+
+export async function retryIndividualFeedback(req, res) {
+    try {
+        await ensureIndividualActivityTables();
+        const user = await getAuthenticatedUser(req, res);
+        if (!user) return;
+
+        const session = await getIndividualSessionById(req.params.sessionId);
+        if (!session || String(session.user_id) !== String(user.user_id) || String(session.course_id) !== String(user.course_id)) {
+            return res.status(404).json({message: "Session tidak ditemukan"});
+        }
+        if (session.status !== "completed") {
+            return res.status(409).json({message: "Aktivitas belum selesai"});
+        }
+
+        const activity = await loadIndividualSession(session, user);
+        const updated = session.question_kind === "case_study"
+            ? await retryCompletedCaseFeedback(session, activity.questions, activity.answers)
+            : session.activity_type === "exercise"
+                ? await retryCompletedExerciseFeedback(session, activity.questions, activity.answers, user)
+                : session;
+        const refreshed = await loadIndividualSession(updated || session, user);
+
+        res.json({
+            message: refreshed.session.feedback_status === "error"
+                ? "Feedback AI masih gagal dibuat."
+                : "Feedback AI berhasil dibuat ulang.",
+            session: normalizeSession(refreshed.session, refreshed.questions, refreshed.answers, user),
+        });
+    } catch (error) {
+        console.error("Retry individual feedback error:", error);
+        res.status(500).json({message: "Gagal mencoba ulang AI feedback"});
     }
 }
 
@@ -547,7 +763,9 @@ export async function getIndividualSession(req, res) {
         let effectiveSession = session;
         if (isIndividualSessionTimeUp(effectiveSession)) {
             const questions = await getIndividualQuestionsByIds(effectiveSession.question_ids);
-            effectiveSession = await completeTimedOutIndividualSession(effectiveSession, questions, user);
+            effectiveSession = effectiveSession.question_kind === "multiple_choice"
+                ? await timeoutMultipleChoiceQuestion(effectiveSession, questions, user)
+                : await completeTimedOutIndividualSession(effectiveSession, questions, user);
         }
         const activity = await loadIndividualSession(effectiveSession, user);
         res.json({session: normalizeSession(activity.session, activity.questions, activity.answers, user)});
@@ -573,10 +791,12 @@ export async function answerIndividualQuestion(req, res) {
 
         const questions = await getIndividualQuestionsByIds(session.question_ids);
         if (isIndividualSessionTimeUp(session)) {
-            const completed = await completeTimedOutIndividualSession(session, questions, user);
-            const activity = await loadIndividualSession(completed, user);
+            const timedOutSession = await timeoutMultipleChoiceQuestion(session, questions, user);
+            const activity = await loadIndividualSession(timedOutSession, user);
             return res.status(409).json({
-                message: "Waktu aktivitas sudah habis.",
+                message: timedOutSession?.status === "completed"
+                    ? "Waktu pertanyaan terakhir habis. Aktivitas selesai."
+                    : "Waktu pertanyaan habis. Lanjut ke pertanyaan berikutnya.",
                 session: normalizeSession(activity.session, activity.questions, activity.answers, user),
             });
         }
@@ -593,23 +813,29 @@ export async function answerIndividualQuestion(req, res) {
             });
         }
 
-        await saveIndividualMcAnswer({
+        const savedAnswer = await saveIndividualMcAnswer({
             session,
             question: currentQuestion,
             userId: user.user_id,
             answerIndex: req.body.answer_index,
             awardXp: !!user.gamification_enabled,
+            timeSpentSeconds: getCurrentQuestionTimeSpent(session),
         });
 
         const isLastQuestion = session.current_question_index >= questions.length - 1;
-        const updatedSession = isLastQuestion
-            ? await completeMultipleChoiceSession(session, questions, user)
-            : await advanceIndividualSession(session.session_id);
+        const shouldRevealExerciseAnswer = session.activity_type === "exercise";
+        const updatedSession = shouldRevealExerciseAnswer && isLastQuestion
+            ? session
+            : isLastQuestion
+                ? await completeMultipleChoiceSession(session, questions, user)
+                : await advanceIndividualSession(session.session_id, {startDelayMs: shouldRevealExerciseAnswer ? 1200 : 0});
         const activity = await loadIndividualSession(updatedSession, user);
 
         res.json({
-            message: isLastQuestion ? "Aktivitas selesai" : "Jawaban tersimpan",
+            message: isLastQuestion && !shouldRevealExerciseAnswer ? "Aktivitas selesai" : "Jawaban tersimpan",
             session: normalizeSession(activity.session, activity.questions, activity.answers, user),
+            answer_reveal: shouldRevealExerciseAnswer ? normalizeExerciseAnswerReveal(currentQuestion, savedAnswer) : null,
+            needs_completion: shouldRevealExerciseAnswer && isLastQuestion,
         });
     } catch (error) {
         console.error("Answer individual question error:", error);
@@ -681,10 +907,14 @@ export async function timeoutIndividualSession(req, res) {
             });
         }
 
-        const completed = await completeTimedOutIndividualSession(session, questions, user, req.body.answer_text);
-        const activity = await loadIndividualSession(completed, user);
+        const timedOutSession = session.question_kind === "multiple_choice"
+            ? await timeoutMultipleChoiceQuestion(session, questions, user)
+            : await completeTimedOutIndividualSession(session, questions, user, req.body.answer_text);
+        const activity = await loadIndividualSession(timedOutSession, user);
         res.json({
-            message: "Waktu aktivitas sudah habis.",
+            message: timedOutSession?.status === "completed"
+                ? "Waktu aktivitas sudah habis."
+                : "Waktu pertanyaan habis. Lanjut ke pertanyaan berikutnya.",
             session: normalizeSession(activity.session, activity.questions, activity.answers, user),
         });
     } catch (error) {
@@ -706,7 +936,9 @@ export async function exitIndividualSession(req, res) {
         if (session.status === "in_progress") {
             const questions = await getIndividualQuestionsByIds(session.question_ids);
             const effectiveSession = isIndividualSessionTimeUp(session)
-                ? await completeTimedOutIndividualSession(session, questions, user)
+                ? session.question_kind === "multiple_choice"
+                    ? await timeoutMultipleChoiceQuestion(session, questions, user)
+                    : await completeTimedOutIndividualSession(session, questions, user)
                 : session;
             const activity = await loadIndividualSession(effectiveSession, user);
             return res.status(409).json({

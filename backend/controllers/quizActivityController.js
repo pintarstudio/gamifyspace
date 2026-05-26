@@ -21,6 +21,7 @@ import {
     startQuizSession,
     submitQuizAnswer,
     touchQuizMember,
+    updateQuizResultFeedback,
 } from "../models/quizActivityModel.js";
 import {
     getCourseById,
@@ -642,5 +643,55 @@ export async function saveQuizSessionResult(req, res) {
     } catch (error) {
         console.error("Save quiz result error:", error);
         res.status(500).json({message: "Gagal menyimpan hasil quiz"});
+    }
+}
+
+export async function retryQuizFeedback(req, res) {
+    try {
+        await ensureQuizActivityTables();
+        const user = await getAuthenticatedUser(req, res);
+        if (!user) return;
+
+        const session = await getQuizSessionById(req.params.sessionId);
+        if (!session || String(session.course_id) !== String(user.course_id) || !sameCourseGroup(session, user)) {
+            return res.status(404).json({message: "Quiz tidak ditemukan"});
+        }
+
+        const activity = await loadQuizSessionActivity(session, user);
+        const isMember = activity.members.some((member) => String(member.user_id) === String(user.user_id));
+        if (!isMember) return res.status(403).json({message: "Join quiz terlebih dahulu"});
+        if (activity.session.status !== "saved" || !activity.savedResult) {
+            return res.status(409).json({message: "Hasil quiz belum tersimpan"});
+        }
+
+        let wrongAnswerFeedback = [];
+        let wrongAnswerFeedbackModel = null;
+        let wrongAnswerFeedbackError = null;
+        const wrongAnswerItems = buildWrongAnswerFeedbackInput(activity.questions, activity.answers);
+        if (wrongAnswerItems.length > 0) {
+            try {
+                const feedbackResult = await generateQuizWrongAnswerFeedback({items: wrongAnswerItems});
+                wrongAnswerFeedback = feedbackResult.feedback;
+                wrongAnswerFeedbackModel = feedbackResult.model;
+            } catch (error) {
+                wrongAnswerFeedbackError = error.message || "Gagal membuat feedback quiz";
+            }
+        }
+
+        await updateQuizResultFeedback(activity.session.quiz_session_id, {
+            wrong_answer_feedback: wrongAnswerFeedback,
+            wrong_answer_feedback_model: wrongAnswerFeedbackModel,
+            wrong_answer_feedback_error: wrongAnswerFeedbackError,
+            feedback_retried_at: new Date().toISOString(),
+        });
+        emitQuizEvent(req, activity.session.quiz_session_id, "quiz:result_saved", {status: "saved"});
+
+        res.json({
+            message: wrongAnswerFeedbackError ? "Feedback AI masih gagal dibuat." : "Feedback AI berhasil dibuat ulang.",
+            session: await hydrateSession(activity.session, user),
+        });
+    } catch (error) {
+        console.error("Retry quiz feedback error:", error);
+        res.status(500).json({message: "Gagal mencoba ulang feedback quiz"});
     }
 }

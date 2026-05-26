@@ -2,6 +2,7 @@ import {pool} from "../db/index.js";
 
 export const SETTING_KEYS = {
     ALLOW_URL_LOGIN_USER_CREATION: "allow_url_login_user_creation",
+    MAINTENANCE_MODE: "maintenance_mode",
 };
 
 const DEFAULT_SETTINGS = [
@@ -11,6 +12,13 @@ const DEFAULT_SETTINGS = [
         description: "Allow public student access links to create a new student account when the email is not registered yet.",
         type: "boolean",
         booleanValue: true,
+    },
+    {
+        key: SETTING_KEYS.MAINTENANCE_MODE,
+        name: "Maintenance Mode",
+        description: "When active, student login is disabled and active student sessions are logged out.",
+        type: "boolean",
+        booleanValue: false,
     },
 ];
 
@@ -107,7 +115,7 @@ export async function updateSetting(settingId, payload) {
              END,
              updated_at = NOW()
          WHERE setting_id = $1
-         RETURNING setting_id`,
+         RETURNING setting_id, setting_key, setting_type, boolean_value, text_value, number_value`,
         [
             settingId,
             payload.boolean_value === undefined ? null : !!payload.boolean_value,

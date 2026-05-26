@@ -31,6 +31,10 @@ import {
     generateQuestionDrafts,
 } from "../services/openaiQuestionBankService.js";
 import {INSTRUCTOR_ROLE_ID} from "../models/roleModel.js";
+import {deactivateAllStudentSessions} from "../models/sessionModel.js";
+import {SETTING_KEYS} from "../models/settingsModel.js";
+
+const STUDENT_MAINTENANCE_MESSAGE = "Sistem sedang dalam mode pemeliharaan. Login student sementara dinonaktifkan.";
 
 function serializeAdmin(admin) {
     if (!admin) return null;
@@ -301,7 +305,23 @@ export async function updateAdminResourceData(req, res) {
 
         const updated = await updateAdminResource(req.params.resource, req.params.id, req.body);
         if (!updated) return res.status(404).json({message: "Data tidak ditemukan"});
-        res.json({message: "Data berhasil diperbarui", data: updated});
+        let maintenanceLogoutCount = 0;
+        if (
+            req.params.resource === "settings"
+            && updated.setting_key === SETTING_KEYS.MAINTENANCE_MODE
+            && updated.boolean_value === true
+        ) {
+            maintenanceLogoutCount = await deactivateAllStudentSessions();
+            req.app.get("io")?.emit("maintenance:active", {
+                message: STUDENT_MAINTENANCE_MESSAGE,
+            });
+        }
+        res.json({
+            message: maintenanceLogoutCount > 0
+                ? `Data berhasil diperbarui. ${maintenanceLogoutCount} sesi student dikeluarkan.`
+                : "Data berhasil diperbarui",
+            data: updated,
+        });
     } catch (error) {
         console.error("Admin resource update error:", error);
         res.status(500).json({message: "Gagal memperbarui data"});

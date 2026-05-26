@@ -432,11 +432,28 @@
 }
 
 .quiz-feedback-error {
+    align-items: center;
     background: #fff8e6;
     border: 1px solid #f0d89a;
     border-radius: 8px;
+    display: flex;
+    gap: 12px;
+    justify-content: space-between;
     margin-top: 12px;
     padding: 10px 12px;
+}
+
+.quiz-feedback-error strong {
+    color: #8a4f08;
+}
+
+.quiz-feedback-error p {
+    margin: 4px 0 0;
+}
+
+.quiz-feedback-error .quiz-button {
+    flex: 0 0 auto;
+    width: auto;
 }
 
 .quiz-feedback-loading {

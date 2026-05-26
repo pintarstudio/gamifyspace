@@ -683,6 +683,23 @@ export async function beginFeedbackGeneration(sessionId, userId) {
     return result.rows[0] || null;
 }
 
+export async function beginFeedbackRetry(sessionId) {
+    const result = await pool.query(
+        `UPDATE table_group_sessions
+         SET feedback_status = 'generating',
+             feedback_started_at = NOW(),
+             feedback_error = NULL,
+             updated_at = NOW()
+         WHERE session_id = $1
+           AND submitted_at IS NOT NULL
+           AND is_active = TRUE
+           AND COALESCE(feedback_status, 'idle') <> 'generating'
+         RETURNING *`,
+        [sessionId]
+    );
+    return result.rows[0] || null;
+}
+
 export async function markFeedbackGenerationFailed(sessionId, errorMessage) {
     const result = await pool.query(
         `UPDATE table_group_sessions
@@ -693,6 +710,28 @@ export async function markFeedbackGenerationFailed(sessionId, errorMessage) {
            AND submitted_at IS NULL
          RETURNING *`,
         [sessionId, errorMessage || "Feedback generation failed"]
+    );
+    return result.rows[0] || null;
+}
+
+export async function submitSessionFeedbackFailed(sessionId, userId, errorMessage) {
+    const result = await pool.query(
+        `UPDATE table_group_sessions
+         SET submitted_by = COALESCE(submitted_by, $2),
+             submitted_at = COALESCE(submitted_at, NOW()),
+             feedback_status = 'error',
+             feedback_error = $3,
+             feedback_text = '',
+             combined_feedback = NULL,
+             feedback_model = NULL,
+             feedback_generated_at = NULL,
+             seconds_spent = LEAST(duration_seconds, GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - COALESCE(work_started_at, created_at))))::int)),
+             seconds_left = GREATEST(0, duration_seconds - LEAST(duration_seconds, GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - COALESCE(work_started_at, created_at))))::int))),
+             updated_at = NOW()
+         WHERE session_id = $1
+           AND is_active = TRUE
+         RETURNING *`,
+        [sessionId, userId, errorMessage || "Feedback generation failed"]
     );
     return result.rows[0] || null;
 }
@@ -732,6 +771,65 @@ export async function submitSessionAnswers(sessionId, userId, feedback, model) {
 	               AND feedback_status = 'generating'
              RETURNING *`,
             [sessionId, userId, buildFeedbackText(feedback), JSON.stringify(feedback.combined_feedback), model]
+        );
+
+        if (!updated.rows[0]) {
+            await client.query("ROLLBACK");
+            return null;
+        }
+
+        await client.query(
+            `DELETE FROM table_group_feedback_groups
+             WHERE session_id = $1`,
+            [sessionId]
+        );
+
+        for (const group of feedback.student_feedback_groups || []) {
+            await client.query(
+                `INSERT INTO table_group_feedback_groups
+                     (session_id, student_ids, student_names, www, ebi)
+                 VALUES ($1, $2::int[], $3::text[], $4, $5)`,
+                [
+                    sessionId,
+                    group.student_ids || [],
+                    group.student_names || [],
+                    group.www || "",
+                    group.ebi || "",
+                ]
+            );
+        }
+
+        await client.query("COMMIT");
+        return updated.rows[0];
+    } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+    } finally {
+        client.release();
+    }
+}
+
+export async function saveSessionFeedbackResult(sessionId, feedback, model) {
+    const client = await pool.connect();
+
+    try {
+        await client.query("BEGIN");
+
+        const updated = await client.query(
+            `UPDATE table_group_sessions
+	             SET feedback_text = $2,
+                 combined_feedback = $3::jsonb,
+                 feedback_model = $4,
+                 feedback_generated_at = NOW(),
+                 feedback_status = 'ready',
+                 feedback_error = NULL,
+                 updated_at = NOW()
+	             WHERE session_id = $1
+	               AND submitted_at IS NOT NULL
+	               AND is_active = TRUE
+	               AND feedback_status = 'generating'
+             RETURNING *`,
+            [sessionId, buildFeedbackText(feedback), JSON.stringify(feedback.combined_feedback), model]
         );
 
         if (!updated.rows[0]) {

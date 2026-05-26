@@ -30,6 +30,13 @@ const LoginForm = ({onLoginSuccess}) => {
         const coursename = params.get("coursename");
         const studentname = params.get("studentname");
         const studentemail = params.get("studentemail");
+        const maintenance = params.get("maintenance") === "1";
+
+        if (maintenance) {
+            setStudentUrlMode(true);
+            setDemoError("Sistem sedang dalam mode pemeliharaan. Login student sementara dinonaktifkan.");
+            return;
+        }
 
         if (!coursename && !studentname && !studentemail) return;
         window.history.replaceState({}, "", window.location.pathname);

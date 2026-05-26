@@ -6,9 +6,10 @@ export const ACTIVITY_TYPES = ["exercise", "pre_test", "post_test"];
 export const QUESTION_KINDS = ["multiple_choice", "case_study"];
 export const MC_QUESTION_COUNT = 10;
 export const ASSESSMENT_QUESTION_COUNT = 20;
-export const INDIVIDUAL_MC_DURATION_SECONDS = 180;
+export const INDIVIDUAL_MC_QUESTION_DURATION_SECONDS = 15;
+export const INDIVIDUAL_MC_DURATION_SECONDS = MC_QUESTION_COUNT * INDIVIDUAL_MC_QUESTION_DURATION_SECONDS;
 export const INDIVIDUAL_CASE_DURATION_SECONDS = 240;
-export const INDIVIDUAL_ASSESSMENT_DURATION_SECONDS = 900;
+export const INDIVIDUAL_ASSESSMENT_DURATION_SECONDS = ASSESSMENT_QUESTION_COUNT * INDIVIDUAL_MC_QUESTION_DURATION_SECONDS;
 
 export function getIndividualQuestionCount(activityType, questionKind) {
     if (questionKind === "case_study") return 1;
@@ -19,6 +20,11 @@ export function getIndividualActivityDuration(activityType, questionKind) {
     if (activityType === "pre_test" || activityType === "post_test") return INDIVIDUAL_ASSESSMENT_DURATION_SECONDS;
     if (questionKind === "case_study") return INDIVIDUAL_CASE_DURATION_SECONDS;
     return INDIVIDUAL_MC_DURATION_SECONDS;
+}
+
+export function getIndividualQuestionDuration(activityType, questionKind) {
+    if (questionKind !== "multiple_choice") return getIndividualActivityDuration(activityType, questionKind);
+    return INDIVIDUAL_MC_QUESTION_DURATION_SECONDS;
 }
 
 let individualReadyPromise = null;
@@ -77,6 +83,7 @@ async function createIndividualTables() {
             seconds_spent INTEGER NOT NULL DEFAULT 0,
             seconds_left INTEGER NOT NULL DEFAULT 0,
             started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            current_question_started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             completed_at TIMESTAMPTZ,
             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
@@ -85,6 +92,12 @@ async function createIndividualTables() {
     await pool.query(`ALTER TABLE individual_activity_sessions ADD COLUMN IF NOT EXISTS duration_seconds INTEGER NOT NULL DEFAULT 0`);
     await pool.query(`ALTER TABLE individual_activity_sessions ADD COLUMN IF NOT EXISTS seconds_spent INTEGER NOT NULL DEFAULT 0`);
     await pool.query(`ALTER TABLE individual_activity_sessions ADD COLUMN IF NOT EXISTS seconds_left INTEGER NOT NULL DEFAULT 0`);
+    await pool.query(`ALTER TABLE individual_activity_sessions ADD COLUMN IF NOT EXISTS current_question_started_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`);
+    await pool.query(`
+        UPDATE individual_activity_sessions
+        SET current_question_started_at = COALESCE(current_question_started_at, started_at, NOW())
+        WHERE current_question_started_at IS NULL
+    `);
     await pool.query(`
         UPDATE individual_activity_sessions
         SET duration_seconds = CASE
@@ -99,6 +112,26 @@ async function createIndividualTables() {
                 ELSE ${INDIVIDUAL_MC_DURATION_SECONDS}
             END
         WHERE duration_seconds = 0
+    `);
+    await pool.query(`
+        UPDATE individual_activity_sessions
+        SET duration_seconds = CASE
+                WHEN activity_type IN ('pre_test', 'post_test') THEN ${INDIVIDUAL_ASSESSMENT_DURATION_SECONDS}
+                ELSE ${INDIVIDUAL_MC_DURATION_SECONDS}
+            END,
+            seconds_left = LEAST(
+                seconds_left,
+                CASE
+                    WHEN activity_type IN ('pre_test', 'post_test') THEN ${INDIVIDUAL_ASSESSMENT_DURATION_SECONDS}
+                    ELSE ${INDIVIDUAL_MC_DURATION_SECONDS}
+                END
+            )
+        WHERE status = 'in_progress'
+          AND question_kind = 'multiple_choice'
+          AND duration_seconds <> CASE
+                WHEN activity_type IN ('pre_test', 'post_test') THEN ${INDIVIDUAL_ASSESSMENT_DURATION_SECONDS}
+                ELSE ${INDIVIDUAL_MC_DURATION_SECONDS}
+            END
     `);
 
     await pool.query(`
@@ -125,10 +158,12 @@ async function createIndividualTables() {
             is_correct BOOLEAN,
             score INTEGER NOT NULL DEFAULT 0,
             xp_earned INTEGER NOT NULL DEFAULT 0,
+            time_spent_seconds INTEGER NOT NULL DEFAULT 0,
             answered_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             UNIQUE (session_id, question_id, user_id)
         )
     `);
+    await pool.query(`ALTER TABLE individual_activity_answers ADD COLUMN IF NOT EXISTS time_spent_seconds INTEGER NOT NULL DEFAULT 0`);
 }
 
 export async function ensureIndividualActivityTables() {
@@ -376,42 +411,56 @@ export async function createIndividualSession({courseId, topicId, userId, object
     return result.rows[0] || null;
 }
 
-export async function saveIndividualMcAnswer({session, question, userId, answerIndex, awardXp = true}) {
+export async function saveIndividualMcAnswer({session, question, userId, answerIndex, awardXp = true, timeSpentSeconds = 0}) {
     const normalizedAnswerIndex = Number.isFinite(Number(answerIndex)) ? Number(answerIndex) : null;
     const isCorrect = normalizedAnswerIndex !== null && Number(question.correct_answer_index) === normalizedAnswerIndex;
     const isAssessment = ["pre_test", "post_test"].includes(session.activity_type);
     const score = isAssessment && isCorrect ? Math.round(100 / getIndividualQuestionCount(session.activity_type, session.question_kind)) : 0;
     const xp = awardXp && session.activity_type === "exercise" && isCorrect ? 10 : 0;
+    const clampedTimeSpent = clampInt(timeSpentSeconds, 0, getIndividualQuestionDuration(session.activity_type, session.question_kind), 0);
 
     const result = await pool.query(
         `INSERT INTO individual_activity_answers
-             (session_id, question_id, user_id, answer_index, is_correct, score, xp_earned)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
+             (session_id, question_id, user_id, answer_index, is_correct, score, xp_earned, time_spent_seconds)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          ON CONFLICT (session_id, question_id, user_id)
          DO UPDATE SET
              answer_index = EXCLUDED.answer_index,
              is_correct = EXCLUDED.is_correct,
              score = EXCLUDED.score,
              xp_earned = EXCLUDED.xp_earned,
+             time_spent_seconds = EXCLUDED.time_spent_seconds,
              answered_at = NOW()
          RETURNING *`,
-        [session.session_id, question.question_id, userId, normalizedAnswerIndex, isCorrect, score, xp]
+        [session.session_id, question.question_id, userId, normalizedAnswerIndex, isCorrect, score, xp, clampedTimeSpent]
     );
 
     return result.rows[0] || null;
 }
 
-export async function advanceIndividualSession(sessionId) {
+export async function advanceIndividualSession(sessionId, options = {}) {
+    const startDelayMs = clampInt(options.startDelayMs || 0, 0, 5000, 0);
     const result = await pool.query(
         `UPDATE individual_activity_sessions
          SET current_question_index = current_question_index + 1,
+             current_question_started_at = NOW() + ($2::int * INTERVAL '1 millisecond'),
              updated_at = NOW()
          WHERE session_id = $1
            AND status = 'in_progress'
          RETURNING *`,
-        [sessionId]
+        [sessionId, startDelayMs]
     );
     return result.rows[0] || null;
+}
+
+function multipleChoiceSpentExpression() {
+    return `LEAST(
+        duration_seconds,
+        GREATEST(
+            0,
+            COALESCE((SELECT SUM(time_spent_seconds)::int FROM individual_activity_answers WHERE session_id = individual_activity_sessions.session_id), 0)
+        )
+    )`;
 }
 
 export async function completeIndividualSession({sessionId, resultJson, feedbackJson = null, feedbackModel = null, feedbackError = null, xpTotal = 0}) {
@@ -426,8 +475,14 @@ export async function completeIndividualSession({sessionId, resultJson, feedback
              feedback_model = $7,
              feedback_status = $8,
              feedback_error = $9,
-             seconds_spent = LEAST(duration_seconds, GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - started_at)))::int)),
-             seconds_left = GREATEST(0, duration_seconds - LEAST(duration_seconds, GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - started_at)))::int))),
+             seconds_spent = CASE
+                 WHEN question_kind = 'multiple_choice' THEN ${multipleChoiceSpentExpression()}
+                 ELSE LEAST(duration_seconds, GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - started_at)))::int))
+             END,
+             seconds_left = CASE
+                 WHEN question_kind = 'multiple_choice' THEN GREATEST(0, duration_seconds - ${multipleChoiceSpentExpression()})
+                 ELSE GREATEST(0, duration_seconds - LEAST(duration_seconds, GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - started_at)))::int)))
+             END,
              completed_at = NOW(),
              updated_at = NOW()
          WHERE session_id = $1
@@ -442,6 +497,32 @@ export async function completeIndividualSession({sessionId, resultJson, feedback
             feedbackModel,
             feedbackError ? "error" : "ready",
             feedbackError,
+        ]
+    );
+    return result.rows[0] || null;
+}
+
+export async function updateCompletedIndividualFeedback({sessionId, resultJson, feedbackJson = null, feedbackModel = null, feedbackError = null, xpTotal = null}) {
+    const result = await pool.query(
+        `UPDATE individual_activity_sessions
+         SET result_json = COALESCE($2::jsonb, result_json),
+             feedback_json = $3::jsonb,
+             feedback_model = $4,
+             feedback_status = $5,
+             feedback_error = $6,
+             xp_total = COALESCE($7, xp_total),
+             updated_at = NOW()
+         WHERE session_id = $1
+           AND status = 'completed'
+         RETURNING *`,
+        [
+            sessionId,
+            resultJson ? JSON.stringify(resultJson) : null,
+            feedbackJson ? JSON.stringify(feedbackJson) : null,
+            feedbackModel,
+            feedbackError ? "error" : "ready",
+            feedbackError,
+            xpTotal,
         ]
     );
     return result.rows[0] || null;
@@ -488,8 +569,14 @@ export async function cancelIndividualSession(sessionId, userId) {
     const result = await pool.query(
         `UPDATE individual_activity_sessions
          SET status = 'cancelled',
-             seconds_spent = LEAST(duration_seconds, GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - started_at)))::int)),
-             seconds_left = GREATEST(0, duration_seconds - LEAST(duration_seconds, GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - started_at)))::int))),
+             seconds_spent = CASE
+                 WHEN question_kind = 'multiple_choice' THEN LEAST(duration_seconds, ${multipleChoiceSpentExpression()} + GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - current_question_started_at)))::int))
+                 ELSE LEAST(duration_seconds, GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - started_at)))::int))
+             END,
+             seconds_left = CASE
+                 WHEN question_kind = 'multiple_choice' THEN GREATEST(0, duration_seconds - LEAST(duration_seconds, ${multipleChoiceSpentExpression()} + GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - current_question_started_at)))::int)))
+                 ELSE GREATEST(0, duration_seconds - LEAST(duration_seconds, GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - started_at)))::int)))
+             END,
              updated_at = NOW()
          WHERE session_id = $1
            AND user_id = $2

@@ -1,6 +1,6 @@
 // backend/models/sessionModel.js
 import {pool} from "../db/index.js";
-import {INSTRUCTOR_ROLE_ID} from "./roleModel.js";
+import {INSTRUCTOR_ROLE_ID, STUDENT_ROLE_ID} from "./roleModel.js";
 
 export async function createSession(session_id, user_id, course_id, avatar_id) {
     await pool.query(
@@ -14,6 +14,20 @@ export async function deactivateSession(session_id) {
     await pool.query(`UPDATE sessions
                       SET is_active = FALSE
                       WHERE session_id = $1`, [session_id]);
+}
+
+export async function deactivateAllStudentSessions() {
+    const result = await pool.query(
+        `UPDATE sessions s
+         SET is_active = FALSE
+         FROM users u
+         WHERE s.user_id = u.user_id
+           AND u.role_id = $1
+           AND s.is_active = TRUE
+         RETURNING s.session_id`,
+        [STUDENT_ROLE_ID]
+    );
+    return result.rowCount || 0;
 }
 
 export async function findSession(session_id) {

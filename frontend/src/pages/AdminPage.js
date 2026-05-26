@@ -198,10 +198,10 @@ const MENU_GROUPS = [
                 tableColumns: [
                     {key: "setting_name", label: "Setting"},
                     {key: "setting_description", label: "Description"},
-                    {key: "boolean_value", label: "Enabled", type: "boolean", trueLabel: "Allowed", falseLabel: "Disabled"},
+                    {key: "boolean_value", label: "Value", type: "boolean", trueLabel: "On", falseLabel: "Off"},
                 ],
                 fields: [
-                    {key: "boolean_value", label: "Enabled", type: "checkbox", trueLabel: "Allowed", falseLabel: "Disabled"},
+                    {key: "boolean_value", label: "Setting is active", type: "checkbox", trueLabel: "On", falseLabel: "Off"},
                 ],
             },
             COURSE_ITEM,

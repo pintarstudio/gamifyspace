@@ -6,6 +6,7 @@ import {
 import {
     addMemberToSession,
     beginFeedbackGeneration,
+    beginFeedbackRetry,
     createGroupSession,
     endGroupSessionWithoutSubmission,
     ensureTableActivityTables,
@@ -21,10 +22,11 @@ import {
     getSessionMembers,
     getTopicById,
     getTopicsForCourse,
-    markFeedbackGenerationFailed,
     saveSessionAnswer,
+    saveSessionFeedbackResult,
     selectAvailableCaseForStudent,
     startGroupSessionWork,
+    submitSessionFeedbackFailed,
     submitSessionAnswers,
     touchSessionMember,
 } from "../models/tableActivityModel.js";
@@ -253,8 +255,7 @@ async function submitTimedOutGroupSession(session, user, answerText = "") {
             answers,
         });
     } catch (error) {
-        await markFeedbackGenerationFailed(session.session_id, error.message);
-        throw error;
+        return submitSessionFeedbackFailed(session.session_id, user.user_id, error.message);
     }
 
     const submittedResult = await submitSessionAnswers(
@@ -504,6 +505,69 @@ export async function getTableSession(req, res) {
     }
 }
 
+export async function retryTableFeedback(req, res) {
+    try {
+        await ensureTableActivityTables();
+        const user = await getAuthenticatedUser(req, res);
+        if (!user) return;
+
+        const session = await getSessionById(req.params.sessionId);
+        if (!session || String(session.course_id) !== String(user.course_id) || !sameCourseGroup(session, user)) {
+            return res.status(404).json({message: "Session tidak ditemukan"});
+        }
+        if (!session.submitted_at) {
+            return res.status(409).json({message: "Group belum disubmit"});
+        }
+
+        const members = await getSessionMembers(session.session_id);
+        const isMember = members.some((member) => String(member.user_id) === String(user.user_id));
+        if (!isMember) return res.status(403).json({message: "Join group terlebih dahulu"});
+
+        const generating = await beginFeedbackRetry(session.session_id);
+        if (!generating) {
+            const {answers, feedbackGroups, gamification} = await loadSessionActivity(session, user);
+            return res.status(409).json({
+                message: "Feedback sedang dibuat atau session tidak bisa dicoba ulang.",
+                session: normalizeSession(session, members, answers, user.user_id, feedbackGroups, gamification),
+            });
+        }
+        emitGroupEvent(req, session.session_id, "group:feedback_generating", {status: "generating", retried_by: user.user_id});
+
+        const answers = await getSessionAnswers(session.session_id);
+        let feedbackResult;
+        try {
+            feedbackResult = await generateCognitiveFeedback({
+                caseTitle: session.case_title,
+                casePrompt: session.case_prompt,
+                answers,
+            });
+        } catch (error) {
+            const failed = await submitSessionFeedbackFailed(session.session_id, user.user_id, error.message);
+            const {members: failedMembers, answers: failedAnswers, feedbackGroups, gamification} = await loadSessionActivity(failed, user);
+            emitGroupEvent(req, session.session_id, "group:feedback_ready", {status: "error", retried_by: user.user_id});
+            return res.json({
+                message: "Feedback AI masih gagal dibuat.",
+                session: normalizeSession(failed, failedMembers, failedAnswers, user.user_id, feedbackGroups, gamification),
+            });
+        }
+
+        const updated = await saveSessionFeedbackResult(session.session_id, feedbackResult.feedback, feedbackResult.model);
+        if (user.gamification_enabled) {
+            await upsertTableSessionScores(updated || session, answers, feedbackResult.feedback.xp_awards);
+        }
+        const {members: updatedMembers, answers: updatedAnswers, feedbackGroups, gamification} = await loadSessionActivity(updated || session, user);
+        emitGroupEvent(req, session.session_id, "group:feedback_ready", {status: "ready", retried_by: user.user_id});
+
+        res.json({
+            message: "Feedback AI berhasil dibuat ulang.",
+            session: normalizeSession(updated || session, updatedMembers, updatedAnswers, user.user_id, feedbackGroups, gamification),
+        });
+    } catch (error) {
+        console.error("Retry table feedback error:", error);
+        res.status(500).json({message: "Gagal mencoba ulang feedback group"});
+    }
+}
+
 export async function saveTableAnswer(req, res) {
     try {
         await ensureTableActivityTables();
@@ -664,8 +728,14 @@ export async function submitTableAnswers(req, res) {
                 answers,
             });
         } catch (error) {
-            await markFeedbackGenerationFailed(session.session_id, error.message);
-            throw error;
+            const failed = await submitSessionFeedbackFailed(session.session_id, user.user_id, error.message);
+            const {members: failedMembers, answers: failedAnswers, feedbackGroups: failedFeedbackGroups, gamification: failedGamification} =
+                await loadSessionActivity(failed, user);
+            emitGroupEvent(req, session.session_id, "group:feedback_ready", {status: "error", submitted_by: user.user_id});
+            return res.json({
+                message: "Jawaban tersimpan, tetapi AI feedback gagal dibuat. Silakan coba ulang.",
+                session: normalizeSession(failed, failedMembers, failedAnswers, user.user_id, failedFeedbackGroups, failedGamification),
+            });
         }
 
         const submittedResult = await submitSessionAnswers(

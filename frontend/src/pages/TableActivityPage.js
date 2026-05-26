@@ -95,6 +95,7 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack, activit
     const [loading, setLoading] = useState(true);
     const [busy, setBusy] = useState(false);
     const [submittingFeedback, setSubmittingFeedback] = useState(false);
+    const [retryingFeedback, setRetryingFeedback] = useState(false);
     const [message, setMessage] = useState("");
     const [currentUser, setCurrentUser] = useState(null);
     const [confirmExitOpen, setConfirmExitOpen] = useState(false);
@@ -572,6 +573,26 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack, activit
         setBusy(false);
     };
 
+    const handleRetryFeedback = async () => {
+        if (!activeSession?.session_id || retryingFeedback) return;
+        setRetryingFeedback(true);
+        setSubmittingFeedback(true);
+        setMessage("");
+        try {
+            const data = await apiPost(`/table/sessions/${activeSession.session_id}/retry-feedback`, {});
+            if (data.session) {
+                setActiveSession(stampSession(data.session));
+                setMessage(getMessage(data, "Feedback AI berhasil dibuat ulang."));
+            } else {
+                setMessage(getMessage(data, "Gagal mencoba ulang feedback AI."));
+            }
+        } catch (error) {
+            setMessage("Gagal mencoba ulang feedback AI.");
+        }
+        setSubmittingFeedback(false);
+        setRetryingFeedback(false);
+    };
+
     async function handleSessionTimeout() {
         if (!activeSession?.session_id || activeSession.is_submitted || !activeSession.is_active) return;
 
@@ -902,8 +923,23 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack, activit
                                         </article>
                                     </div>
                                 </div>
+                            ) : activeSession.feedback_status === "error" ? (
+                                <div className="feedback-retry-block">
+                                    <div>
+                                        <strong>Feedback AI gagal dibuat.</strong>
+                                        <p>{activeSession.feedback_error || "Silakan coba ulang."}</p>
+                                    </div>
+                                    <button
+                                        className="table-button table-button--primary"
+                                        type="button"
+                                        onClick={handleRetryFeedback}
+                                        disabled={retryingFeedback || isGeneratingFeedback}
+                                    >
+                                        {retryingFeedback || isGeneratingFeedback ? "Retrying..." : "Retry AI Feedback"}
+                                    </button>
+                                </div>
                             ) : (
-                                <p>{activeSession.feedback_text}</p>
+                                <p>{activeSession.feedback_text || "Feedback AI belum tersedia."}</p>
                             )}
 
                             {feedbackGroups.length > 0 && (
