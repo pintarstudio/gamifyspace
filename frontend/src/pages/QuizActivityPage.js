@@ -9,6 +9,7 @@ import {
     clearActivityStatus,
     setActivityStatus,
 } from "../utils/activityStatus";
+import useCopyProtection from "../utils/useCopyProtection";
 import "./QuizActivityPage.css";
 
 const getMessage = (data, fallback) => data?.message || fallback;
@@ -92,6 +93,12 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
     );
     const answerMap = useMemo(() => buildQuestionAnswerMap(activeSession), [activeSession]);
     const wrongFeedbackMap = useMemo(() => buildWrongFeedbackMap(activeSession), [activeSession]);
+
+    useCopyProtection(
+        !!activeSession?.is_member,
+        setMessage,
+        "Menyalin konten quiz tidak diizinkan."
+    );
 
     const loadContext = async (nextTableId = tableId, nextGroupId = groupId, useActiveSession = true) => {
         setLoading(true);
@@ -182,7 +189,7 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
     }, [activeSession?.quiz_session_id, activeSession?.is_member, activeSession?.status, currentUser]);
 
     useEffect(() => {
-        if (!savingResult) return undefined;
+        if (!savingResult && !activeSession?.is_saving_result) return undefined;
 
         const preventUnload = (event) => {
             event.preventDefault();
@@ -192,7 +199,7 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
 
         window.addEventListener("beforeunload", preventUnload);
         return () => window.removeEventListener("beforeunload", preventUnload);
-    }, [savingResult]);
+    }, [savingResult, activeSession?.is_saving_result]);
 
     useEffect(() => {
         if (!activeSession?.quiz_session_id || !activeSession?.is_member || activeSession.status === "saved") return undefined;
@@ -334,7 +341,7 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
                 return;
             }
 
-            if (savingResult) {
+            if (savingResult || activeSession?.is_saving_result) {
                 setMessage("Hasil quiz sedang disimpan. Jangan refresh, tutup halaman, atau keluar sampai proses selesai.");
                 return;
             }
@@ -519,7 +526,7 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
     };
 
     const handleEmbeddedBack = async () => {
-        if (exitOnBack && savingResult) {
+        if (exitOnBack && (savingResult || activeSession?.is_saving_result)) {
             setMessage("Hasil quiz sedang disimpan. Jangan refresh, tutup halaman, atau keluar sampai proses selesai.");
             return;
         }
@@ -564,7 +571,7 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
             if (data.session) {
                 setActiveSession(stampSession(data.session));
                 setMessage(getMessage(data, "Hasil quiz tersimpan."));
-                if (currentUser) {
+                if (currentUser && data.session.status === "saved") {
                     clearActivityStatus({
                         user: currentUser,
                         activityKey: `${ACTIVITY_STATUS.quiz.type}:${activeSession.quiz_session_id}`,
@@ -581,7 +588,7 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
     }, [activeSession?.quiz_session_id, currentUser]);
 
     const handleRetryFeedback = async () => {
-        if (!activeSession?.quiz_session_id || retryingFeedback) return;
+        if (!activeSession?.quiz_session_id || retryingFeedback || activeSession?.is_saving_result) return;
         setRetryingFeedback(true);
         setMessage("");
         try {
@@ -602,7 +609,8 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
         if (
             activeSession?.status !== "completed"
             || !activeSession?.quiz_session_id
-            || !activeSession?.is_host
+            || !activeSession?.is_member
+            || activeSession?.is_saving_result
             || savingResult
         ) {
             return;
@@ -611,8 +619,9 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
         const autoSaveKey = `${activeSession.quiz_session_id}:${activeSession.updated_at || ""}`;
         if (autoSaveSessionRef.current === autoSaveKey) return;
         autoSaveSessionRef.current = autoSaveKey;
-        handleSaveResult();
-    }, [activeSession?.status, activeSession?.quiz_session_id, activeSession?.is_host, activeSession?.updated_at, savingResult, handleSaveResult]);
+        const timerId = window.setTimeout(handleSaveResult, activeSession.is_host ? 0 : 8000);
+        return () => window.clearTimeout(timerId);
+    }, [activeSession?.status, activeSession?.quiz_session_id, activeSession?.is_member, activeSession?.is_host, activeSession?.is_saving_result, activeSession?.updated_at, savingResult, handleSaveResult]);
 
     if (loading) {
         return <main className={`quiz-app quiz-app--center${embedded ? " quiz-app--embedded" : ""}`}>Memuat quiz...</main>;
@@ -780,9 +789,7 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
                                 {activeSession.status === "completed" ? (
                                     <div className="quiz-result-actions">
                                         <span className="quiz-auto-save">
-                                            {activeSession.is_host
-                                                ? "Menyimpan hasil quiz dan membuat AI feedback..."
-                                                : "Menunggu hasil quiz disimpan otomatis..."}
+                                            Menyimpan hasil quiz dan membuat AI feedback...
                                         </span>
                                     </div>
                                 ) : (
@@ -806,16 +813,16 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
                                                 className="quiz-button quiz-button--primary"
                                                 type="button"
                                                 onClick={handleRetryFeedback}
-                                                disabled={retryingFeedback}
+                                                disabled={retryingFeedback || activeSession.is_saving_result}
                                             >
-                                                {retryingFeedback ? "Retrying..." : "Retry AI Feedback"}
+                                                {retryingFeedback || activeSession.is_saving_result ? "Retrying..." : "Retry AI Feedback"}
                                             </button>
                                         )}
                                     </div>
                                 )}
                             </div>
 
-                            {savingResult && (
+                            {(savingResult || activeSession.is_saving_result) && (
                                 <div className="quiz-panel quiz-feedback-loading" role="status" aria-live="polite">
                                     <span className="quiz-spinner" aria-hidden="true" />
                                     <div>

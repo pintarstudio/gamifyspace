@@ -9,6 +9,7 @@ import {
     clearActivityStatus,
     setActivityStatus,
 } from "../utils/activityStatus";
+import useCopyProtection from "../utils/useCopyProtection";
 import "./TableActivityPage.css";
 
 const getMessage = (data, fallback) => data?.message || fallback;
@@ -135,6 +136,12 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack, activit
     const gamification = activeSession?.gamification;
     const showGamification = !!gamification?.enabled;
     const showStudentAvatars = !noVirtual;
+
+    useCopyProtection(
+        !!activeSession?.is_member,
+        setMessage,
+        "Menyalin konten aktivitas group tidak diizinkan."
+    );
 
     const loadContext = async (nextGroupId = groupId, useActiveSession = true) => {
         setLoading(true);
@@ -627,7 +634,7 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack, activit
 
     const blockClipboard = (event) => {
         event.preventDefault();
-        setMessage("Copy, cut, paste, and drop are disabled in the answer field.");
+        setMessage("Copy, cut, paste, dan drop teks tidak diizinkan di jawaban case study.");
     };
 
     if (loading) {

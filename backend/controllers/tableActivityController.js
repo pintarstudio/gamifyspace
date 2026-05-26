@@ -33,6 +33,7 @@ import {
 import {generateCognitiveFeedback} from "../services/openaiFeedbackService.js";
 
 const MAX_GROUP_MEMBERS = 4;
+const GROUP_FEEDBACK_STALE_MS = 5 * 60 * 1000;
 
 async function getAuthenticatedUser(req, res) {
     const sessionId = req.session?.session_id;
@@ -123,6 +124,24 @@ function isGroupSessionTimeUp(session) {
 function isGroupSessionPendingStart(session) {
     if (!session?.work_started_at) return false;
     return Date.now() < new Date(session.work_started_at).getTime();
+}
+
+function isStaleFeedbackGeneration(session) {
+    if (session?.feedback_status !== "generating" || session.submitted_at || !session.feedback_started_at) return false;
+    const startedAt = new Date(session.feedback_started_at).getTime();
+    return Number.isFinite(startedAt) && Date.now() - startedAt > GROUP_FEEDBACK_STALE_MS;
+}
+
+async function recoverStaleGroupFeedbackGeneration(session, user) {
+    if (!isStaleFeedbackGeneration(session)) return session;
+    const members = await getSessionMembers(session.session_id);
+    const isMember = members.some((member) => String(member.user_id) === String(user.user_id));
+    if (!isMember) return session;
+    return await submitSessionFeedbackFailed(
+        session.session_id,
+        user.user_id,
+        "Feedback AI terputus karena halaman direfresh atau koneksi terputus. Silakan coba ulang."
+    ) || session;
 }
 
 function normalizeSession(session, members, answers, userId, feedbackGroups = [], gamification = null) {
@@ -323,11 +342,14 @@ export async function getTableContext(req, res) {
         if (!user) return;
 
         const groupId = normalizeGroupId(req.query.group_id);
-        const [course, topics, activeSession] = await Promise.all([
+        const [course, topics, rawActiveSession] = await Promise.all([
             getCourseById(user.course_id),
             getTopicsForCourse(user.course_id),
             getActiveGroupSession(user.course_id, groupId, user.course_group_id || null),
         ]);
+        const activeSession = rawActiveSession
+            ? await recoverStaleGroupFeedbackGeneration(rawActiveSession, user)
+            : null;
         const {members, answers, feedbackGroups, gamification} = await loadSessionActivity(activeSession, user);
 
         res.json({
@@ -353,7 +375,10 @@ export async function startTableSession(req, res) {
         if (!user) return;
 
         const groupId = normalizeGroupId(req.body.group_id);
-        const activeSession = await getActiveGroupSession(user.course_id, groupId, user.course_group_id || null);
+        const rawActiveSession = await getActiveGroupSession(user.course_id, groupId, user.course_group_id || null);
+        const activeSession = rawActiveSession
+            ? await recoverStaleGroupFeedbackGeneration(rawActiveSession, user)
+            : null;
         if (activeSession) {
             const {members, answers, feedbackGroups, gamification} = await loadSessionActivity(activeSession, user);
             return res.status(409).json({
@@ -492,10 +517,11 @@ export async function getTableSession(req, res) {
         const user = await getAuthenticatedUser(req, res);
         if (!user) return;
 
-        const session = await getSessionById(req.params.sessionId);
+        let session = await getSessionById(req.params.sessionId);
         if (!session || String(session.course_id) !== String(user.course_id) || !sameCourseGroup(session, user)) {
             return res.status(404).json({message: "Session tidak ditemukan"});
         }
+        session = await recoverStaleGroupFeedbackGeneration(session, user);
 
         const {members, answers, feedbackGroups, gamification} = await loadSessionActivity(session, user);
         res.json({session: normalizeSession(session, members, answers, user.user_id, feedbackGroups, gamification)});
@@ -574,10 +600,11 @@ export async function saveTableAnswer(req, res) {
         const user = await getAuthenticatedUser(req, res);
         if (!user) return;
 
-        const session = await getSessionById(req.params.sessionId);
+        let session = await getSessionById(req.params.sessionId);
         if (!session || String(session.course_id) !== String(user.course_id) || !sameCourseGroup(session, user)) {
             return res.status(404).json({message: "Session tidak ditemukan"});
         }
+        session = await recoverStaleGroupFeedbackGeneration(session, user);
 
         if (session.submitted_at) {
             return res.status(409).json({message: "Answers sudah disubmit dan tidak bisa diedit lagi"});
@@ -642,10 +669,11 @@ export async function submitTableAnswers(req, res) {
         const user = await getAuthenticatedUser(req, res);
         if (!user) return;
 
-        const session = await getSessionById(req.params.sessionId);
+        let session = await getSessionById(req.params.sessionId);
         if (!session || !session.is_active || String(session.course_id) !== String(user.course_id) || !sameCourseGroup(session, user)) {
             return res.status(404).json({message: "Session tidak ditemukan"});
         }
+        session = await recoverStaleGroupFeedbackGeneration(session, user);
 
         if (!session.work_started_at) {
             return res.status(409).json({message: "Group discussion belum dimulai oleh host."});
@@ -785,10 +813,11 @@ export async function timeoutTableSession(req, res) {
         const user = await getAuthenticatedUser(req, res);
         if (!user) return;
 
-        const session = await getSessionById(req.params.sessionId);
+        let session = await getSessionById(req.params.sessionId);
         if (!session || String(session.course_id) !== String(user.course_id) || !sameCourseGroup(session, user)) {
             return res.status(404).json({message: "Session tidak ditemukan"});
         }
+        session = await recoverStaleGroupFeedbackGeneration(session, user);
 
         if (!session.is_active || session.submitted_at) {
             const {members, answers, feedbackGroups, gamification} = await loadSessionActivity(session, user);
@@ -852,10 +881,11 @@ export async function heartbeatTableSession(req, res) {
         const user = await getAuthenticatedUser(req, res);
         if (!user) return;
 
-        const session = await getSessionById(req.params.sessionId);
+        let session = await getSessionById(req.params.sessionId);
         if (!session || !session.is_active || String(session.course_id) !== String(user.course_id) || !sameCourseGroup(session, user)) {
             return res.status(404).json({message: "Session tidak ditemukan"});
         }
+        session = await recoverStaleGroupFeedbackGeneration(session, user);
 
         const member = await touchSessionMember(session.session_id, user);
         if (!member) {

@@ -454,6 +454,32 @@ async function completeAnsweredMultipleChoiceSessionIfReady(session, questions, 
     return completeMultipleChoiceSession(session, questions, user);
 }
 
+async function completeSubmittedCaseSessionIfReady(session, questions, user) {
+    if (!session || session.status !== "in_progress" || session.question_kind !== "case_study") return session;
+    const caseQuestion = questions[0];
+    if (!caseQuestion) return session;
+
+    const answers = await getIndividualAnswers(session.session_id);
+    const submittedAnswer = answers.find((answer) =>
+        String(answer.question_id) === String(caseQuestion.question_id)
+        && String(answer.answer_text || "").trim().length > 0
+    );
+    if (!submittedAnswer) return session;
+
+    return completeCaseSession(session, caseQuestion, user, submittedAnswer.answer_text);
+}
+
+async function recoverSubmittedIndividualSessionIfReady(session, questions, user) {
+    if (!session || session.status !== "in_progress") return session;
+    if (session.question_kind === "multiple_choice") {
+        return completeAnsweredMultipleChoiceSessionIfReady(session, questions, user);
+    }
+    if (session.question_kind === "case_study") {
+        return completeSubmittedCaseSessionIfReady(session, questions, user);
+    }
+    return session;
+}
+
 async function retryCompletedExerciseFeedback(session, questions, answers, user) {
     const resultJson = session.result_json || {};
     const wrongItems = buildWrongAnswerFeedbackInput(session, questions, answers, user);
@@ -602,7 +628,10 @@ export async function getIndividualContext(req, res) {
                 : await completeTimedOutIndividualSession(effectiveActiveSession, questions, user);
         } else if (effectiveActiveSession?.question_kind === "multiple_choice") {
             const questions = await getIndividualQuestionsByIds(effectiveActiveSession.question_ids);
-            effectiveActiveSession = await completeAnsweredMultipleChoiceSessionIfReady(effectiveActiveSession, questions, user);
+            effectiveActiveSession = await recoverSubmittedIndividualSessionIfReady(effectiveActiveSession, questions, user);
+        } else if (effectiveActiveSession?.question_kind === "case_study") {
+            const questions = await getIndividualQuestionsByIds(effectiveActiveSession.question_ids);
+            effectiveActiveSession = await recoverSubmittedIndividualSessionIfReady(effectiveActiveSession, questions, user);
         }
         const activity = effectiveActiveSession ? await loadIndividualSession(effectiveActiveSession, user) : null;
 
@@ -678,7 +707,7 @@ export async function startIndividualSession(req, res) {
         let effectiveActiveObjectSession = activeObjectSession;
         if (effectiveActiveObjectSession && String(effectiveActiveObjectSession.user_id) === String(user.user_id)) {
             const questions = await getIndividualQuestionsByIds(effectiveActiveObjectSession.question_ids);
-            effectiveActiveObjectSession = await completeAnsweredMultipleChoiceSessionIfReady(effectiveActiveObjectSession, questions, user);
+            effectiveActiveObjectSession = await recoverSubmittedIndividualSessionIfReady(effectiveActiveObjectSession, questions, user);
         }
         if (effectiveActiveObjectSession?.status === "in_progress") {
             if (String(effectiveActiveObjectSession.user_id) !== String(user.user_id)) {
@@ -699,7 +728,7 @@ export async function startIndividualSession(req, res) {
         let effectiveActiveSession = activeSession;
         if (effectiveActiveSession) {
             const questions = await getIndividualQuestionsByIds(effectiveActiveSession.question_ids);
-            effectiveActiveSession = await completeAnsweredMultipleChoiceSessionIfReady(effectiveActiveSession, questions, user);
+            effectiveActiveSession = await recoverSubmittedIndividualSessionIfReady(effectiveActiveSession, questions, user);
         }
         if (effectiveActiveSession?.status === "in_progress") {
             const activity = await loadIndividualSession(effectiveActiveSession, user);
@@ -795,7 +824,10 @@ export async function getIndividualSession(req, res) {
                 : await completeTimedOutIndividualSession(effectiveSession, questions, user);
         } else if (effectiveSession.question_kind === "multiple_choice") {
             const questions = await getIndividualQuestionsByIds(effectiveSession.question_ids);
-            effectiveSession = await completeAnsweredMultipleChoiceSessionIfReady(effectiveSession, questions, user);
+            effectiveSession = await recoverSubmittedIndividualSessionIfReady(effectiveSession, questions, user);
+        } else if (effectiveSession.question_kind === "case_study") {
+            const questions = await getIndividualQuestionsByIds(effectiveSession.question_ids);
+            effectiveSession = await recoverSubmittedIndividualSessionIfReady(effectiveSession, questions, user);
         }
         const activity = await loadIndividualSession(effectiveSession, user);
         res.json({session: normalizeSession(activity.session, activity.questions, activity.answers, user)});
@@ -882,6 +914,13 @@ export async function submitIndividualCase(req, res) {
         const session = await getIndividualSessionById(req.params.sessionId);
         if (!session || String(session.user_id) !== String(user.user_id) || String(session.course_id) !== String(user.course_id)) {
             return res.status(404).json({message: "Session tidak ditemukan"});
+        }
+        if (session.status === "completed") {
+            const activity = await loadIndividualSession(session, user);
+            return res.json({
+                message: "Case study sudah selesai",
+                session: normalizeSession(activity.session, activity.questions, activity.answers, user),
+            });
         }
         if (session.status !== "in_progress" || session.question_kind !== "case_study") {
             return res.status(409).json({message: "Session tidak bisa disubmit saat ini"});

@@ -1,6 +1,8 @@
 import {findSession} from "../models/sessionModel.js";
 import {
     addQuizMember,
+    beginQuizFeedbackRetry,
+    beginQuizResultSave,
     createQuizSession,
     ensureQuizActivityTables,
     exitQuizMember,
@@ -278,6 +280,10 @@ function normalizeQuizSession(session, members, questions, answers, userId, save
         wrong_answer_feedback: savedResult?.results_json?.wrong_answer_feedback || [],
         wrong_answer_feedback_model: savedResult?.results_json?.wrong_answer_feedback_model || null,
         wrong_answer_feedback_error: savedResult?.results_json?.wrong_answer_feedback_error || null,
+        save_status: session.save_status || (session.status === "saved" ? "saved" : "idle"),
+        save_started_at: session.save_started_at || null,
+        save_error: session.save_error || null,
+        is_saving_result: session.save_status === "saving",
         created_at: session.created_at,
         updated_at: session.updated_at,
         ended_at: session.ended_at,
@@ -595,9 +601,28 @@ export async function saveQuizSessionResult(req, res) {
         if (!["completed", "saved"].includes(activity.session.status)) {
             return res.status(409).json({message: "Quiz belum selesai"});
         }
+        const saveLock = await beginQuizResultSave(activity.session.quiz_session_id);
+        if (saveLock.reason === "ALREADY_SAVED") {
+            return res.json({
+                message: "Hasil quiz sudah tersimpan",
+                session: await hydrateSession(saveLock.session, user),
+            });
+        }
+        if (saveLock.reason === "SAVING") {
+            return res.json({
+                message: "Hasil quiz sedang disimpan. Mohon tunggu.",
+                session: await hydrateSession(saveLock.session, user),
+            });
+        }
+        if (saveLock.reason !== "STARTED") {
+            return res.status(409).json({
+                message: "Quiz belum bisa disimpan saat ini",
+                session: await hydrateSession(saveLock.session || activity.session, user),
+            });
+        }
 
         const normalized = normalizeQuizSession(
-            activity.session,
+            saveLock.session,
             activity.members,
             activity.questions,
             activity.answers,
@@ -620,7 +645,7 @@ export async function saveQuizSessionResult(req, res) {
         }
 
         const saved = await saveQuizResult(
-            activity.session.quiz_session_id,
+            saveLock.session.quiz_session_id,
             user.user_id,
             normalized.questions,
             normalized.answers,
@@ -634,7 +659,7 @@ export async function saveQuizSessionResult(req, res) {
             }
         );
 
-        emitQuizEvent(req, activity.session.quiz_session_id, "quiz:result_saved", {status: saved?.status || "saved"});
+        emitQuizEvent(req, saveLock.session.quiz_session_id, "quiz:result_saved", {status: saved?.status || "saved"});
 
         res.json({
             message: "Hasil quiz tersimpan",
@@ -663,6 +688,19 @@ export async function retryQuizFeedback(req, res) {
         if (activity.session.status !== "saved" || !activity.savedResult) {
             return res.status(409).json({message: "Hasil quiz belum tersimpan"});
         }
+        const retryLock = await beginQuizFeedbackRetry(activity.session.quiz_session_id);
+        if (retryLock.reason === "SAVING") {
+            return res.json({
+                message: "Feedback AI sedang dibuat. Mohon tunggu.",
+                session: await hydrateSession(retryLock.session, user),
+            });
+        }
+        if (retryLock.reason !== "STARTED") {
+            return res.status(409).json({
+                message: "Feedback AI belum bisa dicoba ulang saat ini.",
+                session: await hydrateSession(retryLock.session || activity.session, user),
+            });
+        }
 
         let wrongAnswerFeedback = [];
         let wrongAnswerFeedbackModel = null;
@@ -678,17 +716,18 @@ export async function retryQuizFeedback(req, res) {
             }
         }
 
-        await updateQuizResultFeedback(activity.session.quiz_session_id, {
+        await updateQuizResultFeedback(retryLock.session.quiz_session_id, {
             wrong_answer_feedback: wrongAnswerFeedback,
             wrong_answer_feedback_model: wrongAnswerFeedbackModel,
             wrong_answer_feedback_error: wrongAnswerFeedbackError,
             feedback_retried_at: new Date().toISOString(),
         });
-        emitQuizEvent(req, activity.session.quiz_session_id, "quiz:result_saved", {status: "saved"});
+        emitQuizEvent(req, retryLock.session.quiz_session_id, "quiz:result_saved", {status: "saved"});
+        const updatedSession = await getQuizSessionById(retryLock.session.quiz_session_id);
 
         res.json({
             message: wrongAnswerFeedbackError ? "Feedback AI masih gagal dibuat." : "Feedback AI berhasil dibuat ulang.",
-            session: await hydrateSession(activity.session, user),
+            session: await hydrateSession(updatedSession || retryLock.session, user),
         });
     } catch (error) {
         console.error("Retry quiz feedback error:", error);

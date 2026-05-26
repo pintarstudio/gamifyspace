@@ -458,10 +458,13 @@ async function findDatabaseBackedActivityStatus(sessionUser) {
            AND m.user_id = $2
            AND m.is_active = TRUE
            AND s.is_active = TRUE
-           AND s.submitted_at IS NULL
+           AND (
+               s.submitted_at IS NULL
+               OR m.last_seen_at >= NOW() - ($3::int * INTERVAL '1 millisecond')
+           )
          ORDER BY s.created_at DESC
          LIMIT 1`,
-        [courseId, userId]
+        [courseId, userId, ACTIVITY_STATUS_TIMEOUT_MS]
     ).catch(() => ({rows: []}));
     if (group.rows[0]) {
         const row = group.rows[0];

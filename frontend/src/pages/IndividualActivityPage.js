@@ -7,6 +7,7 @@ import {
     clearActivityStatus,
     setActivityStatus,
 } from "../utils/activityStatus";
+import useCopyProtection from "../utils/useCopyProtection";
 import "./IndividualActivityPage.css";
 
 const choiceLabel = (index) => ["A", "B", "C", "D"][index] || String(index + 1);
@@ -258,28 +259,11 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
         return () => window.removeEventListener("keydown", handleEscape);
     }, [activeSession, completionNotice, embedded, onBack]);
 
-    useEffect(() => {
-        const shouldBlockAssessmentCopy = activeSession?.status === "in_progress"
-            && ["pre_test", "post_test"].includes(activeSession.activity_type);
-        if (!shouldBlockAssessmentCopy) return undefined;
-
-        const blockAssessmentCopy = (event) => {
-            event.preventDefault();
-            setMessage("Menyalin soal pre-test/post-test tidak diizinkan.");
-        };
-
-        window.addEventListener("copy", blockAssessmentCopy);
-        window.addEventListener("cut", blockAssessmentCopy);
-        window.addEventListener("contextmenu", blockAssessmentCopy);
-        window.addEventListener("dragstart", blockAssessmentCopy);
-
-        return () => {
-            window.removeEventListener("copy", blockAssessmentCopy);
-            window.removeEventListener("cut", blockAssessmentCopy);
-            window.removeEventListener("contextmenu", blockAssessmentCopy);
-            window.removeEventListener("dragstart", blockAssessmentCopy);
-        };
-    }, [activeSession?.status, activeSession?.activity_type]);
+    useCopyProtection(
+        !!activeSession,
+        setMessage,
+        "Menyalin konten aktivitas individual tidak diizinkan."
+    );
 
     const requestStart = () => {
         if (!selectedTopicId) {
@@ -506,6 +490,11 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
         setRetryingFeedback(false);
     };
 
+    const blockCaseAnswerPaste = (event) => {
+        event.preventDefault();
+        setMessage("Paste dan drop teks tidak diizinkan di jawaban case study.");
+    };
+
     if (loading) {
         return <main className={`individual-app individual-app--center${embedded ? " individual-app--embedded" : ""}`}>Memuat aktivitas individual...</main>;
     }
@@ -568,6 +557,8 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
                             <textarea
                                 value={caseAnswer}
                                 onChange={(event) => setCaseAnswer(event.target.value)}
+                                onDrop={blockCaseAnswerPaste}
+                                onPaste={blockCaseAnswerPaste}
                                 placeholder="Write your case study answer here..."
                                 disabled={busy || isTimeUp}
                             />

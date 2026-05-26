@@ -7,6 +7,7 @@ const QUESTION_TIME_SECONDS = 15;
 const QUESTION_REVEAL_SECONDS = 3;
 const QUESTION_START_DELAY_SECONDS = 3;
 const MAX_QUIZ_MEMBERS = 2;
+const QUIZ_SAVE_STALE_SECONDS = 2 * 60;
 
 export async function ensureQuizActivityTables() {
     if (quizTablesReady) return;
@@ -53,6 +54,17 @@ export async function ensureQuizActivityTables() {
     await pool.query(`ALTER TABLE quiz_sessions ADD COLUMN IF NOT EXISTS course_group_id INTEGER`);
     await pool.query(`ALTER TABLE quiz_sessions ADD COLUMN IF NOT EXISTS group_id INTEGER`);
     await pool.query(`ALTER TABLE quiz_sessions ADD COLUMN IF NOT EXISTS question_completed_at TIMESTAMPTZ`);
+    await pool.query(`ALTER TABLE quiz_sessions ADD COLUMN IF NOT EXISTS save_status TEXT NOT NULL DEFAULT 'idle'`);
+    await pool.query(`ALTER TABLE quiz_sessions ADD COLUMN IF NOT EXISTS save_started_at TIMESTAMPTZ`);
+    await pool.query(`ALTER TABLE quiz_sessions ADD COLUMN IF NOT EXISTS save_error TEXT`);
+    await pool.query(`
+        UPDATE quiz_sessions
+        SET save_status = CASE
+                WHEN status = 'saved' THEN COALESCE(NULLIF(save_status, 'idle'), 'saved')
+                ELSE save_status
+            END
+        WHERE status = 'saved'
+    `);
     await pool.query(`
         UPDATE quiz_sessions qs
         SET course_group_id = u.course_group_id
@@ -686,10 +698,18 @@ export async function saveQuizResult(sessionId, userId, questions, answers, resu
              SET status = 'saved',
                  saved_by = COALESCE(saved_by, $2),
                  saved_at = COALESCE(saved_at, NOW()),
+                 save_status = $3,
+                 save_started_at = NULL,
+                 save_error = $4,
                  updated_at = NOW()
              WHERE quiz_session_id = $1
              RETURNING *`,
-            [sessionId, userId]
+            [
+                sessionId,
+                userId,
+                results?.wrong_answer_feedback_error ? "error" : "saved",
+                results?.wrong_answer_feedback_error || null,
+            ]
         );
 
         await client.query("COMMIT");
@@ -702,15 +722,143 @@ export async function saveQuizResult(sessionId, userId, questions, answers, resu
     }
 }
 
+export async function beginQuizResultSave(sessionId) {
+    const client = await pool.connect();
+
+    try {
+        await client.query("BEGIN");
+        const locked = await client.query(
+            `SELECT *
+             FROM quiz_sessions
+             WHERE quiz_session_id = $1
+             FOR UPDATE`,
+            [sessionId]
+        );
+        const session = locked.rows[0];
+        if (!session) {
+            await client.query("ROLLBACK");
+            return {session: null, reason: "NOT_FOUND"};
+        }
+        if (session.status === "saved") {
+            await client.query("COMMIT");
+            return {session, reason: "ALREADY_SAVED"};
+        }
+        if (session.status !== "completed") {
+            await client.query("ROLLBACK");
+            return {session, reason: "NOT_COMPLETED"};
+        }
+        if (
+            session.save_status === "saving"
+            && session.save_started_at
+            && new Date(session.save_started_at).getTime() > Date.now() - QUIZ_SAVE_STALE_SECONDS * 1000
+        ) {
+            await client.query("COMMIT");
+            return {session, reason: "SAVING"};
+        }
+
+        const updated = await client.query(
+            `UPDATE quiz_sessions
+             SET save_status = 'saving',
+                 save_started_at = NOW(),
+                 save_error = NULL,
+                 updated_at = NOW()
+             WHERE quiz_session_id = $1
+             RETURNING *`,
+            [sessionId]
+        );
+        await client.query("COMMIT");
+        return {session: updated.rows[0] || session, reason: "STARTED"};
+    } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+    } finally {
+        client.release();
+    }
+}
+
+export async function beginQuizFeedbackRetry(sessionId) {
+    const client = await pool.connect();
+
+    try {
+        await client.query("BEGIN");
+        const locked = await client.query(
+            `SELECT *
+             FROM quiz_sessions
+             WHERE quiz_session_id = $1
+             FOR UPDATE`,
+            [sessionId]
+        );
+        const session = locked.rows[0];
+        if (!session) {
+            await client.query("ROLLBACK");
+            return {session: null, reason: "NOT_FOUND"};
+        }
+        if (session.status !== "saved") {
+            await client.query("ROLLBACK");
+            return {session, reason: "NOT_SAVED"};
+        }
+        if (
+            session.save_status === "saving"
+            && session.save_started_at
+            && new Date(session.save_started_at).getTime() > Date.now() - QUIZ_SAVE_STALE_SECONDS * 1000
+        ) {
+            await client.query("COMMIT");
+            return {session, reason: "SAVING"};
+        }
+
+        const updated = await client.query(
+            `UPDATE quiz_sessions
+             SET save_status = 'saving',
+                 save_started_at = NOW(),
+                 save_error = NULL,
+                 updated_at = NOW()
+             WHERE quiz_session_id = $1
+             RETURNING *`,
+            [sessionId]
+        );
+        await client.query("COMMIT");
+        return {session: updated.rows[0] || session, reason: "STARTED"};
+    } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+    } finally {
+        client.release();
+    }
+}
+
 export async function updateQuizResultFeedback(sessionId, resultsPatch) {
-    const result = await pool.query(
-        `UPDATE quiz_session_results
-         SET results_json = results_json || $2::jsonb
-         WHERE quiz_session_id = $1
-         RETURNING questions_json, answers_json, results_json, created_at`,
-        [sessionId, JSON.stringify(resultsPatch || {})]
-    );
-    return result.rows[0] || null;
+    const client = await pool.connect();
+
+    try {
+        await client.query("BEGIN");
+        const result = await client.query(
+            `UPDATE quiz_session_results
+             SET results_json = results_json || $2::jsonb
+             WHERE quiz_session_id = $1
+             RETURNING questions_json, answers_json, results_json, created_at`,
+            [sessionId, JSON.stringify(resultsPatch || {})]
+        );
+        await client.query(
+            `UPDATE quiz_sessions
+             SET save_status = $2,
+                 save_started_at = NULL,
+                 save_error = $3,
+                 updated_at = NOW()
+             WHERE quiz_session_id = $1`,
+            [
+                sessionId,
+                resultsPatch?.wrong_answer_feedback_error ? "error" : "saved",
+                resultsPatch?.wrong_answer_feedback_error || null,
+            ]
+        );
+        await client.query("COMMIT");
+        return result.rows[0] || null;
+    } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+    } finally {
+        client.release();
+    }
 }
 
 export {MAX_QUIZ_MEMBERS, QUESTION_COUNT, QUESTION_REVEAL_SECONDS, QUESTION_START_DELAY_SECONDS, QUESTION_TIME_SECONDS};
