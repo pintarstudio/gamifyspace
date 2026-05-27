@@ -7,6 +7,7 @@ import {INSTRUCTOR_ROLE_ID, STUDENT_ROLE_ID} from "../models/roleModel.js";
 import {findAdminByUsername, updateAdminLastLogin, verifyAdminPassword} from "../models/adminModel.js";
 import {leaveStudentGroupRoomsForLogout} from "../models/chatModel.js";
 import {getBooleanSetting, SETTING_KEYS} from "../models/settingsModel.js";
+import {notifyStudentLogin} from "../services/telegramNotificationService.js";
 import {v4 as uuidv4} from "uuid";
 
 const normalizeLookupText = (value) =>
@@ -129,6 +130,10 @@ export async function login(req, res) {
 
         req.session.session_id = session_id;
         req.session.user = { ...user, avatar_public_path: sessionAvatarPath };
+
+        notifyStudentLogin({user, course}).catch((error) => {
+            console.error("Telegram login notification error:", error);
+        });
 
         res.json({
             message: "Login berhasil",
