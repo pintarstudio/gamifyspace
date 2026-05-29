@@ -11,8 +11,11 @@ import IndividualActivityPage from "./IndividualActivityPage";
 import TableActivityPage from "./TableActivityPage";
 import QuizActivityPage from "./QuizActivityPage";
 import {ACTIVITY_STATUS, clearActivityStatus, isActivityStatusActive, setActivityStatus} from "../utils/activityStatus";
+import {getActivityRecovery} from "../utils/activityRecovery";
 import socket from "../utils/socketClient";
 import "./VirtualSpacePage.css";
+
+const VIRTUALSPACE_TUTORIAL_KEY = "gamifyit:virtualspace:tutorial:v1";
 
 const choiceLabel = (index) => ["A", "B", "C", "D"][index] || String(index + 1);
 
@@ -86,6 +89,8 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
     const [retryingHistoryFeedback, setRetryingHistoryFeedback] = useState(false);
     const [activeDashboardTab, setActiveDashboardTab] = useState(null);
     const [expandedLeaderboardGroups, setExpandedLeaderboardGroups] = useState({});
+    const [showOrientationTutorial, setShowOrientationTutorial] = useState(false);
+    const [orientationTutorialStep, setOrientationTutorialStep] = useState(0);
     const navigate = useNavigate();
     const isInstructor = String(currentUser?.role_name || "").toLowerCase() === "instructor"
         || String(currentUser?.role_id || "") === "2";
@@ -131,6 +136,13 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [currentUser?.user_id, isInstructor]);
+
+    useEffect(() => {
+        if (!currentUser || isInstructor) return;
+        if (localStorage.getItem(VIRTUALSPACE_TUTORIAL_KEY) !== "1") {
+            setShowOrientationTutorial(true);
+        }
+    }, [currentUser, isInstructor]);
 
     useEffect(() => {
         if (!currentUserId || !isInstructor) return undefined;
@@ -186,9 +198,11 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
         const res = await apiPost("/logout", {});
         if (res.message === "Logout berhasil") {
             const wasStudentAccess = localStorage.getItem("studentAccessLogin") === "1";
+            const tutorialSeen = localStorage.getItem(VIRTUALSPACE_TUTORIAL_KEY) === "1";
             setLoggedIn(false);
             setUser(null);
             localStorage.clear(); // ✅ clear saved room or session data
+            if (tutorialSeen) localStorage.setItem(VIRTUALSPACE_TUTORIAL_KEY, "1");
 
             // beri sedikit jeda agar server sempat broadcast event
             setTimeout(() => {
@@ -219,6 +233,17 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
         currentUser?.course_id,
         currentUser?.room,
     ]);
+
+    const openOrientationTutorial = useCallback(() => {
+        setOrientationTutorialStep(0);
+        setShowOrientationTutorial(true);
+    }, []);
+
+    const closeOrientationTutorial = useCallback(() => {
+        localStorage.setItem(VIRTUALSPACE_TUTORIAL_KEY, "1");
+        setOrientationTutorialStep(0);
+        setShowOrientationTutorial(false);
+    }, []);
 
     const openActivity = async (activity) => {
         setDetailLoading(true);
@@ -254,6 +279,8 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
         if (["individual_exercise", "individual_pre_test", "individual_post_test"].includes(status.type)) {
             const objectId = status.object_id || "computer";
             const searchParams = new URLSearchParams({object_id: objectId});
+            const sessionId = String(status.activity_key || "").split(":").pop();
+            if (sessionId && sessionId !== "pending") searchParams.set("session_id", sessionId);
             return {
                 key: status.activity_key || `${status.type}:${objectId}`,
                 objectName: status.object_name || "computer",
@@ -271,6 +298,8 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
                 table_id: String(tableId),
                 group_id: String(groupId),
             });
+            const sessionId = String(status.activity_key || "").split(":").pop();
+            if (sessionId && sessionId !== "pending") searchParams.set("session_id", sessionId);
             if (status.object_id) searchParams.set("object_id", status.object_id);
             return {
                 key: status.activity_key || `quiz:${tableId}`,
@@ -302,6 +331,46 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
         return null;
     }, []);
 
+    const buildActivityLaunchFromRecovery = useCallback((recovery) => {
+        if (!recovery?.type || !recovery?.session_id) return null;
+        if (recovery.type === "individual") {
+            const objectId = recovery.object_id || "computer";
+            const searchParams = new URLSearchParams({
+                object_id: String(objectId),
+                session_id: String(recovery.session_id),
+            });
+            return {
+                key: `individual-recovery:${recovery.session_id}`,
+                objectName: "computer",
+                objectId,
+                activityType: "individual",
+                searchParams: searchParams.toString(),
+                restored: true,
+            };
+        }
+        if (recovery.type === "quiz") {
+            const tableId = recovery.table_id || recovery.group_id || recovery.object_id || "1";
+            const groupId = recovery.group_id || tableId;
+            const searchParams = new URLSearchParams({
+                table_id: String(tableId),
+                group_id: String(groupId),
+                session_id: String(recovery.session_id),
+            });
+            if (recovery.object_id) searchParams.set("object_id", recovery.object_id);
+            return {
+                key: `quiz-recovery:${recovery.session_id}`,
+                objectName: "bigtable",
+                objectId: recovery.object_id || tableId,
+                groupId,
+                tableId,
+                activityType: "quiz",
+                searchParams: searchParams.toString(),
+                restored: true,
+            };
+        }
+        return null;
+    }, []);
+
     useEffect(() => {
         if (!currentUser || isInstructor || activeMapActivity) return undefined;
 
@@ -309,13 +378,18 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
         apiGet("/activity-status/current").then((data) => {
             if (!active || activeMapActivity) return;
             const launch = buildActivityLaunchFromStatus(data.status);
-            if (launch) setActiveMapActivity(launch);
+            if (launch) {
+                setActiveMapActivity(launch);
+                return;
+            }
+            const recoveryLaunch = buildActivityLaunchFromRecovery(getActivityRecovery(currentUser));
+            if (recoveryLaunch) setActiveMapActivity(recoveryLaunch);
         }).catch(() => {});
 
         return () => {
             active = false;
         };
-    }, [activeMapActivity, buildActivityLaunchFromStatus, currentUser, isInstructor]);
+    }, [activeMapActivity, buildActivityLaunchFromRecovery, buildActivityLaunchFromStatus, currentUser, isInstructor]);
 
     const openMapActivity = useCallback((launch) => {
         if (activeMapActivity) return false;
@@ -758,6 +832,7 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
                     currentUser={currentUser}
                     handleLogout={handleLogout}
                     summary={dashboard?.hud}
+                    onOpenHelp={isInstructor ? null : openOrientationTutorial}
                 />
 
                 {isInstructor ? renderInstructorDashboard() : (
@@ -1207,6 +1282,206 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
                                 </section>
                             </>
                         )}
+                    </section>
+                </div>
+            )}
+
+            {!isInstructor && showOrientationTutorial && (
+                <div className="virtual-tutorial" role="dialog" aria-modal="true" aria-labelledby="virtual-tutorial-title">
+                    <div className="virtual-tutorial__backdrop" />
+                    <section className="virtual-tutorial__panel">
+                        <div className="virtual-tutorial__topline">
+                            <span className="virtual-tutorial__eyebrow">Panduan Singkat</span>
+                            <span className="virtual-tutorial__progress">{orientationTutorialStep + 1}/5</span>
+                        </div>
+
+                        {orientationTutorialStep === 0 ? (
+                            <>
+                                <h2 id="virtual-tutorial-title">Interaksi di Ruang Virtual</h2>
+                                <div className="virtual-tutorial__movement">
+                                    <span>↑↓←→</span>
+                                    <div>
+                                        <strong>Gerakkan avatar dengan tombol panah</strong>
+                                        <p>Dekati objek aktivitas di ruang virtual, lalu tekan Space saat instruksi interaksi muncul.</p>
+                                    </div>
+                                </div>
+                                <div className="virtual-tutorial__steps">
+                                    <article className="virtual-tutorial__step virtual-tutorial__step--individual">
+                                        <div className="virtual-tutorial__image">
+                                            <img src="/objects/computer.png" alt="Computer object" />
+                                        </div>
+                                        <div>
+                                            <strong>Latihan Mandiri</strong>
+                                            <p>Gunakan komputer untuk latihan mandiri, pre-test, dan post-test. Satu komputer untuk 1 orang.</p>
+                                        </div>
+                                    </article>
+                                    <article className="virtual-tutorial__step virtual-tutorial__step--group">
+                                        <div className="virtual-tutorial__image">
+                                            <img src="/objects/tablebook_r.png" alt="Group table object" />
+                                        </div>
+                                        <div>
+                                            <strong>Diskusi Kelompok</strong>
+                                            <p>Gunakan meja ini untuk mengerjakan studi kasus bersama teman dalam kelompok. Maksimal 4 orang dalam 1 kelompok. 1 meja untuk 1 orang.</p>
+                                        </div>
+                                    </article>
+                                    <article className="virtual-tutorial__step virtual-tutorial__step--quiz">
+                                        <div className="virtual-tutorial__image">
+                                            <img src="/objects/bigtable.png" alt="Big table quiz object" />
+                                        </div>
+                                        <div>
+                                            <strong>Fun Quiz 1 vs 1</strong>
+                                            <p>Gunakan meja ini untuk mulai duel quiz 1 lawan 1 dengan satu teman. 1 meja untuk 2 orang.</p>
+                                        </div>
+                                    </article>
+                                </div>
+                                <div className="virtual-tutorial__hint">
+                                    <span>!</span>
+                                    <p>Ikuti papan pixel di map. Saat instruksi muncul di dekat objek, tekan Space untuk berinteraksi.</p>
+                                </div>
+                            </>
+                        ) : orientationTutorialStep === 1 ? (
+                            <>
+                                <h2 id="virtual-tutorial-title">Feedback dan Riwayat Aktivitas</h2>
+                                <div className="virtual-tutorial__ai-card">
+                                    <span>AI</span>
+                                    <div>
+                                        <strong>AI Feedback tersedia di setiap aktivitas</strong>
+                                        <p>Feedback akan ditampilkan di akhir aktivitas atau pada halaman hasil. Jika proses feedback membutuhkan waktu, tunggu sampai hasil muncul.</p>
+                                    </div>
+                                </div>
+                                <div className="virtual-tutorial__dashboard-guide">
+                                    <div>
+                                        <strong>Pantau progres dari dashboard</strong>
+                                        <p>Riwayat dan perkembangan aktivitas bisa kamu lihat dari tab dashboard di sisi kanan layar.</p>
+                                    </div>
+                                    <div className="virtual-tutorial__dashboard-icons" aria-label="Dashboard icons">
+                                        {[
+                                            {id: "leaderboard", label: "Leaderboard"},
+                                            {id: "individual", label: "Individual"},
+                                            {id: "group", label: "Group"},
+                                            {id: "quiz", label: "Quiz"},
+                                        ].map((item) => (
+                                            <article key={item.id} className={`virtual-tutorial__dashboard-icon virtual-tutorial__dashboard-icon--${item.id}`}>
+                                                <span>
+                                                    <DashboardTabIcon type={item.id} />
+                                                </span>
+                                                <strong>{item.label}</strong>
+                                            </article>
+                                        ))}
+                                    </div>
+                                </div>
+                            </>
+                        ) : orientationTutorialStep === 2 ? (
+                            <>
+                                <h2 id="virtual-tutorial-title">Gamifikasi dan Leaderboard</h2>
+                                <div className="virtual-tutorial__gamify-hero">
+                                    <span>XP</span>
+                                    <span>LV</span>
+                                    <span>PTS</span>
+                                    <div>
+                                        <strong>Belajar mandiri, berkontribusi bersama</strong>
+                                        <p>Setiap aktivitas membantu kamu membangun progres belajar pribadi dan kontribusi untuk kelompok.</p>
+                                    </div>
+                                </div>
+                                <div className="virtual-tutorial__gamify-grid">
+                                    <article>
+                                        <span>IXP</span>
+                                        <strong>Individual XP</strong>
+                                        <p>Didapat setelah menyelesaikan aktivitas individual, seperti latihan multiple choice atau case study.</p>
+                                    </article>
+                                    <article>
+                                        <span>LV</span>
+                                        <strong>Level Siswa</strong>
+                                        <p>Level menunjukkan perkembangan Individual XP kamu di course ini. Semakin banyak XP, semakin tinggi levelmu.</p>
+                                    </article>
+                                    <article>
+                                        <span>GXP</span>
+                                        <strong>Group XP</strong>
+                                        <p>Kamu bisa berkontribusi untuk Group XP saat mengerjakan aktivitas kelompok. Individual XP juga diberikan sesuai kualitas jawabanmu.</p>
+                                    </article>
+                                    <article>
+                                        <span>PTS</span>
+                                        <strong>Quiz Points</strong>
+                                        <p>Pada quiz, kamu mendapatkan points, bukan XP. Points berasal dari jawaban benar saat duel quiz.</p>
+                                    </article>
+                                </div>
+                                <div className="virtual-tutorial__leaderboard-card">
+                                    <span className="virtual-tutorial__leaderboard-icon">
+                                        <DashboardTabIcon type="leaderboard" />
+                                    </span>
+                                    <div>
+                                        <strong>Cara membaca leaderboard</strong>
+                                        <p>Leaderboard group menampilkan peringkat berdasarkan Group XP, leaderboard quiz berdasarkan points, dan leaderboard individual berdasarkan Individual XP.</p>
+                                        <em>Terus belajar mandiri untuk naik level, dan tetap bekerja sama agar kelompokmu makin kuat.</em>
+                                    </div>
+                                </div>
+                            </>
+                        ) : orientationTutorialStep === 3 ? (
+                            <>
+                                <h2 id="virtual-tutorial-title">Fitur Chat Kelas</h2>
+                                <div className="virtual-tutorial__chat-hero">
+                                    <span>Chat</span>
+                                    <div>
+                                        <strong>Akses chat dari tombol Chat</strong>
+                                        <p>Gunakan tombol Chat di layar untuk membuka pesan kelas, broadcast dari instructor, dan group chat.</p>
+                                    </div>
+                                </div>
+                                <div className="virtual-tutorial__chat-grid">
+                                    <article>
+                                        <span>BC</span>
+                                        <strong>Broadcast instructor</strong>
+                                        <p>Instructor dapat mengirim pengumuman atau arahan penting. Kamu juga bisa memberi reaction pada pesan broadcast tersebut.</p>
+                                    </article>
+                                    <article>
+                                        <span>GC</span>
+                                        <strong>Group chat</strong>
+                                        <p>Kamu dapat membuat group chat dengan siswa yang berada dalam group yang sama.</p>
+                                    </article>
+                                    <article>
+                                        <span>EX</span>
+                                        <strong>Keluar mandiri</strong>
+                                        <p>Setelah selesai bekerja dalam group activity, kamu boleh keluar dari group chat secara mandiri.</p>
+                                    </article>
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                <h2 id="virtual-tutorial-title">Pengingat Belajar</h2>
+                                <div className="virtual-tutorial__reminder-card">
+                                    <span>!</span>
+                                    <div>
+                                        <strong>Gunakan AI dengan bijak</strong>
+                                        <p>Ruang belajar interaktif ini sudah dirancang dengan AI untuk membantu kamu belajar mandiri dan beraktivitas bersama teman.</p>
+                                    </div>
+                                </div>
+                                <div className="virtual-tutorial__learning-note">
+                                    <strong>Jangan langsung memakai AI untuk mengerjakan aktivitas.</strong>
+                                    <p>Cobalah membaca materi, berdiskusi, mencari referensi secara manual, dan memahami prosesnya terlebih dahulu. AI feedback akan membantu setelah kamu berusaha menjawab.</p>
+                                    <em>Yang paling penting bukan hanya mendapatkan jawaban, tetapi memahami alasan di balik jawaban itu.</em>
+                                </div>
+                            </>
+                        )}
+
+                        <div className="virtual-tutorial__actions">
+                            {orientationTutorialStep > 0 && (
+                                <button
+                                    type="button"
+                                    className="virtual-tutorial__button virtual-tutorial__button--secondary"
+                                    onClick={() => setOrientationTutorialStep((step) => Math.max(0, step - 1))}
+                                >
+                                    Kembali
+                                </button>
+                            )}
+                            {orientationTutorialStep < 4 ? (
+                                <button type="button" className="virtual-tutorial__button" onClick={() => setOrientationTutorialStep((step) => Math.min(4, step + 1))}>
+                                    Lanjut
+                                </button>
+                            ) : (
+                                <button type="button" className="virtual-tutorial__button" onClick={closeOrientationTutorial}>
+                                    Mengerti
+                                </button>
+                            )}
+                        </div>
                     </section>
                 </div>
             )}

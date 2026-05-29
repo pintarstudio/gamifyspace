@@ -9,6 +9,7 @@ import {
     clearActivityStatus,
     setActivityStatus,
 } from "../utils/activityStatus";
+import {clearActivityRecovery, saveActivityRecovery} from "../utils/activityRecovery";
 import useCopyProtection from "../utils/useCopyProtection";
 import "./QuizActivityPage.css";
 
@@ -70,6 +71,7 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
     const tableId = noVirtual ? (selectedEntryGroupId || entryCode || "101") : routeTableId;
     const groupId = noVirtual ? tableId : (searchParams.get("group_id") || tableId);
     const objectId = searchParams.get("object_id");
+    const restoreSessionId = searchParams.get("session_id");
 
     const [context, setContext] = useState(null);
     const [selectedTopicId, setSelectedTopicId] = useState("");
@@ -104,10 +106,26 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
         setLoading(true);
         const query = `/quiz/context?table_id=${encodeURIComponent(nextTableId)}&group_id=${encodeURIComponent(nextGroupId)}${objectId ? `&object_id=${encodeURIComponent(objectId)}` : ""}`;
         const data = await apiGet(query);
+        let nextActiveSession = useActiveSession ? (data.active_session || null) : null;
+        if (restoreSessionId && String(nextActiveSession?.quiz_session_id || "") !== String(restoreSessionId)) {
+            try {
+                const restored = await apiGet(`/quiz/sessions/${restoreSessionId}`);
+                if (restored.session) {
+                    nextActiveSession = restored.session;
+                    if (restored.session.is_saving_result) {
+                        setMessage("Hasil quiz sedang disimpan dan AI feedback sedang dibuat. Mohon tunggu.");
+                    } else if (restored.session.status === "saved") {
+                        setMessage("Hasil quiz sebelumnya sudah tersimpan. Hasilnya ditampilkan kembali di sini.");
+                    }
+                }
+            } catch (error) {
+                setMessage("Quiz sebelumnya tidak bisa dipulihkan otomatis. Cek riwayat aktivitas untuk melihat hasil yang sudah tersimpan.");
+            }
+        }
         setContext(data);
-        setActiveSession(useActiveSession ? stampSession(data.active_session || null) : null);
+        setActiveSession(stampSession(nextActiveSession));
         if (!selectedTopicId && data.topics?.length > 0) {
-            setSelectedTopicId(String((useActiveSession ? data.active_session?.topic_id : null) || data.topics[0].topic_id));
+            setSelectedTopicId(String(nextActiveSession?.topic_id || data.topics[0].topic_id));
         }
         setLoading(false);
     };
@@ -123,6 +141,30 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
             if (data.loggedIn && data.user) setCurrentUser(data.user);
         });
     }, []);
+
+    useEffect(() => {
+        if (!currentUser || !activeSession?.quiz_session_id || !activeSession?.is_member) return;
+        if (["lobby", "in_progress", "completed", "saved"].includes(activeSession.status)) {
+            saveActivityRecovery(currentUser, {
+                type: "quiz",
+                session_id: activeSession.quiz_session_id,
+                object_id: activeSession.object_id || objectId,
+                group_id: activeSession.group_id || groupId,
+                table_id: activeSession.table_id || tableId,
+            });
+        }
+    }, [
+        currentUser,
+        activeSession?.quiz_session_id,
+        activeSession?.is_member,
+        activeSession?.status,
+        activeSession?.object_id,
+        activeSession?.group_id,
+        activeSession?.table_id,
+        objectId,
+        groupId,
+        tableId,
+    ]);
 
     useEffect(() => {
         const markUnloading = () => {
@@ -200,6 +242,30 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
         window.addEventListener("beforeunload", preventUnload);
         return () => window.removeEventListener("beforeunload", preventUnload);
     }, [savingResult, activeSession?.is_saving_result]);
+
+    useEffect(() => {
+        if (!activeSession?.quiz_session_id || !activeSession?.is_member || !activeSession?.is_saving_result) return undefined;
+
+        let disposed = false;
+        const refreshSavingSession = async () => {
+            try {
+                const data = await apiGet(`/quiz/sessions/${activeSession.quiz_session_id}`);
+                if (!disposed && data.session) {
+                    setActiveSession(stampSession(data.session));
+                }
+            } catch (error) {
+                if (!disposed) {
+                    setMessage("Hasil quiz masih diproses. Jika halaman ini tidak berubah, cek riwayat aktivitas beberapa saat lagi.");
+                }
+            }
+        };
+
+        const intervalId = window.setInterval(refreshSavingSession, 2500);
+        return () => {
+            disposed = true;
+            window.clearInterval(intervalId);
+        };
+    }, [activeSession?.quiz_session_id, activeSession?.is_member, activeSession?.is_saving_result]);
 
     useEffect(() => {
         if (!activeSession?.quiz_session_id || !activeSession?.is_member || activeSession.status === "saved") return undefined;
@@ -507,6 +573,12 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
         const activityKey = `${ACTIVITY_STATUS.quiz.type}:${activeSession.quiz_session_id}`;
         const data = await apiPost(`/quiz/sessions/${activeSession.quiz_session_id}/exit`, {});
         if (currentUser) clearActivityStatus({user: currentUser, activityKey});
+        if (currentUser) {
+            clearActivityRecovery(currentUser, {
+                type: "quiz",
+                session_id: activeSession.quiz_session_id,
+            });
+        }
         if (activityStatusKeyRef.current === activityKey) activityStatusKeyRef.current = null;
 
         if (data.session?.is_member) {
@@ -586,6 +658,16 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
         setSavingResult(false);
         setBusy(false);
     }, [activeSession?.quiz_session_id, currentUser]);
+
+    const handleCloseSavedQuiz = () => {
+        if (currentUser && activeSession?.quiz_session_id) {
+            clearActivityRecovery(currentUser, {
+                type: "quiz",
+                session_id: activeSession.quiz_session_id,
+            });
+        }
+        onBack?.();
+    };
 
     const handleRetryFeedback = async () => {
         if (!activeSession?.quiz_session_id || retryingFeedback || activeSession?.is_saving_result) return;
@@ -796,7 +878,7 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
                                     <div className="quiz-result-actions">
                                         <span className="quiz-saved">Saved</span>
                                         {embedded && (
-                                            <button className="quiz-button quiz-button--primary" onClick={onBack} type="button">
+                                            <button className="quiz-button quiz-button--primary" onClick={handleCloseSavedQuiz} type="button">
                                                 Close
                                             </button>
                                         )}

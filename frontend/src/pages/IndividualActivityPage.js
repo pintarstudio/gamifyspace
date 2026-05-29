@@ -7,6 +7,7 @@ import {
     clearActivityStatus,
     setActivityStatus,
 } from "../utils/activityStatus";
+import {clearActivityRecovery, saveActivityRecovery} from "../utils/activityRecovery";
 import useCopyProtection from "../utils/useCopyProtection";
 import "./IndividualActivityPage.css";
 
@@ -86,6 +87,7 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
         [activitySearchParams, routeSearchParams]
     );
     const objectId = searchParams.get("object_id") || "computer";
+    const restoreSessionId = searchParams.get("session_id");
     const showAdminControls = searchParams.get("admin") === "1";
 
     const [context, setContext] = useState(null);
@@ -127,16 +129,32 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
         const query = new URLSearchParams({object_id: objectId});
         if (showAdminControls) query.set("admin", "1");
         const data = await apiGet(`/individual/context?${query.toString()}`);
+        let nextActiveSession = data.active_session || null;
+        if (restoreSessionId && String(nextActiveSession?.session_id || "") !== String(restoreSessionId)) {
+            try {
+                const restored = await apiGet(`/individual/sessions/${restoreSessionId}`);
+                if (restored.session) {
+                    nextActiveSession = restored.session;
+                    if (restored.session.status === "completed") {
+                        setMessage("Aktivitas sebelumnya sudah selesai. Hasilnya ditampilkan kembali di sini.");
+                    } else if (restored.session.is_generating_feedback) {
+                        setMessage("Aktivitasmu sudah terkirim. AI feedback sedang dibuat, mohon tunggu.");
+                    }
+                }
+            } catch (error) {
+                setMessage("Aktivitas sebelumnya tidak bisa dipulihkan otomatis. Cek riwayat aktivitas untuk melihat hasil yang sudah tersimpan.");
+            }
+        }
         setContext(data);
-        setActiveSession(stampSession(data.active_session || null));
+        setActiveSession(stampSession(nextActiveSession));
         const hasSelectedTopic = data.topics?.some((topic) => String(topic.topic_id) === String(selectedTopicId));
         if ((!selectedTopicId || !hasSelectedTopic) && data.topics?.length > 0) {
-            setSelectedTopicId(String(data.active_session?.topic_id || data.topics[0].topic_id));
+            setSelectedTopicId(String(nextActiveSession?.topic_id || data.topics[0].topic_id));
         }
-        if (data.active_session) {
-            setActivityType(data.active_session.activity_type);
-            setQuestionKind(data.active_session.question_kind);
-            setCaseAnswer(data.active_session.answers?.[0]?.answer_text || "");
+        if (nextActiveSession) {
+            setActivityType(nextActiveSession.activity_type);
+            setQuestionKind(nextActiveSession.question_kind);
+            setCaseAnswer(nextActiveSession.answers?.[0]?.answer_text || "");
         }
         setLoading(false);
     };
@@ -167,6 +185,41 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
             if (data.loggedIn && data.user) setCurrentUser(data.user);
         });
     }, []);
+
+    useEffect(() => {
+        if (!currentUser || !activeSession?.session_id) return;
+        if (activeSession.status === "in_progress" || activeSession.status === "completed") {
+            saveActivityRecovery(currentUser, {
+                type: "individual",
+                session_id: activeSession.session_id,
+                object_id: activeSession.object_id || objectId,
+            });
+        }
+    }, [currentUser, activeSession?.session_id, activeSession?.status, activeSession?.object_id, objectId]);
+
+    useEffect(() => {
+        if (!activeSession?.session_id || !activeSession?.is_generating_feedback) return undefined;
+
+        let disposed = false;
+        const refreshGeneratingSession = async () => {
+            try {
+                const data = await apiGet(`/individual/sessions/${activeSession.session_id}`);
+                if (!disposed && data.session) {
+                    setActiveSession(stampSession(data.session));
+                }
+            } catch (error) {
+                if (!disposed) {
+                    setMessage("AI feedback masih diproses. Jika halaman ini tidak berubah, cek riwayat aktivitas beberapa saat lagi.");
+                }
+            }
+        };
+
+        const intervalId = window.setInterval(refreshGeneratingSession, 2500);
+        return () => {
+            disposed = true;
+            window.clearInterval(intervalId);
+        };
+    }, [activeSession?.session_id, activeSession?.is_generating_feedback]);
 
     useEffect(() => {
         const markUnloading = () => {
@@ -457,6 +510,16 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
         onBack?.();
     };
 
+    const handleCloseCompletedActivity = () => {
+        if (currentUser && activeSession?.session_id) {
+            clearActivityRecovery(currentUser, {
+                type: "individual",
+                session_id: activeSession.session_id,
+            });
+        }
+        onBack?.();
+    };
+
     const handleAdminToggle = async (topic, key) => {
         const nextValue = !topic[key];
         const data = await apiPatch(`/individual/settings/${topic.topic_id}`, {[key]: nextValue});
@@ -500,6 +563,24 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
     }
 
     if (activeSession?.status === "in_progress") {
+        if (activeSession.is_generating_feedback) {
+            return (
+                <main className={`individual-app individual-results${embedded ? " individual-app--embedded" : ""}`}>
+                    <section className="individual-panel individual-loading" role="status" aria-live="polite">
+                        <span className="individual-spinner" aria-hidden="true" />
+                        <div>
+                            <h2>AI feedback sedang dibuat</h2>
+                            <p>
+                                Jawabanmu sudah terkirim. Tetap tunggu di halaman ini sampai feedback dan hasil aktivitas muncul.
+                                Jika halaman sempat direfresh, sistem akan mencoba memulihkan hasilnya otomatis.
+                            </p>
+                        </div>
+                    </section>
+                    {message && <p className="individual-message">{message}</p>}
+                </main>
+            );
+        }
+
         const currentQuestion = activeSession.current_question;
         const isCaseStudy = activeSession.question_kind === "case_study";
         const isAssessment = ["pre_test", "post_test"].includes(activeSession.activity_type);
@@ -620,7 +701,7 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
         return (
             <main className={`individual-app individual-results${embedded ? " individual-app--embedded" : ""}`}>
                 {embedded && (
-                    <button className="individual-button individual-button--primary" type="button" onClick={onBack}>
+                    <button className="individual-button individual-button--primary" type="button" onClick={handleCloseCompletedActivity}>
                         Close
                     </button>
                 )}

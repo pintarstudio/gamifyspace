@@ -2,7 +2,7 @@ import React from "react";
 import AvatarIcon from "./AvatarIcon";
 import "./UserHUD.css";
 
-const UserHUD = ({ currentUser, handleLogout, summary, hideAvatar = false }) => {
+const UserHUD = ({ currentUser, handleLogout, summary, hideAvatar = false, onOpenHelp = null }) => {
   if (!currentUser) return null;
 
   const gamificationEnabled = !!currentUser.gamification_enabled;
@@ -75,8 +75,21 @@ const UserHUD = ({ currentUser, handleLogout, summary, hideAvatar = false }) => 
 
       <div className="user-hud__actions">
         <button onClick={handleLogout} className="user-hud__logout">
-          Logout
+          <span className="user-hud__logout-icon" aria-hidden="true">↩</span>
+          <span>Logout</span>
         </button>
+        {onOpenHelp && (
+          <button
+            type="button"
+            className="user-hud__help"
+            onClick={onOpenHelp}
+            aria-label="Buka panduan virtualspace"
+            title="Buka panduan virtualspace"
+          >
+            <span className="user-hud__help-icon" aria-hidden="true">?</span>
+            <span>Panduan</span>
+          </button>
+        )}
         {surveyLink && (
           <a
             className="user-hud__survey"

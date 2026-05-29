@@ -189,13 +189,31 @@
 }
 
 .user-hud__logout {
+  align-items: center;
   background: #c94f4f;
   border: 0;
   border-radius: 8px;
   color: #ffffff;
   cursor: pointer;
+  display: flex;
+  gap: 7px;
   font-weight: 800;
+  justify-content: center;
   padding: 9px 11px;
+}
+
+.user-hud__logout-icon {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  border-radius: 999px;
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 12px;
+  height: 18px;
+  justify-content: center;
+  line-height: 1;
+  width: 18px;
 }
 
 .user-hud__survey {
@@ -213,6 +231,42 @@
   line-height: 1;
   text-decoration: none;
   width: 38px;
+}
+
+.user-hud__help {
+  align-items: center;
+  background: #fff3c4;
+  border: 1px solid #d39b12;
+  border-radius: 8px;
+  box-sizing: border-box;
+  color: #805a06;
+  cursor: pointer;
+  display: flex;
+  font-size: 12px;
+  font-weight: 900;
+  gap: 6px;
+  min-height: 38px;
+  justify-content: center;
+  line-height: 1;
+  padding: 8px 10px;
+  text-transform: uppercase;
+}
+
+.user-hud__help-icon {
+  align-items: center;
+  background: #805a06;
+  border-radius: 999px;
+  color: #fff8df;
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 12px;
+  height: 18px;
+  justify-content: center;
+  width: 18px;
+}
+
+.user-hud__help:hover {
+  background: #ffeeb8;
 }
 
 .user-hud__survey:hover {

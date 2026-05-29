@@ -1,6 +1,7 @@
 import {findSession} from "../models/sessionModel.js";
 import {
     ACTIVITY_TYPES,
+    beginIndividualFeedbackGeneration,
     cancelIndividualSession,
     completeIndividualSession,
     createIndividualSession,
@@ -219,6 +220,14 @@ async function completeCaseSession(session, caseQuestion, user, answerText, opti
         answerText: trimmedAnswer,
     });
 
+    const generation = await beginIndividualFeedbackGeneration(session.session_id);
+    if (generation.reason === "GENERATING" || generation.reason === "ALREADY_COMPLETED") {
+        return generation.session;
+    }
+    if (generation.reason !== "STARTED") {
+        return generation.session || session;
+    }
+
     let feedback;
     let model = null;
     if (trimmedAnswer.length >= 20) {
@@ -315,6 +324,8 @@ function normalizeSession(session, questions, answers, user, options = {}) {
         feedback_model: session.feedback_model,
         feedback_status: session.feedback_status,
         feedback_error: session.feedback_error,
+        feedback_started_at: session.feedback_started_at,
+        is_generating_feedback: session.feedback_status === "generating",
         gamification_enabled: showGamification,
         ...timer,
         started_at: session.started_at,
@@ -376,6 +387,14 @@ async function completeMultipleChoiceSession(session, questions, user, options =
     let wrongAnswerFeedbackError = null;
 
     if (session.activity_type === "exercise") {
+        const generation = await beginIndividualFeedbackGeneration(session.session_id);
+        if (generation.reason === "GENERATING" || generation.reason === "ALREADY_COMPLETED") {
+            return generation.session;
+        }
+        if (generation.reason !== "STARTED") {
+            return generation.session || session;
+        }
+
         const wrongItems = buildWrongAnswerFeedbackInput(session, questions, answers, user);
         if (wrongItems.length > 0) {
             try {
@@ -471,6 +490,7 @@ async function completeSubmittedCaseSessionIfReady(session, questions, user) {
 
 async function recoverSubmittedIndividualSessionIfReady(session, questions, user) {
     if (!session || session.status !== "in_progress") return session;
+    if (session.feedback_status === "generating") return session;
     if (session.question_kind === "multiple_choice") {
         return completeAnsweredMultipleChoiceSessionIfReady(session, questions, user);
     }
@@ -621,7 +641,11 @@ export async function getIndividualContext(req, res) {
             topics,
         });
         let effectiveActiveSession = activeSession;
-        if (effectiveActiveSession && isIndividualSessionTimeUp(effectiveActiveSession)) {
+        if (
+            effectiveActiveSession
+            && effectiveActiveSession.feedback_status !== "generating"
+            && isIndividualSessionTimeUp(effectiveActiveSession)
+        ) {
             const questions = await getIndividualQuestionsByIds(effectiveActiveSession.question_ids);
             effectiveActiveSession = effectiveActiveSession.question_kind === "multiple_choice"
                 ? await timeoutMultipleChoiceQuestion(effectiveActiveSession, questions, user)
@@ -817,7 +841,7 @@ export async function getIndividualSession(req, res) {
         }
 
         let effectiveSession = session;
-        if (isIndividualSessionTimeUp(effectiveSession)) {
+        if (effectiveSession.feedback_status !== "generating" && isIndividualSessionTimeUp(effectiveSession)) {
             const questions = await getIndividualQuestionsByIds(effectiveSession.question_ids);
             effectiveSession = effectiveSession.question_kind === "multiple_choice"
                 ? await timeoutMultipleChoiceQuestion(effectiveSession, questions, user)

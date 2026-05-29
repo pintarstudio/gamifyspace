@@ -10,6 +10,7 @@ export const INDIVIDUAL_MC_QUESTION_DURATION_SECONDS = 15;
 export const INDIVIDUAL_MC_DURATION_SECONDS = MC_QUESTION_COUNT * INDIVIDUAL_MC_QUESTION_DURATION_SECONDS;
 export const INDIVIDUAL_CASE_DURATION_SECONDS = 240;
 export const INDIVIDUAL_ASSESSMENT_DURATION_SECONDS = ASSESSMENT_QUESTION_COUNT * INDIVIDUAL_MC_QUESTION_DURATION_SECONDS;
+export const INDIVIDUAL_FEEDBACK_STALE_SECONDS = 2 * 60;
 
 export function getIndividualQuestionCount(activityType, questionKind) {
     if (questionKind === "case_study") return 1;
@@ -79,6 +80,7 @@ async function createIndividualTables() {
             feedback_model TEXT,
             feedback_status TEXT NOT NULL DEFAULT 'idle',
             feedback_error TEXT,
+            feedback_started_at TIMESTAMPTZ,
             duration_seconds INTEGER NOT NULL DEFAULT 0,
             seconds_spent INTEGER NOT NULL DEFAULT 0,
             seconds_left INTEGER NOT NULL DEFAULT 0,
@@ -93,6 +95,7 @@ async function createIndividualTables() {
     await pool.query(`ALTER TABLE individual_activity_sessions ADD COLUMN IF NOT EXISTS seconds_spent INTEGER NOT NULL DEFAULT 0`);
     await pool.query(`ALTER TABLE individual_activity_sessions ADD COLUMN IF NOT EXISTS seconds_left INTEGER NOT NULL DEFAULT 0`);
     await pool.query(`ALTER TABLE individual_activity_sessions ADD COLUMN IF NOT EXISTS current_question_started_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`);
+    await pool.query(`ALTER TABLE individual_activity_sessions ADD COLUMN IF NOT EXISTS feedback_started_at TIMESTAMPTZ`);
     await pool.query(`
         UPDATE individual_activity_sessions
         SET current_question_started_at = COALESCE(current_question_started_at, started_at, NOW())
@@ -475,6 +478,7 @@ export async function completeIndividualSession({sessionId, resultJson, feedback
              feedback_model = $7,
              feedback_status = $8,
              feedback_error = $9,
+             feedback_started_at = NULL,
              seconds_spent = CASE
                  WHEN question_kind = 'multiple_choice' THEN ${multipleChoiceSpentExpression()}
                  ELSE LEAST(duration_seconds, GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - started_at)))::int))
@@ -502,6 +506,60 @@ export async function completeIndividualSession({sessionId, resultJson, feedback
     return result.rows[0] || null;
 }
 
+export async function beginIndividualFeedbackGeneration(sessionId) {
+    const client = await pool.connect();
+
+    try {
+        await client.query("BEGIN");
+        const locked = await client.query(
+            `SELECT *
+             FROM individual_activity_sessions
+             WHERE session_id = $1
+             FOR UPDATE`,
+            [sessionId]
+        );
+        const session = locked.rows[0];
+        if (!session) {
+            await client.query("ROLLBACK");
+            return {session: null, reason: "NOT_FOUND"};
+        }
+        if (session.status === "completed") {
+            await client.query("COMMIT");
+            return {session, reason: "ALREADY_COMPLETED"};
+        }
+        if (session.status !== "in_progress") {
+            await client.query("ROLLBACK");
+            return {session, reason: "NOT_IN_PROGRESS"};
+        }
+        if (
+            session.feedback_status === "generating"
+            && session.feedback_started_at
+            && new Date(session.feedback_started_at).getTime() > Date.now() - INDIVIDUAL_FEEDBACK_STALE_SECONDS * 1000
+        ) {
+            await client.query("COMMIT");
+            return {session, reason: "GENERATING"};
+        }
+
+        const updated = await client.query(
+            `UPDATE individual_activity_sessions
+             SET feedback_status = 'generating',
+                 feedback_started_at = NOW(),
+                 feedback_error = NULL,
+                 updated_at = NOW()
+             WHERE session_id = $1
+             RETURNING *`,
+            [sessionId]
+        );
+        await client.query("COMMIT");
+        return {session: updated.rows[0] || session, reason: "STARTED"};
+    } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+    } finally {
+        client.release();
+    }
+}
+
 export async function updateCompletedIndividualFeedback({sessionId, resultJson, feedbackJson = null, feedbackModel = null, feedbackError = null, xpTotal = null}) {
     const result = await pool.query(
         `UPDATE individual_activity_sessions
@@ -510,6 +568,7 @@ export async function updateCompletedIndividualFeedback({sessionId, resultJson, 
              feedback_model = $4,
              feedback_status = $5,
              feedback_error = $6,
+             feedback_started_at = NULL,
              xp_total = COALESCE($7, xp_total),
              updated_at = NOW()
          WHERE session_id = $1
