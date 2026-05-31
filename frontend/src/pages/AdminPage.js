@@ -464,6 +464,21 @@ function studentsByXp(group) {
     return [...byStudent.values()].sort((a, b) => b.total_xp - a.total_xp || a.name.localeCompare(b.name));
 }
 
+function missingAssessmentStudents(group) {
+    const assessmentByUserId = new Map((group.assessment_comparison || []).map((student) => [String(student.user_id), student]));
+    const students = [...(group.students || [])].sort((a, b) => a.name.localeCompare(b.name));
+    return {
+        preTest: students.filter((student) => {
+            const assessment = assessmentByUserId.get(String(student.user_id));
+            return assessment?.pre_score === null || assessment?.pre_score === undefined;
+        }),
+        postTest: students.filter((student) => {
+            const assessment = assessmentByUserId.get(String(student.user_id));
+            return assessment?.post_score === null || assessment?.post_score === undefined;
+        }),
+    };
+}
+
 function escapeXml(value) {
     return String(value ?? "")
         .replace(/&/g, "&amp;")
@@ -1776,6 +1791,24 @@ const AdminPage = () => {
         );
     };
 
+    const renderMissingAssessmentList = (title, students) => (
+        <section className="missing-assessment-section">
+            <header>
+                <strong>{title}</strong>
+                <span>{formatAdminNumber(students.length)} students</span>
+            </header>
+            <div>
+                {students.map((student) => (
+                    <article key={student.user_id}>
+                        <b>{student.name}</b>
+                        <small>{student.email || "No email"}</small>
+                    </article>
+                ))}
+                {students.length === 0 && <p>All students have completed this assessment.</p>}
+            </div>
+        </section>
+    );
+
     const renderGroupComparison = (groups) => {
         const rows = topicComparisonRows(groups);
         const maxIndividualXp = Math.max(0, ...rows.map((row) => row.individualXp));
@@ -2060,6 +2093,10 @@ const AdminPage = () => {
                                             </div>
                                         ))}
                                         {(!group.assessment_comparison || group.assessment_comparison.length === 0) && <p>No pre/post score pair recorded yet.</p>}
+                                    </div>
+                                    <div className="missing-assessment-grid">
+                                        {renderMissingAssessmentList("Not yet done pre-test", missingAssessmentStudents(group).preTest)}
+                                        {renderMissingAssessmentList("Not yet done post-test", missingAssessmentStudents(group).postTest)}
                                     </div>
                                 </details>
                             </article>
