@@ -3,6 +3,7 @@ import {
     changeAdminPassword,
     createAdminResourceData,
     bulkAssignCourseGroupStudents,
+    bulkDeleteQuestionBankItems,
     createQuestionBankItem,
     createTopicMaterialData,
     deleteAdminResourceData,
@@ -16,6 +17,7 @@ import {
     getTopicMaterials,
     loginAdmin,
     logoutAdmin,
+    resetTopicAssessmentAttempts,
     saveQuestionBankDrafts,
     updateQuestionBankItem,
     updateTopicMaterialData,
@@ -31,6 +33,7 @@ router.post("/change-password", changeAdminPassword);
 router.get("/references", getAdminReferenceData);
 router.get("/resources/:resource", getAdminResource);
 router.patch("/course-groups/students", bulkAssignCourseGroupStudents);
+router.post("/topics/:topicId/reset-assessments", resetTopicAssessmentAttempts);
 router.post("/resources/:resource", createAdminResourceData);
 router.patch("/resources/:resource/:id", updateAdminResourceData);
 router.delete("/resources/:resource/:id", deleteAdminResourceData);
@@ -42,6 +45,7 @@ router.post("/materials/:materialId/digest", generateTopicMaterialDigest);
 router.post("/question-bank/generate", generateQuestionBankDrafts);
 router.post("/question-bank/save", saveQuestionBankDrafts);
 router.get("/question-bank/:bankType", getQuestionBankItems);
+router.post("/question-bank/:bankType/bulk-delete", bulkDeleteQuestionBankItems);
 router.post("/question-bank/:bankType", createQuestionBankItem);
 router.patch("/question-bank/:bankType/:id", updateQuestionBankItem);
 

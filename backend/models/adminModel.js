@@ -14,8 +14,10 @@ import {
     ensureRoleSchema,
     INSTRUCTOR_ROLE_ID,
     listRoles,
+    STUDENT_ROLE_ID,
     updateRole,
 } from "./roleModel.js";
+import {ensureIndividualActivityTables} from "./individualActivityModel.js";
 import {
     ensureSettingsTable,
     listSettings,
@@ -364,7 +366,7 @@ export async function getAdminReferences() {
     await ensureRoleSchema();
     await ensureTopicAdminSchema();
     await ensureCourseInstructorSchema();
-    const [instructors, courses, topics, courseGroups, roles, userAdminUsers] = await Promise.all([
+    const [instructors, courses, topics, courseGroups, roles, userAdminUsers, students] = await Promise.all([
         pool.query(
             `SELECT
                  u.user_id AS instructor_id,
@@ -421,6 +423,26 @@ export async function getAdminReferences() {
              WHERE u.deleted_at IS NULL
              ORDER BY r.role_name ASC, u.name ASC`
         ),
+        pool.query(
+            `SELECT
+                 u.user_id,
+                 u.name,
+                 u.email,
+                 u.course_id,
+                 c.course_name,
+                 u.course_group_id,
+                 cg.group_name AS course_group_name
+             FROM users u
+             JOIN courses c ON c.course_id = u.course_id
+             LEFT JOIN course_groups cg
+                    ON cg.course_group_id = u.course_group_id
+                   AND cg.deleted_at IS NULL
+             WHERE u.role_id = $1
+               AND u.deleted_at IS NULL
+               AND c.deleted_at IS NULL
+             ORDER BY c.course_name ASC, cg.group_name ASC NULLS LAST, u.name ASC`,
+            [STUDENT_ROLE_ID]
+        ),
     ]);
 
     return {
@@ -430,6 +452,7 @@ export async function getAdminReferences() {
         course_groups: courseGroups.rows,
         roles,
         useradmin_users: userAdminUsers.rows,
+        students: students.rows,
     };
 }
 
@@ -1045,4 +1068,37 @@ export async function bulkAssignStudentsToCourseGroup(payload) {
         courseGroupId: payload.course_group_id,
         userIds: payload.user_ids,
     });
+}
+
+export async function resetIndividualAssessmentAttempts(payload) {
+    await ensureAdminTables();
+    await ensureIndividualActivityTables();
+
+    const topicId = Number.parseInt(payload.topic_id, 10);
+    const userIds = (payload.user_ids || [])
+        .map((id) => Number.parseInt(id, 10))
+        .filter(Number.isFinite);
+    const activityTypes = (payload.activity_types || [])
+        .map((type) => String(type || "").trim())
+        .filter((type) => ["pre_test", "post_test"].includes(type));
+
+    if (!Number.isFinite(topicId) || userIds.length === 0 || activityTypes.length === 0) {
+        const error = new Error("Topic, activity type, dan student wajib dipilih");
+        error.code = "INVALID_RESET_PAYLOAD";
+        throw error;
+    }
+
+    const result = await pool.query(
+        `DELETE FROM individual_activity_sessions
+         WHERE topic_id = $1
+           AND user_id = ANY($2::int[])
+           AND activity_type = ANY($3::text[])
+         RETURNING session_id`,
+        [topicId, userIds, activityTypes]
+    );
+
+    return {
+        deleted_count: result.rowCount,
+        session_ids: result.rows.map((row) => row.session_id),
+    };
 }

@@ -589,3 +589,50 @@ export async function upsertQuestionBankItem(bankType, payload, id = null) {
 
     return null;
 }
+
+export async function bulkDeactivateQuestionBankItems(bankType, ids = []) {
+    await ensureQuestionBankAdminTables();
+    const itemIds = (ids || []).map((id) => Number.parseInt(id, 10)).filter(Number.isFinite);
+    if (itemIds.length === 0) return {updated_count: 0};
+
+    if (bankType === "quiz_question_bank") {
+        const result = await pool.query(
+            `UPDATE quiz_question_bank
+             SET is_active = FALSE,
+                 updated_at = NOW()
+             WHERE question_id = ANY($1::int[])
+               AND is_active = TRUE
+             RETURNING question_id`,
+            [itemIds]
+        );
+        return {updated_count: result.rowCount, ids: result.rows.map((row) => row.question_id)};
+    }
+
+    if (bankType === "individual_questions") {
+        const result = await pool.query(
+            `UPDATE individual_questions
+             SET is_active = FALSE,
+                 updated_at = NOW()
+             WHERE question_id = ANY($1::int[])
+               AND is_active = TRUE
+             RETURNING question_id`,
+            [itemIds]
+        );
+        return {updated_count: result.rowCount, ids: result.rows.map((row) => row.question_id)};
+    }
+
+    if (bankType === "topic_cases") {
+        const result = await pool.query(
+            `UPDATE topic_cases
+             SET is_active = FALSE,
+                 updated_at = NOW()
+             WHERE case_id = ANY($1::int[])
+               AND is_active = TRUE
+             RETURNING case_id`,
+            [itemIds]
+        );
+        return {updated_count: result.rowCount, ids: result.rows.map((row) => row.case_id)};
+    }
+
+    return null;
+}

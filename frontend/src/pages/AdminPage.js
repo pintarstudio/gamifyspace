@@ -757,7 +757,7 @@ const AdminPage = () => {
     const [busy, setBusy] = useState(false);
     const [message, setMessage] = useState("");
     const [rows, setRows] = useState([]);
-    const [references, setReferences] = useState({instructors: [], courses: [], course_groups: [], roles: [], useradmin_users: []});
+    const [references, setReferences] = useState({instructors: [], courses: [], course_groups: [], roles: [], useradmin_users: [], students: []});
     const [editingRow, setEditingRow] = useState(null);
     const [formData, setFormData] = useState({});
     const [openMenus, setOpenMenus] = useState({
@@ -800,6 +800,15 @@ const AdminPage = () => {
     const [bankFilters, setBankFilters] = useState({activity_type: "", question_kind: ""});
     const [showScrollTop, setShowScrollTop] = useState(false);
     const [selectedStudentIds, setSelectedStudentIds] = useState([]);
+    const [selectedBankIds, setSelectedBankIds] = useState([]);
+    const [topicReset, setTopicReset] = useState({
+        topic_id: "",
+        course_id: "",
+        course_group_id: "",
+        search: "",
+        activity_types: ["pre_test"],
+        user_ids: [],
+    });
     const [studentBulk, setStudentBulk] = useState({
         course_id: "",
         course_group_id: "",
@@ -821,6 +830,16 @@ const AdminPage = () => {
                 .some((value) => String(value || "").toLowerCase().includes(search));
         });
     }, [activeConfig, rows, studentBulk]);
+    const topicResetStudents = useMemo(() => {
+        const search = topicReset.search.trim().toLowerCase();
+        return (references.students || []).filter((student) => {
+            if (topicReset.course_id && String(student.course_id) !== String(topicReset.course_id)) return false;
+            if (topicReset.course_group_id && String(student.course_group_id) !== String(topicReset.course_group_id)) return false;
+            if (!search) return true;
+            return [student.name, student.email, student.course_name, student.course_group_name]
+                .some((value) => String(value || "").toLowerCase().includes(search));
+        });
+    }, [references.students, topicReset]);
     const visibleMenuGroups = useMemo(() => {
         const isAdmin = String(admin?.role || "").toLowerCase() === "admin";
         return MENU_GROUPS.filter((group) => isAdmin || group.key !== "admin-config");
@@ -908,7 +927,9 @@ const AdminPage = () => {
         setBankPage(1);
         setBankFilters({activity_type: "", question_kind: ""});
         setSelectedStudentIds([]);
+        setSelectedBankIds([]);
         setStudentBulk({course_id: "", course_group_id: "", search: "", target_course_group_id: ""});
+        setTopicReset({topic_id: "", course_id: "", course_group_id: "", search: "", activity_types: ["pre_test"], user_ids: []});
         setMessage("");
         if (admin && activeConfig?.resource) {
             setBusy(true);
@@ -960,6 +981,7 @@ const AdminPage = () => {
         const data = await apiGet(`/admin/question-bank/${bankType}`);
         setBankRows(data.rows || []);
         setBankPage(1);
+        setSelectedBankIds([]);
         if (data.message) setMessage(data.message);
         setBusy(false);
     };
@@ -1118,6 +1140,108 @@ const AdminPage = () => {
 
     const setAllDisplayedStudentsSelected = (checked) => {
         setSelectedStudentIds(checked ? displayedRows.map((row) => row.user_id) : []);
+    };
+
+    const openTopicAssessmentReset = (topic) => {
+        setTopicReset({
+            topic_id: topic.topic_id,
+            course_id: topic.course_id,
+            course_group_id: "",
+            search: "",
+            activity_types: ["pre_test"],
+            user_ids: [],
+        });
+        setMessage("");
+    };
+
+    const updateTopicReset = (key, value) => {
+        setTopicReset((current) => ({
+            ...current,
+            [key]: value,
+            user_ids: key === "course_group_id" || key === "search" ? current.user_ids : current.user_ids,
+        }));
+    };
+
+    const toggleTopicResetActivity = (activityType) => {
+        setTopicReset((current) => {
+            const exists = current.activity_types.includes(activityType);
+            const nextTypes = exists
+                ? current.activity_types.filter((type) => type !== activityType)
+                : [...current.activity_types, activityType];
+            return {...current, activity_types: nextTypes};
+        });
+    };
+
+    const toggleTopicResetStudent = (userId) => {
+        setTopicReset((current) => {
+            const selected = current.user_ids.map(String).includes(String(userId));
+            return {
+                ...current,
+                user_ids: selected
+                    ? current.user_ids.filter((id) => String(id) !== String(userId))
+                    : [...current.user_ids, userId],
+            };
+        });
+    };
+
+    const setAllTopicResetStudentsSelected = (checked) => {
+        setTopicReset((current) => ({
+            ...current,
+            user_ids: checked ? topicResetStudents.map((student) => student.user_id) : [],
+        }));
+    };
+
+    const resetTopicAssessmentAttempts = async () => {
+        if (!topicReset.topic_id || topicReset.user_ids.length === 0 || topicReset.activity_types.length === 0) {
+            setMessage("Pilih assessment dan student terlebih dahulu.");
+            return;
+        }
+        const typeLabel = topicReset.activity_types
+            .map((type) => type === "pre_test" ? "Pre-test" : "Post-test")
+            .join(" dan ");
+        if (!window.confirm(`Hapus hasil ${typeLabel} untuk ${topicReset.user_ids.length} student terpilih? Data hasil yang dihapus tidak bisa dikembalikan.`)) return;
+
+        setBusy(true);
+        const data = await apiPost(`/admin/topics/${topicReset.topic_id}/reset-assessments`, {
+            user_ids: topicReset.user_ids,
+            activity_types: topicReset.activity_types,
+        });
+        if (data.message) setMessage(data.message);
+        if (data.data) {
+            setTopicReset((current) => ({...current, user_ids: []}));
+        }
+        setBusy(false);
+    };
+
+    const toggleBankSelection = (id) => {
+        setSelectedBankIds((current) => (
+            current.map(String).includes(String(id))
+                ? current.filter((selectedId) => String(selectedId) !== String(id))
+                : [...current, id]
+        ));
+    };
+
+    const setAllPageBankSelected = (checked, ids) => {
+        setSelectedBankIds((current) => {
+            const pageIdStrings = ids.map(String);
+            if (!checked) return current.filter((id) => !pageIdStrings.includes(String(id)));
+            const merged = new Set([...current.map(String), ...pageIdStrings]);
+            return Array.from(merged);
+        });
+    };
+
+    const bulkDeleteBankItems = async (ids = selectedBankIds) => {
+        if (!activeConfig?.bankType || ids.length === 0) return;
+        if (!window.confirm(`Hapus ${ids.length} item question bank terpilih? Item akan dinonaktifkan dan tidak dipakai untuk aktivitas baru.`)) return;
+
+        setBusy(true);
+        const data = await apiPost(`/admin/question-bank/${activeConfig.bankType}/bulk-delete`, {ids});
+        if (data.message) setMessage(data.message);
+        if (data.data) {
+            setSelectedBankIds([]);
+            await loadBankRows(activeConfig.bankType);
+        }
+        setBusy(false);
     };
 
     const assignStudentsToGroup = async (userIds) => {
@@ -1522,13 +1646,17 @@ const AdminPage = () => {
 
     const exportSelectedTopicAssessments = () => {
         const rows = (selectedDashboardTopic?.groups || []).flatMap((group) => (
-            (group.assessment_comparison || []).map((student) => ({
-                group_name: group.group_name || "Ungrouped",
-                student_name: student.student_name,
-                pre_score: student.pre_score ?? "",
-                post_score: student.post_score ?? "",
-                improvement: student.improvement ?? "",
-            }))
+            (group.assessment_comparison || []).map((student) => {
+                const groupStudent = (group.students || []).find((item) => String(item.user_id) === String(student.user_id));
+                return {
+                    group_name: group.group_name || "Ungrouped",
+                    student_email: groupStudent?.email || "",
+                    student_name: student.student_name,
+                    pre_score: student.pre_score ?? "",
+                    post_score: student.post_score ?? "",
+                    improvement: student.improvement ?? "",
+                };
+            })
         ));
 
         if (!rows.length) {
@@ -1537,11 +1665,12 @@ const AdminPage = () => {
         }
 
         const workbookRows = [
-            ["Course", "Topic", "Group", "Student", "Pre-test Score", "Post-test Score", "Improvement"],
+            ["Course", "Topic", "Group", "Student Email", "Student", "Pre-test Score", "Post-test Score", "Improvement"],
             ...rows.map((row) => [
                 selectedDashboardCourse?.course_name || "",
                 selectedDashboardTopic?.topic_name || "",
                 row.group_name,
+                row.student_email,
                 row.student_name,
                 row.pre_score === "" ? "" : Number(row.pre_score),
                 row.post_score === "" ? "" : Number(row.post_score),
@@ -2024,6 +2153,111 @@ const AdminPage = () => {
         );
     };
 
+    const renderTopicResetPanel = () => {
+        if (activeConfig?.resource !== "topics" || !topicReset.topic_id) return null;
+        const topic = rows.find((row) => String(row.topic_id) === String(topicReset.topic_id));
+        const groups = courseGroupOptions(topicReset.course_id);
+        const selectedCount = topicReset.user_ids.length;
+        const allShownSelected = topicResetStudents.length > 0
+            && topicResetStudents.every((student) => topicReset.user_ids.map(String).includes(String(student.user_id)));
+
+        return (
+            <section className="admin-bulk-panel admin-reset-panel">
+                <div>
+                    <h2>Reset Pre-test / Post-test</h2>
+                    <p>
+                        Topic: <strong>{topic?.topic_name || "-"}</strong>. Reset akan menghapus sesi dan hasil assessment student yang dipilih.
+                    </p>
+                </div>
+                <div className="admin-bulk-grid admin-bulk-grid--compact">
+                    <div className="admin-bulk-field">
+                        <span>Assessment</span>
+                        <div className="admin-check-list">
+                            <label>
+                                <input
+                                    type="checkbox"
+                                    checked={topicReset.activity_types.includes("pre_test")}
+                                    onChange={() => toggleTopicResetActivity("pre_test")}
+                                />
+                                <span>Pre-test</span>
+                            </label>
+                            <label>
+                                <input
+                                    type="checkbox"
+                                    checked={topicReset.activity_types.includes("post_test")}
+                                    onChange={() => toggleTopicResetActivity("post_test")}
+                                />
+                                <span>Post-test</span>
+                            </label>
+                        </div>
+                    </div>
+                    <label>
+                        Course Group
+                        <select
+                            value={topicReset.course_group_id}
+                            onChange={(event) => updateTopicReset("course_group_id", event.target.value)}
+                        >
+                            <option value="">Semua group</option>
+                            {groups.map((group) => (
+                                <option key={group.course_group_id} value={group.course_group_id}>
+                                    {group.group_name}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+                    <label>
+                        Search Student
+                        <input
+                            value={topicReset.search}
+                            onChange={(event) => updateTopicReset("search", event.target.value)}
+                            placeholder="Nama atau email"
+                        />
+                    </label>
+                </div>
+                <div className="admin-bulk-actions">
+                    <span>{topicResetStudents.length} shown, {selectedCount} selected</span>
+                    <button
+                        type="button"
+                        disabled={busy || topicResetStudents.length === 0}
+                        onClick={() => setAllTopicResetStudentsSelected(!allShownSelected)}
+                    >
+                        {allShownSelected ? "Clear Shown" : "Select All Shown"}
+                    </button>
+                    <button
+                        className="is-danger"
+                        type="button"
+                        disabled={busy || selectedCount === 0 || topicReset.activity_types.length === 0}
+                        onClick={resetTopicAssessmentAttempts}
+                    >
+                        Reset Selected
+                    </button>
+                    <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => setTopicReset({topic_id: "", course_id: "", course_group_id: "", search: "", activity_types: ["pre_test"], user_ids: []})}
+                    >
+                        Close
+                    </button>
+                </div>
+                <div className="admin-mini-table">
+                    {topicResetStudents.map((student) => (
+                        <label key={student.user_id}>
+                            <input
+                                type="checkbox"
+                                checked={topicReset.user_ids.map(String).includes(String(student.user_id))}
+                                onChange={() => toggleTopicResetStudent(student.user_id)}
+                            />
+                            <span>{student.name}</span>
+                            <small>{student.email}</small>
+                            <b>{student.course_group_name || "No group"}</b>
+                        </label>
+                    ))}
+                    {topicResetStudents.length === 0 && <p>Tidak ada student sesuai filter.</p>}
+                </div>
+            </section>
+        );
+    };
+
     const renderChangePassword = () => (
         <>
             <div className="admin-page-header">
@@ -2226,6 +2460,8 @@ const AdminPage = () => {
         const safePage = Math.min(bankPage, totalPages);
         const pageStart = (safePage - 1) * BANK_PAGE_SIZE;
         const pageRows = filteredBankRows.slice(pageStart, pageStart + BANK_PAGE_SIZE);
+        const pageIds = pageRows.map((row) => row[config.idKey]);
+        const allPageSelected = pageIds.length > 0 && pageIds.every((id) => selectedBankIds.map(String).includes(String(id)));
         return (
             <>
                 <div className="admin-page-header">
@@ -2270,6 +2506,24 @@ const AdminPage = () => {
                         </label>
                     </div>
                 )}
+                <div className="admin-bulk-actions admin-bank-bulk-actions">
+                    <span>{selectedBankIds.length} selected</span>
+                    <button
+                        type="button"
+                        disabled={busy || pageIds.length === 0}
+                        onClick={() => setAllPageBankSelected(!allPageSelected, pageIds)}
+                    >
+                        {allPageSelected ? "Clear Page" : "Select Page"}
+                    </button>
+                    <button
+                        className="is-danger"
+                        type="button"
+                        disabled={busy || selectedBankIds.length === 0}
+                        onClick={() => bulkDeleteBankItems()}
+                    >
+                        Delete Selected
+                    </button>
+                </div>
                 <div className="admin-pagination">
                     <span>
                         Showing {filteredBankRows.length === 0 ? 0 : pageStart + 1}-{Math.min(pageStart + BANK_PAGE_SIZE, filteredBankRows.length)} of {filteredBankRows.length}
@@ -2296,6 +2550,14 @@ const AdminPage = () => {
                     <table className="admin-data-table">
                         <thead>
                         <tr>
+                            <th>
+                                <input
+                                    type="checkbox"
+                                    checked={allPageSelected}
+                                    onChange={(event) => setAllPageBankSelected(event.target.checked, pageIds)}
+                                    aria-label="Select all question bank rows on this page"
+                                />
+                            </th>
                             {config.columns.map((column) => <th key={column.key}>{column.label}</th>)}
                             <th>Detail</th>
                             <th>Action</th>
@@ -2304,6 +2566,14 @@ const AdminPage = () => {
                         <tbody>
                         {pageRows.map((row) => (
                             <tr key={row[config.idKey]}>
+                                <td>
+                                    <input
+                                        type="checkbox"
+                                        checked={selectedBankIds.map(String).includes(String(row[config.idKey]))}
+                                        onChange={() => toggleBankSelection(row[config.idKey])}
+                                        aria-label={`Select ${row.question_text || row.case_title || "question bank item"}`}
+                                    />
+                                </td>
                                 {config.columns.map((column) => (
                                     <td key={column.key}>
                                         {formatValue(column, column.key === "question_text" ? row.question_text || row.case_title : row[column.key])}
@@ -2321,7 +2591,7 @@ const AdminPage = () => {
                         ))}
                         {filteredBankRows.length === 0 && (
                             <tr>
-                                <td colSpan={config.columns.length + 2}>
+                                <td colSpan={config.columns.length + 3}>
                                     {busy ? "Loading data..." : "No data found."}
                                 </td>
                             </tr>
@@ -2755,6 +3025,7 @@ const AdminPage = () => {
                             {message && <div className="admin-inline-message">{message}</div>}
 
                             {renderStudentBulkPanel()}
+                            {renderTopicResetPanel()}
 
                             {(Object.keys(formData).length > 0 || editingRow) && (
                                 <form className="admin-data-form" onSubmit={handleSave}>
@@ -2829,6 +3100,11 @@ const AdminPage = () => {
                                                     <button type="button" onClick={() => openEditForm(row)}>
                                                         Edit
                                                     </button>
+                                                    {activeConfig.resource === "topics" && (
+                                                        <button type="button" onClick={() => openTopicAssessmentReset(row)}>
+                                                            Reset Test
+                                                        </button>
+                                                    )}
                                                     {activeConfig.canDelete && !(activeConfig.resource === "useradmins" && String(row.username || "").toLowerCase() === "admin") && (
                                                         <button type="button" onClick={() => handleDelete(row)}>
                                                             Delete

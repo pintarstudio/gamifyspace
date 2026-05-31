@@ -7,12 +7,14 @@ import {
     findAdminByUsername,
     getAdminReferences,
     listAdminResource,
+    resetIndividualAssessmentAttempts,
     updateAdminLastLogin,
     updateAdminPassword,
     updateAdminResource,
     verifyAdminPassword,
 } from "../models/adminModel.js";
 import {
+    bulkDeactivateQuestionBankItems,
     createTopicMaterial,
     deleteTopicMaterial,
     getNextQuestionNumber,
@@ -365,6 +367,37 @@ export async function bulkAssignCourseGroupStudents(req, res) {
     }
 }
 
+export async function resetTopicAssessmentAttempts(req, res) {
+    try {
+        const admin = await getCurrentAdmin(req);
+        if (!admin) return res.status(401).json({message: "Admin belum login"});
+
+        const activityTypes = Array.isArray(req.body.activity_types)
+            ? req.body.activity_types
+            : req.body.activity_type ? [req.body.activity_type] : [];
+        if (!Array.isArray(req.body.user_ids) || req.body.user_ids.length === 0 || activityTypes.length === 0) {
+            return res.status(400).json({message: "Student dan tipe assessment wajib dipilih"});
+        }
+
+        const result = await resetIndividualAssessmentAttempts({
+            topic_id: req.params.topicId,
+            user_ids: req.body.user_ids,
+            activity_types: activityTypes,
+        });
+
+        res.json({
+            message: `${result.deleted_count || 0} sesi assessment berhasil dihapus. Student yang dipilih bisa mengerjakan ulang.`,
+            data: result,
+        });
+    } catch (error) {
+        console.error("Admin assessment reset error:", error);
+        if (error.code === "INVALID_RESET_PAYLOAD") {
+            return res.status(400).json({message: error.message});
+        }
+        res.status(500).json({message: "Gagal reset assessment student"});
+    }
+}
+
 export async function getTopicMaterials(req, res) {
     try {
         const admin = await getCurrentAdmin(req);
@@ -614,5 +647,27 @@ export async function updateQuestionBankItem(req, res) {
     } catch (error) {
         console.error("Admin question bank update error:", error);
         res.status(500).json({message: "Gagal memperbarui question bank"});
+    }
+}
+
+export async function bulkDeleteQuestionBankItems(req, res) {
+    try {
+        const admin = await getCurrentAdmin(req);
+        if (!admin) return res.status(401).json({message: "Admin belum login"});
+
+        if (!Array.isArray(req.body.ids) || req.body.ids.length === 0) {
+            return res.status(400).json({message: "Pilih item question bank yang akan dihapus"});
+        }
+
+        const result = await bulkDeactivateQuestionBankItems(req.params.bankType, req.body.ids);
+        if (!result) return res.status(404).json({message: "Question bank tidak ditemukan"});
+
+        res.json({
+            message: `${result.updated_count || 0} item question bank berhasil dihapus.`,
+            data: result,
+        });
+    } catch (error) {
+        console.error("Admin question bank bulk delete error:", error);
+        res.status(500).json({message: "Gagal menghapus question bank"});
     }
 }

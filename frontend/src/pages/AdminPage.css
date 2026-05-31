@@ -378,7 +378,8 @@
     grid-template-columns: repeat(4, minmax(160px, 1fr));
 }
 
-.admin-bulk-grid label {
+.admin-bulk-grid label,
+.admin-bulk-field {
     color: #4b5563;
     display: grid;
     font-size: 12px;
@@ -399,6 +400,42 @@
     min-height: 44px;
     padding: 10px 12px;
     width: 100%;
+}
+
+.admin-bulk-field > span {
+    color: #4b5563;
+    font-size: 12px;
+    font-weight: 900;
+    text-transform: uppercase;
+}
+
+.admin-bulk-grid--compact {
+    grid-template-columns: minmax(160px, 0.8fr) minmax(180px, 1fr) minmax(220px, 1.4fr);
+}
+
+.admin-check-list {
+    align-items: center;
+    background: #f8fafc;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    min-height: 44px;
+    padding: 8px 10px;
+}
+
+.admin-check-list label {
+    align-items: center;
+    display: inline-flex;
+    gap: 6px;
+    text-transform: none;
+}
+
+.admin-check-list input {
+    min-height: auto;
+    padding: 0;
+    width: auto;
 }
 
 .admin-bulk-actions {
@@ -428,6 +465,64 @@
 .admin-bulk-actions button:disabled {
     background: #9aa5b1;
     cursor: not-allowed;
+}
+
+.admin-bulk-actions .is-danger,
+.admin-row-actions .is-danger,
+.admin-bank-bulk-actions .is-danger {
+    background: #fff1f2;
+    color: #b23a48;
+}
+
+.admin-bank-bulk-actions {
+    background: #ffffff;
+    border: 1px solid #dbe4ee;
+    border-radius: 8px;
+    margin: 14px 0;
+    padding: 12px;
+}
+
+.admin-mini-table {
+    border: 1px solid #e5edf6;
+    border-radius: 8px;
+    display: grid;
+    max-height: 280px;
+    overflow: auto;
+}
+
+.admin-mini-table label {
+    align-items: center;
+    border-bottom: 1px solid #e5edf6;
+    display: grid;
+    gap: 10px;
+    grid-template-columns: auto minmax(140px, 1fr) minmax(180px, 1.2fr) minmax(110px, 0.8fr);
+    padding: 10px 12px;
+}
+
+.admin-mini-table label:last-child {
+    border-bottom: 0;
+}
+
+.admin-mini-table span {
+    color: #172033;
+    font-weight: 900;
+}
+
+.admin-mini-table small {
+    color: #667085;
+    font-weight: 750;
+}
+
+.admin-mini-table b {
+    color: #2d6a4f;
+    font-size: 12px;
+}
+
+.admin-mini-table p {
+    color: #667085;
+    font-weight: 800;
+    margin: 0;
+    padding: 12px;
 }
 
 .admin-data-form > div:first-child {
