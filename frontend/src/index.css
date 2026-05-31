@@ -78,6 +78,114 @@ code {
     color: #9f1239;
 }
 
+.activity-exit-confirm__panel.activity-start-confirm {
+    border-color: #b9d7f0;
+    box-shadow: 0 24px 80px rgba(15, 23, 42, 0.32);
+    gap: 16px;
+    max-width: 620px;
+    padding: 22px;
+    width: min(100%, 620px);
+}
+
+.activity-start-confirm__heading {
+    align-items: flex-start;
+    display: grid;
+    gap: 14px;
+    grid-template-columns: auto minmax(0, 1fr);
+}
+
+.activity-start-confirm__icon {
+    align-items: center;
+    background: linear-gradient(135deg, #fff7ed, #dbeafe);
+    border: 2px solid #f59e0b;
+    border-radius: 8px;
+    color: #9a3412;
+    display: inline-flex;
+    font-size: 24px;
+    font-weight: 1000;
+    height: 46px;
+    justify-content: center;
+    line-height: 1;
+    width: 46px;
+}
+
+.activity-start-confirm__heading h2 {
+    color: #102033;
+    margin-bottom: 6px;
+}
+
+.activity-start-confirm__heading p,
+.activity-exit-confirm__panel .activity-start-confirm__note {
+    color: #415466;
+    font-weight: 700;
+}
+
+.activity-start-confirm__facts {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.activity-start-confirm__facts article {
+    background: #f8fbfd;
+    border: 1px solid #d6e4ef;
+    border-left: 4px solid #3b82f6;
+    border-radius: 8px;
+    box-sizing: border-box;
+    min-width: 0;
+    padding: 12px;
+}
+
+.activity-start-confirm__facts article:nth-child(2) {
+    border-left-color: #f59e0b;
+}
+
+.activity-start-confirm__facts article:nth-child(3) {
+    border-left-color: #16a34a;
+}
+
+.activity-start-confirm__facts span {
+    align-items: center;
+    background: #eaf3ff;
+    border: 1px solid #cfe1f6;
+    border-radius: 999px;
+    color: #1d4ed8;
+    display: inline-flex;
+    font-size: 12px;
+    font-weight: 1000;
+    justify-content: center;
+    min-height: 26px;
+    min-width: 32px;
+    padding: 2px 8px;
+}
+
+.activity-start-confirm__facts strong {
+    color: #172033;
+    display: block;
+    font-size: 13px;
+    margin-top: 8px;
+}
+
+.activity-exit-confirm__panel .activity-start-confirm__facts p {
+    color: #5f6975;
+    font-size: 13px;
+    margin-top: 4px;
+}
+
+.activity-exit-confirm__panel .activity-start-confirm__note {
+    background: #fff7ed;
+    border: 1px solid #fed7aa;
+    border-radius: 8px;
+    color: #7c2d12;
+    padding: 10px 12px;
+}
+
+@media (max-width: 640px) {
+    .activity-start-confirm__facts {
+        grid-template-columns: 1fr;
+    }
+}
+
 .login-container {
     align-items: center;
     background:

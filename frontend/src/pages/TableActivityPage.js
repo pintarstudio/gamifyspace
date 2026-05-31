@@ -29,6 +29,8 @@ const formatSeconds = (value) => {
     return `${minutes}:${String(seconds).padStart(2, "0")}`;
 };
 
+const GROUP_ACTIVITY_DURATION_SECONDS = 600;
+
 const getSessionTimer = (session, now) => {
     if (!session) return null;
     const sessionNow = getSessionNow(session, now);
@@ -101,6 +103,7 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack, activit
     const [currentUser, setCurrentUser] = useState(null);
     const [confirmExitOpen, setConfirmExitOpen] = useState(false);
     const [confirmSubmitOpen, setConfirmSubmitOpen] = useState(false);
+    const [confirmStartOpen, setConfirmStartOpen] = useState(false);
     const [now, setNow] = useState(Date.now());
     const activityStatusKeyRef = useRef(null);
     const cancelExitButtonRef = useRef(null);
@@ -136,6 +139,9 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack, activit
     const gamification = activeSession?.gamification;
     const showGamification = !!gamification?.enabled;
     const showStudentAvatars = !noVirtual;
+    const groupDurationSeconds = Number(activeSession?.duration_seconds || GROUP_ACTIVITY_DURATION_SECONDS);
+    const groupDurationMinutes = Math.max(1, Math.round(groupDurationSeconds / 60));
+    const groupMaxMembers = activeSession?.max_members || context?.max_members || 4;
 
     useCopyProtection(
         !!activeSession?.is_member,
@@ -376,6 +382,7 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack, activit
     };
 
     const handleStart = async () => {
+        setConfirmStartOpen(false);
         const nextGroupId = noVirtual ? entryCode.trim() : groupId;
         if (noVirtual && !isNoVirtualCode(nextGroupId)) {
             setMessage("Masukkan kode unik antara 101-150.");
@@ -419,6 +426,20 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack, activit
             if (activityStatusKeyRef.current === pendingActivityKey) activityStatusKeyRef.current = null;
         }
         setBusy(false);
+    };
+
+    const requestStartGroup = () => {
+        const nextGroupId = noVirtual ? entryCode.trim() : groupId;
+        if (noVirtual && !isNoVirtualCode(nextGroupId)) {
+            setMessage("Masukkan kode unik antara 101-150.");
+            return;
+        }
+        if (!selectedTopicId) {
+            setMessage("Pilih topik terlebih dahulu.");
+            return;
+        }
+        setMessage("");
+        setConfirmStartOpen(true);
     };
 
     const joinSession = async (session, nextGroupId = groupId) => {
@@ -660,12 +681,12 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack, activit
                         <div className="table-case__header">
                             <div>
                                 <span className="table-label">{context?.course?.course_name}</span>
-                                <h1>Waiting Room</h1>
+                                <h1>Ruang Tunggu</h1>
                             </div>
                             <div className="table-case__actions">
                                 <span className="table-count">{activeSession.member_count}/{activeSession.max_members}</span>
                                 <button className="table-button table-button--danger" onClick={handleExitGroup} disabled={busy}>
-                                    Exit Group
+                                    Keluar Group
                                 </button>
                             </div>
                         </div>
@@ -673,12 +694,34 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack, activit
                         <div className="table-panel table-waiting-room">
                             <div className="table-section-title">
                                 <h2>Menunggu Anggota Group</h2>
-                                <span>{activeSession.member_count}/{activeSession.max_members} joined</span>
+                                <span>{activeSession.member_count}/{activeSession.max_members} bergabung</span>
                             </div>
                             <p>
-                                Case study dan timer akan muncul setelah host memulai group discussion.
-                                Minimal 2 student harus bergabung sebelum aktivitas bisa dimulai.
+                                Studi kasus dan timer akan muncul setelah host memulai diskusi group.
+                                Minimal 2 peserta harus bergabung sebelum aktivitas bisa dimulai.
                             </p>
+                            <div className="table-waiting-info" aria-label="Informasi diskusi group">
+                                <article>
+                                    <span aria-hidden="true">1</span>
+                                    <strong>Studi kasus</strong>
+                                    <p>Group akan mengerjakan 1 studi kasus bersama.</p>
+                                </article>
+                                <article>
+                                    <span aria-hidden="true">{groupMaxMembers}</span>
+                                    <strong>Maksimal peserta</strong>
+                                    <p>Satu sesi dapat diikuti maksimal {groupMaxMembers} peserta dalam group yang sama.</p>
+                                </article>
+                                <article>
+                                    <span aria-hidden="true">{groupDurationMinutes}m</span>
+                                    <strong>Timer</strong>
+                                    <p>Waktu {groupDurationMinutes} menit berjalan setelah host memulai diskusi.</p>
+                                </article>
+                                <article>
+                                    <span aria-hidden="true">AI</span>
+                                    <strong>Feedback</strong>
+                                    <p>AI Feedback dibuat setelah semua jawaban disubmit oleh host.</p>
+                                </article>
+                            </div>
                             <div className="member-strip member-strip--large">
                                 {activeSession.members.map((member) => (
                                     <div className="table-waiting-member" key={member.member_id}>
@@ -695,10 +738,10 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack, activit
                                     onClick={handleBeginGroupWork}
                                     disabled={busy || !activeSession.can_start_work}
                                 >
-                                    {activeSession.can_start_work ? "Start Group Discussion" : "Menunggu minimal 2 student"}
+                                    {activeSession.can_start_work ? "Mulai Diskusi Group" : "Menunggu minimal 2 peserta"}
                                 </button>
                             ) : (
-                                <p className="table-submit-note">Tunggu host memulai group discussion.</p>
+                                <p className="table-submit-note">Tunggu host memulai diskusi group.</p>
                             )}
                         </div>
 
@@ -708,8 +751,8 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack, activit
                     {confirmExitOpen && (
                         <div className="activity-exit-confirm" role="dialog" aria-modal="true" aria-labelledby="table-waiting-exit-confirm-title">
                             <section className="activity-exit-confirm__panel">
-                                <h2 id="table-waiting-exit-confirm-title">Keluar dari waiting room?</h2>
-                                <p>Kamu bisa keluar selama group discussion belum dimulai.</p>
+                                <h2 id="table-waiting-exit-confirm-title">Keluar dari ruang tunggu?</h2>
+                                <p>Kamu bisa keluar selama diskusi group belum dimulai.</p>
                                 <div className="activity-exit-confirm__actions">
                                     <button ref={cancelExitButtonRef} type="button" onClick={() => setConfirmExitOpen(false)}>
                                         Tetap di Sini
@@ -1032,20 +1075,20 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack, activit
                 </button>
             )}
             <section className="table-landing__hero">
-                <span className="table-label">{noVirtual ? "No Map Group Activity" : "Table Group Activity"}</span>
+                <span className="table-label">{noVirtual ? "Aktivitas Group Tanpa Map" : "Aktivitas Group di Meja"}</span>
                 <h1>{context?.course?.course_name || "Course Activity"}</h1>
                 <p>
                     {noVirtual
-                        ? "Masukkan kode unik 101-150 untuk menjadi host atau bergabung ke group case study."
-                        : `Group ${groupId} dapat bekerja bersama dalam satu sesi case study aktif dengan maksimal empat student.`}
+                        ? "Masukkan kode unik 101-150 untuk menjadi host atau bergabung ke studi kasus group."
+                        : `Group ${groupId} dapat bekerja bersama dalam satu sesi studi kasus aktif dengan maksimal empat peserta.`}
                 </p>
             </section>
 
             <section className="table-layout">
                 <div className="table-topics">
                     <div className="table-section-title">
-                        <h2>Course Topics</h2>
-                        <span>{context?.topics?.length || 0} available</span>
+                        <h2>Topik Course</h2>
+                        <span>{context?.topics?.length || 0} tersedia</span>
                     </div>
 
                     {context?.topics?.length > 0 ? (
@@ -1064,20 +1107,20 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack, activit
                             ))}
                         </div>
                     ) : (
-                        <p className="table-empty">No topics found for this course yet.</p>
+                        <p className="table-empty">Belum ada topik untuk course ini.</p>
                     )}
                 </div>
 
                 <div className="table-status">
                     <div className="table-section-title">
                         <h2>Group {noVirtual ? entryCode || selectedEntryGroupId || "Code" : groupId}</h2>
-                        <span>{hasActiveSession ? "Active" : "Ready"}</span>
+                        <span>{hasActiveSession ? "Aktif" : "Siap"}</span>
                     </div>
 
                     {noVirtual && (
                         <div className="no-virtual-code-form">
                             <label>
-                                Group code
+                                Kode group
                                 <input
                                     type="text"
                                     inputMode="numeric"
@@ -1102,10 +1145,10 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack, activit
                         <>
                             <p className="table-status__copy">
                                 {activeSession?.is_started
-                                    ? "Group discussion sudah dimulai. Student baru tidak bisa join sesi ini."
+                                    ? "Diskusi group sudah dimulai. Peserta baru tidak bisa bergabung ke sesi ini."
                                     : activeSession?.is_time_up
-                                    ? "This session time has ended. Wait for the group result or start again after it closes."
-                                    : "A session is already active. Join is available until the group reaches four students."}
+                                    ? "Waktu sesi sudah habis. Tunggu hasil group atau mulai lagi setelah sesi ditutup."
+                                    : "Sesi sudah aktif. Peserta masih bisa bergabung sampai group mencapai empat peserta."}
                             </p>
                             <div className="member-strip">
                                 {activeSession.members.map((member) => (
@@ -1119,49 +1162,93 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack, activit
                                 onClick={handleJoin}
                                 disabled={!canJoin || busy}
                             >
-                                Join Group {groupId}
+                                Gabung Group {groupId}
                             </button>
                         </>
                     ) : (
                         <>
                             <p className="table-status__copy">
                                 {selectedTopic
-                                    ? `Start a case study for ${selectedTopic.topic_name}.`
-                                    : "Select a topic before starting the group."}
+                                    ? `Mulai studi kasus untuk ${selectedTopic.topic_name}.`
+                                    : "Pilih topik sebelum membuat group."}
                             </p>
                             {noVirtual ? (
                                 <div className="no-virtual-code-actions">
                                     <button
                                         className="table-button table-button--primary"
-                                        onClick={handleStart}
+                                        onClick={requestStartGroup}
                                         disabled={!canStart || busy || !isNoVirtualCode(entryCode)}
                                     >
-                                        Host Group
+                                        Jadi Host Group
                                     </button>
                                     <button
                                         className="table-button table-button--primary"
                                         onClick={handleJoinByCode}
                                         disabled={busy || !isNoVirtualCode(entryCode)}
                                     >
-                                        Join Group
+                                        Gabung Group
                                     </button>
                                 </div>
                             ) : (
                                 <button
                                     className="table-button table-button--primary"
-                                    onClick={handleStart}
+                                    onClick={requestStartGroup}
                                     disabled={!canStart || busy}
                                 >
-                                    Create/Start Group {groupId}
+                                    Buat Group {groupId}
                                 </button>
                             )}
                         </>
                     )}
 
-                    {groupFull && <p className="table-message">This group is full. Create and join are unavailable.</p>}
+                    {groupFull && <p className="table-message">Group ini sudah penuh. Buat atau gabung sesi tidak tersedia.</p>}
                     {message && <p className="table-message">{message}</p>}
                 </div>
             </section>
+
+            {confirmStartOpen && (
+                <div className="activity-exit-confirm" role="dialog" aria-modal="true" aria-labelledby="table-start-confirm-title">
+                    <section className="activity-exit-confirm__panel activity-start-confirm">
+                        <div className="activity-start-confirm__heading">
+                            <span className="activity-start-confirm__icon" aria-hidden="true">!</span>
+                            <div>
+                                <h2 id="table-start-confirm-title">Konfirmasi Host Group</h2>
+                                <p>
+                                    Kamu akan membuat ruang tunggu untuk studi kasus group. Timer belum berjalan sampai host memulai diskusi.
+                                </p>
+                            </div>
+                        </div>
+                        <div className="activity-start-confirm__facts" aria-label="Informasi aktivitas group">
+                            <article>
+                                <span>1</span>
+                                <strong>Studi kasus</strong>
+                                <p>Group mengerjakan 1 studi kasus berdasarkan topik yang dipilih.</p>
+                            </article>
+                            <article>
+                                <span>{groupMaxMembers}</span>
+                                <strong>Peserta</strong>
+                                <p>Minimal 2 peserta untuk mulai, maksimal {groupMaxMembers} peserta dalam satu sesi.</p>
+                            </article>
+                            <article>
+                                <span>{groupDurationMinutes}m</span>
+                                <strong>Timer</strong>
+                                <p>Waktu {groupDurationMinutes} menit dimulai saat host menekan Mulai Diskusi Group.</p>
+                            </article>
+                        </div>
+                        <p className="activity-start-confirm__note">
+                            Setelah diskusi dimulai, peserta tidak bisa keluar sampai aktivitas selesai atau feedback AI selesai dibuat.
+                        </p>
+                        <div className="activity-exit-confirm__actions">
+                            <button type="button" onClick={() => setConfirmStartOpen(false)}>
+                                Batal
+                            </button>
+                            <button className="is-danger" type="button" onClick={handleStart} disabled={busy}>
+                                Buat Ruang Tunggu
+                            </button>
+                        </div>
+                    </section>
+                </div>
+            )}
         </main>
     );
 };

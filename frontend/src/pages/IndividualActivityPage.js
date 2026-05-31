@@ -69,6 +69,46 @@ function activityTitle(activityType, questionKind) {
     return questionKind === "case_study" ? "Individual Case Study" : "Individual Exercise";
 }
 
+function getStartConfirmation(activityType, questionKind, context) {
+    const title = activityTitle(activityType, questionKind);
+    if (activityType === "pre_test" || activityType === "post_test") {
+        return {
+            title: `Konfirmasi ${title}`,
+            intro: `${title} ini hanya bisa dikerjakan satu kali untuk setiap topik. Pastikan kamu siap sebelum memulai.`,
+            facts: [
+                {badge: String(context?.assessment_question_count || 20), title: "Jumlah soal", text: `${context?.assessment_question_count || 20} soal pilihan ganda.`},
+                {badge: "15s", title: "Waktu per soal", text: "Setiap soal harus dijawab dalam 15 detik."},
+                {badge: "1x", title: "Kesempatan", text: `${title} hanya dapat dikerjakan satu kali.`},
+            ],
+            note: "Jangan refresh atau menutup halaman saat aktivitas berjalan agar percobaan dan hasil tersimpan dengan baik.",
+        };
+    }
+
+    if (questionKind === "case_study") {
+        return {
+            title: "Konfirmasi Studi Kasus Individual",
+            intro: "Studi kasus individual akan terkunci setelah dimulai. Bacalah kasus dengan teliti sebelum mengirim jawaban.",
+            facts: [
+                {badge: "1", title: "Jumlah kasus", text: "1 studi kasus untuk diselesaikan."},
+                {badge: "4m", title: "Waktu pengerjaan", text: "Kamu memiliki waktu 4 menit untuk menjawab."},
+                {badge: "AI", title: "AI Feedback", text: "AI akan memberi What Went Well dan Even Better If berdasarkan kualitas jawaban."},
+            ],
+            note: "Jangan refresh atau menutup halaman saat feedback AI sedang dibuat agar hasilnya tersimpan dengan baik.",
+        };
+    }
+
+    return {
+        title: "Konfirmasi Latihan Individual",
+        intro: "Latihan pilihan ganda akan terkunci setelah dimulai. Jawab setiap soal sebelum waktunya habis.",
+        facts: [
+            {badge: String(context?.mc_question_count || 10), title: "Jumlah soal", text: `${context?.mc_question_count || 10} soal pilihan ganda.`},
+            {badge: "15s", title: "Waktu per soal", text: "Setiap soal harus dijawab dalam 15 detik."},
+            {badge: "AI", title: "AI Feedback", text: "Feedback AI akan dibuat untuk membantu memahami jawaban yang salah."},
+        ],
+        note: "Setelah selesai, feedback AI untuk jawaban yang salah akan dibuat dan disimpan otomatis.",
+    };
+}
+
 function assessmentCompletionKey(type) {
     if (type === "pre_test") return "pre_test_completed";
     if (type === "post_test") return "post_test_completed";
@@ -116,6 +156,10 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
     );
     const showGamification = !!context?.gamification_enabled;
     const sessionTimer = useMemo(() => getSessionTimer(activeSession, now), [activeSession, now]);
+    const startConfirmation = useMemo(
+        () => getStartConfirmation(activityType, questionKind, context),
+        [activityType, questionKind, context]
+    );
 
     const availableActivityTypes = useMemo(() => {
         const types = ["exercise"];
@@ -924,15 +968,24 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
 
             {confirmStartOpen && (
                 <div className="activity-exit-confirm" role="dialog" aria-modal="true" aria-labelledby="individual-start-confirm-title">
-                    <section className="activity-exit-confirm__panel">
-                        <h2 id="individual-start-confirm-title">Mulai aktivitas?</h2>
-                        <p>
-                            Setelah dimulai, aktivitas ini akan terkunci. Timer tetap berjalan, pertanyaan tidak berubah,
-                            dan refresh atau menutup halaman tidak akan mengulang percobaan.
-                            {["pre_test", "post_test"].includes(activityType)
-                                ? ` ${activityTitle(activityType, questionKind)} untuk setiap topic hanya bisa dikerjakan satu kali.`
-                                : ""}
-                        </p>
+                    <section className="activity-exit-confirm__panel activity-start-confirm">
+                        <div className="activity-start-confirm__heading">
+                            <span className="activity-start-confirm__icon" aria-hidden="true">!</span>
+                            <div>
+                                <h2 id="individual-start-confirm-title">{startConfirmation.title}</h2>
+                                <p>{startConfirmation.intro}</p>
+                            </div>
+                        </div>
+                        <div className="activity-start-confirm__facts" aria-label="Informasi aktivitas">
+                            {startConfirmation.facts.map((fact) => (
+                                <article key={`${fact.title}-${fact.badge}`}>
+                                    <span>{fact.badge}</span>
+                                    <strong>{fact.title}</strong>
+                                    <p>{fact.text}</p>
+                                </article>
+                            ))}
+                        </div>
+                        <p className="activity-start-confirm__note">{startConfirmation.note}</p>
                         <div className="activity-exit-confirm__actions">
                             <button type="button" onClick={() => setConfirmStartOpen(false)}>
                                 Batal

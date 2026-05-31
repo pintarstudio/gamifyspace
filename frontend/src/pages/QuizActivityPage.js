@@ -95,6 +95,8 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
     );
     const answerMap = useMemo(() => buildQuestionAnswerMap(activeSession), [activeSession]);
     const wrongFeedbackMap = useMemo(() => buildWrongFeedbackMap(activeSession), [activeSession]);
+    const quizQuestionCount = activeSession?.question_count || context?.question_count || 5;
+    const quizQuestionTimeSeconds = activeSession?.question_time_seconds || context?.question_time_seconds || 15;
 
     useCopyProtection(
         !!activeSession?.is_member,
@@ -747,12 +749,39 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
                     {activeSession.status === "lobby" && (
                         <div className="quiz-panel quiz-lobby">
                             <div>
-                                <h2>Waiting Room</h2>
+                                <h2>Ruang Tunggu</h2>
                                 <p>
                                     {activeSession.is_host
-                                        ? "Start unlocks when the second user joins this table."
-                                        : "You joined the quiz. Wait for the host to start."}
+                                        ? "Tombol mulai aktif setelah peserta kedua bergabung di meja ini."
+                                        : "Kamu sudah bergabung. Tunggu host memulai quiz."}
                                 </p>
+                                <div className="quiz-lobby-info" aria-label="Informasi quiz">
+                                    <article>
+                                        <span aria-hidden="true">?</span>
+                                        <strong>Total soal</strong>
+                                        <p>{quizQuestionCount} soal digunakan dalam satu sesi quiz.</p>
+                                    </article>
+                                    <article>
+                                        <span aria-hidden="true">{quizQuestionTimeSeconds}s</span>
+                                        <strong>Timer</strong>
+                                        <p>{quizQuestionTimeSeconds} detik untuk menjawab setiap soal.</p>
+                                    </article>
+                                    <article>
+                                        <span aria-hidden="true">+10</span>
+                                        <strong>Skor</strong>
+                                        <p>Jawaban benar mendapat 10 poin. Jawaban salah mendapat 0 poin.</p>
+                                    </article>
+                                    <article>
+                                        <span aria-hidden="true">VS</span>
+                                        <strong>Hasil akhir</strong>
+                                        <p>Menang, seri, atau kalah ditentukan dari total poin setelah semua soal selesai.</p>
+                                    </article>
+                                    <article>
+                                        <span aria-hidden="true">AI</span>
+                                        <strong>AI Feedback</strong>
+                                        <p>Feedback AI akan dibuat untuk membantu memahami jawaban yang salah.</p>
+                                    </article>
+                                </div>
                             </div>
                             <div className="quiz-lobby__actions">
                                 {activeSession.is_host && (
@@ -761,7 +790,7 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
                                         onClick={handleBeginQuiz}
                                         disabled={!activeSession.can_start || busy}
                                     >
-                                        Start Quiz
+                                        Mulai Quiz
                                     </button>
                                 )}
                                 <button
@@ -770,7 +799,7 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
                                     onClick={() => handleExitQuiz({closeAfterExit: true})}
                                     disabled={busy}
                                 >
-                                    Exit Quiz
+                                    Keluar Quiz
                                 </button>
                             </div>
                         </div>
@@ -1121,18 +1150,40 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
 
             {confirmStartOpen && (
                 <div className="activity-exit-confirm" role="dialog" aria-modal="true" aria-labelledby="quiz-start-confirm-title">
-                    <section className="activity-exit-confirm__panel">
-                        <h2 id="quiz-start-confirm-title">Mulai host quiz?</h2>
-                        <p>
-                            Setelah lobby quiz dibuat, paket pertanyaan akan terkunci untuk meja ini.
-                            Refresh atau menutup halaman tidak akan membuat percobaan quiz baru.
-                        </p>
+                    <section className="activity-exit-confirm__panel activity-start-confirm">
+                        <div className="activity-start-confirm__heading">
+                            <span className="activity-start-confirm__icon" aria-hidden="true">!</span>
+                            <div>
+                                <h2 id="quiz-start-confirm-title">Mulai host quiz?</h2>
+                                <p>
+                                    Setelah lobby quiz dibuat, paket pertanyaan akan terkunci untuk meja ini.
+                                    Agar progres dan hasil quiz tersimpan dengan baik, jangan menutup halaman setelah mulai menjadi host.
+                                </p>
+                            </div>
+                        </div>
+                        <div className="activity-start-confirm__facts" aria-label="Informasi host quiz">
+                            <article>
+                                <span>{context?.question_count || 5}</span>
+                                <strong>Total soal</strong>
+                                <p>{context?.question_count || 5} soal akan digunakan dalam sesi quiz.</p>
+                            </article>
+                            <article>
+                                <span>{context?.question_time_seconds || 15}s</span>
+                                <strong>Timer</strong>
+                                <p>Setiap soal memiliki batas waktu {context?.question_time_seconds || 15} detik.</p>
+                            </article>
+                            <article>
+                                <span>2</span>
+                                <strong>Peserta</strong>
+                                <p>Quiz dimulai setelah host dan satu peserta berada di meja yang sama.</p>
+                            </article>
+                        </div>
                         <div className="activity-exit-confirm__actions">
                             <button type="button" onClick={() => setConfirmStartOpen(false)}>
                                 Batal
                             </button>
                             <button className="is-danger" type="button" onClick={handleCreateQuiz} disabled={busy}>
-                                Host Quiz
+                                Jadi Host
                             </button>
                         </div>
                     </section>
