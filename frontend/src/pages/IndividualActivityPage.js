@@ -115,6 +115,11 @@ function assessmentCompletionKey(type) {
     return null;
 }
 
+function isAssessmentCompleted(topic, type) {
+    const key = assessmentCompletionKey(type);
+    return key ? topic?.[key] === true : false;
+}
+
 function feedbackForAnswer(session, answer) {
     return (session?.result?.wrong_answer_feedback || session?.feedback?.wrong_answer_feedback || [])
         .find((item) => String(item.question_id) === String(answer.question_id));
@@ -163,8 +168,8 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
 
     const availableActivityTypes = useMemo(() => {
         const types = ["exercise"];
-        if (selectedTopic?.show_pre_test && !selectedTopic?.pre_test_completed) types.push("pre_test");
-        if (selectedTopic?.show_post_test && !selectedTopic?.post_test_completed) types.push("post_test");
+        if (selectedTopic?.show_pre_test || selectedTopic?.pre_test_completed) types.push("pre_test");
+        if (selectedTopic?.show_post_test || selectedTopic?.post_test_completed) types.push("post_test");
         return types;
     }, [selectedTopic]);
 
@@ -275,11 +280,11 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
     }, []);
 
     useEffect(() => {
-        if (!availableActivityTypes.includes(activityType)) {
+        if (!availableActivityTypes.includes(activityType) || isAssessmentCompleted(selectedTopic, activityType)) {
             setActivityType("exercise");
             setQuestionKind("multiple_choice");
         }
-    }, [availableActivityTypes, activityType]);
+    }, [availableActivityTypes, activityType, selectedTopic]);
 
     useEffect(() => {
         if (!currentUser || activeSession?.status !== "in_progress") return undefined;
@@ -863,7 +868,9 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
         );
     }
 
-    const canStart = !!selectedTopicId && availableActivityTypes.includes(activityType);
+    const canStart = !!selectedTopicId
+        && availableActivityTypes.includes(activityType)
+        && !isAssessmentCompleted(selectedTopic, activityType);
     const showComputerLabel = !String(objectId).startsWith("novirtual-computer-");
 
     return (
@@ -914,20 +921,25 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
                     </div>
 
                     <div className="individual-segment" role="group" aria-label="Pilih jenis aktivitas individual">
-                        {availableActivityTypes.map((type) => (
-                            <button
-                                key={type}
-                                className={activityType === type ? "is-selected" : ""}
-                                type="button"
-                                aria-pressed={activityType === type}
-                                onClick={() => {
-                                    setActivityType(type);
-                                    if (type !== "exercise") setQuestionKind("multiple_choice");
-                                }}
-                            >
-                                {activityTitle(type, "multiple_choice")}
-                            </button>
-                        ))}
+                        {availableActivityTypes.map((type) => {
+                            const completed = isAssessmentCompleted(selectedTopic, type);
+                            return (
+                                <button
+                                    key={type}
+                                    className={`${activityType === type ? "is-selected" : ""}${completed ? " is-completed" : ""}`}
+                                    type="button"
+                                    aria-pressed={activityType === type}
+                                    disabled={completed}
+                                    onClick={() => {
+                                        setActivityType(type);
+                                        if (type !== "exercise") setQuestionKind("multiple_choice");
+                                    }}
+                                >
+                                    {activityTitle(type, "multiple_choice")}
+                                    {completed && <span>Selesai</span>}
+                                </button>
+                            );
+                        })}
                     </div>
 
                     {activityType === "exercise" && (
