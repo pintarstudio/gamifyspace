@@ -29,7 +29,7 @@ import {ensureGamificationTables} from "./models/gamificationModel.js";
 import {ensureCourseGroupSchema} from "./models/courseGroupModel.js";
 import {ensureRoleSchema} from "./models/roleModel.js";
 import {ensureChatSchema} from "./models/chatModel.js";
-import {getBooleanSetting, SETTING_KEYS} from "./models/settingsModel.js";
+import {applyMaintenanceAutoOff, getBooleanSetting, SETTING_KEYS} from "./models/settingsModel.js";
 import {deactivateSession, findSession} from "./models/sessionModel.js";
 import {STUDENT_ROLE_ID} from "./models/roleModel.js";
 
@@ -70,6 +70,11 @@ ensureRoleSchema().catch((error) => {
 ensureChatSchema().catch((error) => {
     console.error("Failed to initialize chat schema:", error);
 });
+setInterval(() => {
+    applyMaintenanceAutoOff().catch((error) => {
+        console.error("Failed to apply maintenance auto-off:", error);
+    });
+}, 60 * 1000);
 
 // ====== MIDDLEWARE & ROUTES ======
 app.use(

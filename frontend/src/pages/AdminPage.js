@@ -202,10 +202,11 @@ const MENU_GROUPS = [
                 tableColumns: [
                     {key: "setting_name", label: "Setting"},
                     {key: "setting_description", label: "Description"},
-                    {key: "boolean_value", label: "Value", type: "boolean", trueLabel: "On", falseLabel: "Off"},
+                    {key: "setting_value", label: "Value", type: "setting_value"},
                 ],
                 fields: [
-                    {key: "boolean_value", label: "Setting is active", type: "checkbox", trueLabel: "On", falseLabel: "Off"},
+                    {key: "boolean_value", label: "Setting is active", type: "checkbox", trueLabel: "On", falseLabel: "Off", visibleForSettingTypes: ["boolean"]},
+                    {key: "datetime_value", label: "Datetime", type: "datetime-local", visibleForSettingTypes: ["datetime"]},
                 ],
             },
             COURSE_ITEM,
@@ -355,6 +356,11 @@ function buildForm(config, row) {
 
 function formatValue(column, value) {
     if (column.type === "boolean") return value ? column.trueLabel || "Shown" : column.falseLabel || "Hidden";
+    if (column.type === "setting_value") {
+        if (value?.setting_type === "boolean") return value.boolean_value ? "On" : "Off";
+        if (value?.setting_type === "datetime") return formatValue({type: "datetime"}, value.datetime_value);
+        return value?.text_value || value?.number_value || "-";
+    }
     if (column.type === "datetime") {
         if (!value) return "Belum dijadwalkan";
         const formatted = new Date(value).toLocaleString("id-ID", {
@@ -1392,6 +1398,12 @@ const AdminPage = () => {
                 required={field.required || (field.requiredOnCreate && !editingRow)}
             />
         );
+    };
+
+    const isFormFieldVisible = (field) => {
+        if (!field.visibleForSettingTypes) return true;
+        const settingType = editingRow?.setting_type || formData.setting_type;
+        return field.visibleForSettingTypes.includes(settingType);
     };
 
     const saveMaterial = async (event) => {
@@ -3112,7 +3124,7 @@ const AdminPage = () => {
                                         </button>
                                     </div>
                                     <div className="admin-form-grid">
-                                        {activeConfig.fields.map((field) => (
+                                        {activeConfig.fields.filter(isFormFieldVisible).map((field) => (
                                             <label key={field.key}>
                                                 {field.label}
                                                 {renderField(field)}
@@ -3165,7 +3177,7 @@ const AdminPage = () => {
                                                             <i style={{background: row[column.key]}} />
                                                             {row[column.key]}
                                                         </span>
-                                                    ) : formatValue(column, row[column.key])}
+                                                    ) : formatValue(column, column.type === "setting_value" ? row : row[column.key])}
                                                 </td>
                                             ))}
                                             <td>
