@@ -158,15 +158,82 @@
     width: 100%;
 }
 
-.individual-topic strong,
-.individual-topic span {
+.individual-topic > strong,
+.individual-topic > span {
     display: block;
 }
 
-.individual-topic span {
+.individual-topic > span {
     color: #68737d;
     font-size: 13px;
     margin-top: 4px;
+}
+
+.individual-topic-assessments {
+    display: grid;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.individual-topic-assessment {
+    align-items: start;
+    background: #ffffff;
+    border: 1px solid #dce7ef;
+    border-radius: 8px;
+    display: grid;
+    gap: 9px;
+    grid-template-columns: 96px minmax(0, 1fr);
+    padding: 9px;
+}
+
+.individual-topic-assessment__badge {
+    border-radius: 999px;
+    display: inline-flex;
+    font-size: 11px;
+    font-weight: 1000;
+    justify-content: center;
+    line-height: 1.2;
+    padding: 5px 8px;
+    white-space: nowrap;
+}
+
+.individual-topic-assessment__badge.is-open {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.individual-topic-assessment__badge.is-done {
+    background: #dbeafe;
+    color: #1d4ed8;
+}
+
+.individual-topic-assessment__badge.is-not_started {
+    background: #fff7ed;
+    color: #9a3412;
+}
+
+.individual-topic-assessment__badge.is-closed,
+.individual-topic-assessment__badge.is-not_scheduled,
+.individual-topic-assessment__badge.is-unavailable {
+    background: #f1f5f9;
+    color: #475569;
+}
+
+.individual-topic-assessment b,
+.individual-topic-assessment small {
+    display: block;
+}
+
+.individual-topic-assessment b {
+    color: #1f252b;
+    font-size: 13px;
+}
+
+.individual-topic-assessment small {
+    color: #68737d;
+    font-size: 12px;
+    line-height: 1.35;
+    margin-top: 2px;
 }
 
 .individual-topic.is-selected {
@@ -256,6 +323,19 @@
     margin: 6px auto 0;
     padding: 2px 7px;
     width: fit-content;
+}
+
+.individual-segment button.is-unavailable {
+    background: #fff7ed;
+    border-color: #fed7aa;
+    box-shadow: inset 4px 0 0 #f59e0b;
+    color: #9a3412;
+}
+
+.individual-segment button.is-unavailable:hover {
+    border-color: #f59e0b;
+    box-shadow: inset 4px 0 0 #f59e0b;
+    color: #9a3412;
 }
 
 .individual-choice-helper {

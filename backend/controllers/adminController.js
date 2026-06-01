@@ -99,6 +99,12 @@ function validatePayload(resource, payload, mode = "create") {
     if (resource === "topics") {
         if (!payload.course_id) return "Course wajib dipilih";
         if (!payload.topic_name) return "Topic name wajib diisi";
+        if (payload.pre_test_start_at && payload.pre_test_end_at && new Date(payload.pre_test_start_at) >= new Date(payload.pre_test_end_at)) {
+            return "Pre-test end datetime harus setelah start datetime";
+        }
+        if (payload.post_test_start_at && payload.post_test_end_at && new Date(payload.post_test_start_at) >= new Date(payload.post_test_end_at)) {
+            return "Post-test end datetime harus setelah start datetime";
+        }
         return null;
     }
 

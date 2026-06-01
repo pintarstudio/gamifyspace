@@ -39,6 +39,10 @@ async function ensureTopicVisibilityColumns() {
     await pool.query(`ALTER TABLE topics ADD COLUMN IF NOT EXISTS show_topic BOOLEAN NOT NULL DEFAULT TRUE`);
     await pool.query(`ALTER TABLE topics ADD COLUMN IF NOT EXISTS show_pre_test BOOLEAN NOT NULL DEFAULT TRUE`);
     await pool.query(`ALTER TABLE topics ADD COLUMN IF NOT EXISTS show_post_test BOOLEAN NOT NULL DEFAULT TRUE`);
+    await pool.query(`ALTER TABLE topics ADD COLUMN IF NOT EXISTS pre_test_start_at TIMESTAMPTZ`);
+    await pool.query(`ALTER TABLE topics ADD COLUMN IF NOT EXISTS pre_test_end_at TIMESTAMPTZ`);
+    await pool.query(`ALTER TABLE topics ADD COLUMN IF NOT EXISTS post_test_start_at TIMESTAMPTZ`);
+    await pool.query(`ALTER TABLE topics ADD COLUMN IF NOT EXISTS post_test_end_at TIMESTAMPTZ`);
 
     await pool.query(`
         DO $$
@@ -55,7 +59,16 @@ async function ensureTopicVisibilityColumns() {
 
     await pool.query(`DROP TABLE IF EXISTS individual_topic_settings`);
 
-    return Array.from(new Set([...columns, "show_topic", "show_pre_test", "show_post_test"]));
+    return Array.from(new Set([
+        ...columns,
+        "show_topic",
+        "show_pre_test",
+        "show_post_test",
+        "pre_test_start_at",
+        "pre_test_end_at",
+        "post_test_start_at",
+        "post_test_end_at",
+    ]));
 }
 
 export async function ensureTableActivityTables() {
@@ -226,6 +239,10 @@ export async function getTopicsForCourse(courseId, options = {}) {
     selectColumns.push(`COALESCE(show_topic, TRUE) AS show_topic`);
     selectColumns.push(`COALESCE(show_pre_test, TRUE) AS show_pre_test`);
     selectColumns.push(`COALESCE(show_post_test, TRUE) AS show_post_test`);
+    selectColumns.push(`pre_test_start_at`);
+    selectColumns.push(`pre_test_end_at`);
+    selectColumns.push(`post_test_start_at`);
+    selectColumns.push(`post_test_end_at`);
 
     const where = [];
     const params = [];

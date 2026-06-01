@@ -120,6 +120,47 @@ function isAssessmentCompleted(topic, type) {
     return key ? topic?.[key] === true : false;
 }
 
+function getAssessmentAccess(topic, type) {
+    if (type === "pre_test") return topic?.pre_test_access || null;
+    if (type === "post_test") return topic?.post_test_access || null;
+    return null;
+}
+
+function isAssessmentOpen(topic, type) {
+    if (!["pre_test", "post_test"].includes(type)) return true;
+    return getAssessmentAccess(topic, type)?.is_open === true;
+}
+
+function hasAssessmentSchedule(topic, type) {
+    const access = getAssessmentAccess(topic, type);
+    return !!(access?.start_at && access?.end_at);
+}
+
+function assessmentStatusText(topic, type) {
+    const label = activityTitle(type, "multiple_choice");
+    if (isAssessmentCompleted(topic, type)) return `${label} sudah dikerjakan`;
+    const access = getAssessmentAccess(topic, type);
+    if (access?.is_open) return `${label} sedang dibuka`;
+    if (access?.message) return access.message;
+    return `${label} belum tersedia. Silakan tunggu informasi dari instructor.`;
+}
+
+function assessmentStatusKind(topic, type) {
+    if (isAssessmentCompleted(topic, type)) return "done";
+    const access = getAssessmentAccess(topic, type);
+    if (access?.is_open) return "open";
+    return access?.status || "unavailable";
+}
+
+function assessmentShortStatus(topic, type) {
+    if (isAssessmentCompleted(topic, type)) return "Selesai";
+    const access = getAssessmentAccess(topic, type);
+    if (access?.is_open) return "Dibuka";
+    if (access?.status === "not_started") return "Belum mulai";
+    if (access?.status === "closed") return "Ditutup";
+    return "Belum dijadwalkan";
+}
+
 function feedbackForAnswer(session, answer) {
     return (session?.result?.wrong_answer_feedback || session?.feedback?.wrong_answer_feedback || [])
         .find((item) => String(item.question_id) === String(answer.question_id));
@@ -168,8 +209,8 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
 
     const availableActivityTypes = useMemo(() => {
         const types = ["exercise"];
-        if (selectedTopic?.show_pre_test || selectedTopic?.pre_test_completed) types.push("pre_test");
-        if (selectedTopic?.show_post_test || selectedTopic?.post_test_completed) types.push("post_test");
+        if (selectedTopic && (hasAssessmentSchedule(selectedTopic, "pre_test") || selectedTopic.pre_test_completed)) types.push("pre_test");
+        if (selectedTopic && (hasAssessmentSchedule(selectedTopic, "post_test") || selectedTopic.post_test_completed)) types.push("post_test");
         return types;
     }, [selectedTopic]);
 
@@ -870,7 +911,12 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
 
     const canStart = !!selectedTopicId
         && availableActivityTypes.includes(activityType)
-        && !isAssessmentCompleted(selectedTopic, activityType);
+        && !isAssessmentCompleted(selectedTopic, activityType)
+        && isAssessmentOpen(selectedTopic, activityType);
+    const selectedAssessmentUnavailable = ["pre_test", "post_test"].includes(activityType)
+        && selectedTopic
+        && !isAssessmentCompleted(selectedTopic, activityType)
+        && !isAssessmentOpen(selectedTopic, activityType);
     const showComputerLabel = !String(objectId).startsWith("novirtual-computer-");
 
     return (
@@ -901,9 +947,19 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
                                 onClick={() => setSelectedTopicId(String(topic.topic_id))}
                             >
                                 <strong>{topic.topic_name}</strong>
-                                <span>
-                                    Pre-test {topic.pre_test_completed ? "sudah dikerjakan" : topic.show_pre_test ? "dibuka" : "disembunyikan"} · Post-test {topic.post_test_completed ? "sudah dikerjakan" : topic.show_post_test ? "dibuka" : "disembunyikan"}
-                                </span>
+                                <div className="individual-topic-assessments">
+                                    {["pre_test", "post_test"].map((type) => (
+                                        <div className="individual-topic-assessment" key={type}>
+                                            <span className={`individual-topic-assessment__badge is-${assessmentStatusKind(topic, type)}`}>
+                                                {assessmentShortStatus(topic, type)}
+                                            </span>
+                                            <div>
+                                                <b>{activityTitle(type, "multiple_choice")}</b>
+                                                <small>{assessmentStatusText(topic, type)}</small>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
                             </button>
                         ))}
                     </div>
@@ -926,7 +982,7 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
                             return (
                                 <button
                                     key={type}
-                                    className={`${activityType === type ? "is-selected" : ""}${completed ? " is-completed" : ""}`}
+                                    className={`${activityType === type ? "is-selected" : ""}${completed ? " is-completed" : ""}${!completed && !isAssessmentOpen(selectedTopic, type) ? " is-unavailable" : ""}`}
                                     type="button"
                                     aria-pressed={activityType === type}
                                     disabled={completed}
@@ -971,9 +1027,13 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
                             ? `${activityTitle(activityType, questionKind)} for ${selectedTopic.topic_name}.`
                             : "Select a topic before starting."}
                     </p>
-                    <button className="individual-button individual-button--primary" onClick={requestStart} disabled={!canStart || busy}>
-                        Start Activity
-                    </button>
+                    {selectedAssessmentUnavailable ? (
+                        <p className="individual-message">{assessmentStatusText(selectedTopic, activityType)}</p>
+                    ) : (
+                        <button className="individual-button individual-button--primary" onClick={requestStart} disabled={!canStart || busy}>
+                            Start Activity
+                        </button>
+                    )}
                     {message && <p className="individual-message">{message}</p>}
                 </div>
             </section>

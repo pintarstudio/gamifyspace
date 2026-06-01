@@ -77,6 +77,68 @@ function normalizeQuestionKind(activityType, value) {
     return value === "case_study" ? "case_study" : "multiple_choice";
 }
 
+function assessmentLabel(activityType) {
+    return activityType === "post_test" ? "Post-test" : "Pre-test";
+}
+
+function formatJakartaDate(value) {
+    if (!value) return "";
+    return new Date(value).toLocaleString("id-ID", {
+        dateStyle: "medium",
+        timeStyle: "short",
+        timeZone: "Asia/Jakarta",
+    });
+}
+
+function getAssessmentAccess(topic, activityType, now = new Date()) {
+    if (!["pre_test", "post_test"].includes(activityType)) {
+        return {is_open: true, status: "open", message: ""};
+    }
+
+    const label = assessmentLabel(activityType);
+    const startAt = activityType === "pre_test" ? topic?.pre_test_start_at : topic?.post_test_start_at;
+    const endAt = activityType === "pre_test" ? topic?.pre_test_end_at : topic?.post_test_end_at;
+
+    if (!startAt || !endAt) {
+        return {
+            is_open: false,
+            status: "not_scheduled",
+            start_at: startAt || null,
+            end_at: endAt || null,
+            message: `Jadwal ${label} belum ditentukan untuk topik ini. Silakan hubungi instructor.`,
+        };
+    }
+
+    const start = new Date(startAt);
+    const end = new Date(endAt);
+    if (now < start) {
+        return {
+            is_open: false,
+            status: "not_started",
+            start_at: startAt,
+            end_at: endAt,
+            message: `${label} dapat diakses mulai ${formatJakartaDate(startAt)} sampai ${formatJakartaDate(endAt)}.`,
+        };
+    }
+    if (now > end) {
+        return {
+            is_open: false,
+            status: "closed",
+            start_at: startAt,
+            end_at: endAt,
+            message: `${label} sudah ditutup. Periode akses: ${formatJakartaDate(startAt)} sampai ${formatJakartaDate(endAt)}.`,
+        };
+    }
+
+    return {
+        is_open: true,
+        status: "open",
+        start_at: startAt,
+        end_at: endAt,
+        message: `${label} dapat diakses sampai ${formatJakartaDate(endAt)}.`,
+    };
+}
+
 function serializeQuestion(question, includeAnswer = false) {
     if (!question) return null;
     return {
@@ -664,11 +726,15 @@ export async function getIndividualContext(req, res) {
             object_id: objectId,
             topics: topics.map((topic) => {
                 const completion = completionMap.get(Number(topic.topic_id)) || {};
+                const preTestAccess = getAssessmentAccess(topic, "pre_test");
+                const postTestAccess = getAssessmentAccess(topic, "post_test");
                 return {
                     ...topic,
                     show_topic: topic.show_topic !== false,
-                    show_pre_test: topic.show_pre_test !== false,
-                    show_post_test: topic.show_post_test !== false,
+                    show_pre_test: preTestAccess.is_open,
+                    show_post_test: postTestAccess.is_open,
+                    pre_test_access: preTestAccess,
+                    post_test_access: postTestAccess,
                     pre_test_completed: completion.pre_test_completed === true,
                     post_test_completed: completion.post_test_completed === true,
                 };
@@ -773,11 +839,11 @@ export async function startIndividualSession(req, res) {
         if (!course) return res.status(400).json({message: "Course tidak ditemukan"});
         if (!topic) return res.status(400).json({message: "Pilih topic terlebih dahulu"});
 
-        if (activityType === "pre_test" && topic.show_pre_test === false) {
-            return res.status(403).json({message: "Pre-test belum dibuka untuk topic ini"});
-        }
-        if (activityType === "post_test" && topic.show_post_test === false) {
-            return res.status(403).json({message: "Post-test belum dibuka untuk topic ini"});
+        if (["pre_test", "post_test"].includes(activityType)) {
+            const access = getAssessmentAccess(topic, activityType);
+            if (!access.is_open) {
+                return res.status(403).json({message: access.message});
+            }
         }
         if (["pre_test", "post_test"].includes(activityType)) {
             const alreadyCompleted = await hasCompletedIndividualAssessment({

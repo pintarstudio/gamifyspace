@@ -41,16 +41,20 @@ const TOPIC_ITEM = {
         {key: "week", label: "Week"},
         {key: "topic_name", label: "Topic Name"},
         {key: "show_topic", label: "Visible", type: "boolean"},
-        {key: "show_pre_test", label: "Pre-test", type: "boolean"},
-        {key: "show_post_test", label: "Post-test", type: "boolean"},
+        {key: "pre_test_start_at", label: "Pre-test Start", type: "datetime"},
+        {key: "pre_test_end_at", label: "Pre-test End", type: "datetime"},
+        {key: "post_test_start_at", label: "Post-test Start", type: "datetime"},
+        {key: "post_test_end_at", label: "Post-test End", type: "datetime"},
     ],
     fields: [
         {key: "course_id", label: "Course", type: "select", reference: "courses", required: true},
         {key: "week", label: "Week", type: "number", placeholder: "1"},
         {key: "topic_name", label: "Topic Name", required: true},
         {key: "show_topic", label: "Show Topic", type: "checkbox"},
-        {key: "show_pre_test", label: "Show Pre-test", type: "checkbox", trueLabel: "Pre-test visible", falseLabel: "Pre-test hidden"},
-        {key: "show_post_test", label: "Show Post-test", type: "checkbox", trueLabel: "Post-test visible", falseLabel: "Post-test hidden"},
+        {key: "pre_test_start_at", label: "Pre-test Start", type: "datetime-local"},
+        {key: "pre_test_end_at", label: "Pre-test End", type: "datetime-local"},
+        {key: "post_test_start_at", label: "Post-test Start", type: "datetime-local"},
+        {key: "post_test_end_at", label: "Post-test End", type: "datetime-local"},
     ],
 };
 
@@ -317,17 +321,37 @@ function emptyForm(config) {
     }, {});
 }
 
+function toDateTimeLocalValue(value) {
+    if (!value) return "";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    const pad = (part) => String(part).padStart(2, "0");
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 function buildForm(config, row) {
     if (!config || !row) return emptyForm(config);
     return config.fields.reduce((acc, field) => {
         const value = row[field.key];
-        acc[field.key] = field.type === "checkbox" ? value !== false : value ?? "";
+        acc[field.key] = field.type === "checkbox"
+            ? value !== false
+            : field.type === "datetime-local"
+                ? toDateTimeLocalValue(value)
+                : value ?? "";
         return acc;
     }, {});
 }
 
 function formatValue(column, value) {
     if (column.type === "boolean") return value ? column.trueLabel || "Shown" : column.falseLabel || "Hidden";
+    if (column.type === "datetime") {
+        if (!value) return "Belum dijadwalkan";
+        return new Date(value).toLocaleString("id-ID", {
+            dateStyle: "medium",
+            timeStyle: "short",
+            timeZone: "Asia/Jakarta",
+        });
+    }
     if (value === null || value === undefined || value === "") return "-";
     return value;
 }

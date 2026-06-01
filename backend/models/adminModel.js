@@ -261,6 +261,11 @@ function booleanValue(value, fallback = true) {
     return ["true", "1", "yes", "on"].includes(String(value).toLowerCase());
 }
 
+function nullableTimestamp(value) {
+    const text = nullableText(value);
+    return text || null;
+}
+
 async function ensureTopicAdminSchema() {
     await pool.query(`
         DO $$
@@ -277,6 +282,18 @@ async function ensureTopicAdminSchema() {
 
                 ALTER TABLE topics
                 ADD COLUMN IF NOT EXISTS show_post_test BOOLEAN NOT NULL DEFAULT TRUE;
+
+                ALTER TABLE topics
+                ADD COLUMN IF NOT EXISTS pre_test_start_at TIMESTAMPTZ;
+
+                ALTER TABLE topics
+                ADD COLUMN IF NOT EXISTS pre_test_end_at TIMESTAMPTZ;
+
+                ALTER TABLE topics
+                ADD COLUMN IF NOT EXISTS post_test_start_at TIMESTAMPTZ;
+
+                ALTER TABLE topics
+                ADD COLUMN IF NOT EXISTS post_test_end_at TIMESTAMPTZ;
 
                 IF to_regclass('public.individual_topic_settings') IS NOT NULL THEN
                     UPDATE topics t
@@ -516,8 +533,10 @@ export async function listAdminResource(resource) {
                  t.topic_name,
                  t.week,
                  t.show_topic,
-                 t.show_pre_test,
-                 t.show_post_test,
+                 t.pre_test_start_at,
+                 t.pre_test_end_at,
+                 t.post_test_start_at,
+                 t.post_test_end_at,
                  t.updated_at
              FROM topics t
              JOIN courses c ON c.course_id = t.course_id
@@ -720,16 +739,28 @@ export async function createAdminResource(resource, payload) {
     if (resource === "topics") {
         await ensureTopicAdminSchema();
         const result = await pool.query(
-            `INSERT INTO topics (course_id, topic_name, week, show_topic, show_pre_test, show_post_test, updated_at)
-             VALUES ($1, $2, $3, $4, $5, $6, NOW())
+            `INSERT INTO topics (
+                 course_id,
+                 topic_name,
+                 week,
+                 show_topic,
+                 pre_test_start_at,
+                 pre_test_end_at,
+                 post_test_start_at,
+                 post_test_end_at,
+                 updated_at
+             )
+             VALUES ($1, $2, $3, $4, $5::timestamptz, $6::timestamptz, $7::timestamptz, $8::timestamptz, NOW())
              RETURNING topic_id`,
             [
                 nullableInteger(payload.course_id),
                 nullableText(payload.topic_name),
                 nullableInteger(payload.week),
                 booleanValue(payload.show_topic),
-                booleanValue(payload.show_pre_test),
-                booleanValue(payload.show_post_test),
+                nullableTimestamp(payload.pre_test_start_at),
+                nullableTimestamp(payload.pre_test_end_at),
+                nullableTimestamp(payload.post_test_start_at),
+                nullableTimestamp(payload.post_test_end_at),
             ]
         );
         return result.rows[0];
@@ -914,8 +945,10 @@ export async function updateAdminResource(resource, id, payload) {
                  topic_name = $3,
                  week = $4,
                  show_topic = $5,
-                 show_pre_test = $6,
-                 show_post_test = $7,
+                 pre_test_start_at = $6::timestamptz,
+                 pre_test_end_at = $7::timestamptz,
+                 post_test_start_at = $8::timestamptz,
+                 post_test_end_at = $9::timestamptz,
                  updated_at = NOW()
              WHERE topic_id = $1
                AND deleted_at IS NULL
@@ -926,8 +959,10 @@ export async function updateAdminResource(resource, id, payload) {
                 nullableText(payload.topic_name),
                 nullableInteger(payload.week),
                 booleanValue(payload.show_topic),
-                booleanValue(payload.show_pre_test),
-                booleanValue(payload.show_post_test),
+                nullableTimestamp(payload.pre_test_start_at),
+                nullableTimestamp(payload.pre_test_end_at),
+                nullableTimestamp(payload.post_test_start_at),
+                nullableTimestamp(payload.post_test_end_at),
             ]
         );
         return result.rows[0] || null;
