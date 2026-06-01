@@ -131,10 +131,10 @@ export async function listSettings() {
 }
 
 function normalizeDateTime(value) {
-    if (!value) return null;
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return null;
-    return date.toISOString();
+    const text = String(value ?? "").trim();
+    if (!text) return null;
+    if (/[zZ]$|[+-]\d{2}:?\d{2}$/.test(text)) return text;
+    return `${text.length === 16 ? `${text}:00` : text}+07:00`;
 }
 
 export async function applyMaintenanceAutoOff() {
