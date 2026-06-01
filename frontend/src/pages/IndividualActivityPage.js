@@ -973,7 +973,7 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
 
                     <div className="individual-choice-helper" role="note">
                         <strong>Pilih jenis aktivitas</strong>
-                        <span>Klik salah satu pilihan di bawah ini. Pilihan yang aktif ditandai warna biru.</span>
+                        <span>Klik salah satu pilihan di bawah ini.</span>
                     </div>
 
                     <div className="individual-segment" role="group" aria-label="Pilih jenis aktivitas individual">

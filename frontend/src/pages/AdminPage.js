@@ -325,8 +325,19 @@ function toDateTimeLocalValue(value) {
     if (!value) return "";
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return "";
-    const pad = (part) => String(part).padStart(2, "0");
-    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+    const parts = new Intl.DateTimeFormat("en-CA", {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+        timeZone: "Asia/Jakarta",
+    }).formatToParts(date).reduce((acc, part) => {
+        acc[part.type] = part.value;
+        return acc;
+    }, {});
+    return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
 }
 
 function buildForm(config, row) {
@@ -346,11 +357,12 @@ function formatValue(column, value) {
     if (column.type === "boolean") return value ? column.trueLabel || "Shown" : column.falseLabel || "Hidden";
     if (column.type === "datetime") {
         if (!value) return "Belum dijadwalkan";
-        return new Date(value).toLocaleString("id-ID", {
+        const formatted = new Date(value).toLocaleString("id-ID", {
             dateStyle: "medium",
             timeStyle: "short",
             timeZone: "Asia/Jakarta",
         });
+        return `${formatted} WIB`;
     }
     if (value === null || value === undefined || value === "") return "-";
     return value;

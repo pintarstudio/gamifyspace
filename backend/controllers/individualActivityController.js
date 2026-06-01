@@ -83,11 +83,12 @@ function assessmentLabel(activityType) {
 
 function formatJakartaDate(value) {
     if (!value) return "";
-    return new Date(value).toLocaleString("id-ID", {
+    const formatted = new Date(value).toLocaleString("id-ID", {
         dateStyle: "medium",
         timeStyle: "short",
         timeZone: "Asia/Jakarta",
     });
+    return `${formatted} WIB`;
 }
 
 function getAssessmentAccess(topic, activityType, now = new Date()) {

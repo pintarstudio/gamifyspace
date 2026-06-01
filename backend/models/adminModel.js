@@ -263,7 +263,9 @@ function booleanValue(value, fallback = true) {
 
 function nullableTimestamp(value) {
     const text = nullableText(value);
-    return text || null;
+    if (!text) return null;
+    if (/[zZ]$|[+-]\d{2}:?\d{2}$/.test(text)) return text;
+    return `${text.length === 16 ? `${text}:00` : text}+07:00`;
 }
 
 async function ensureTopicAdminSchema() {
