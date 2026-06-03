@@ -1008,6 +1008,7 @@ const AdminPage = () => {
     const [instructorDashboard, setInstructorDashboard] = useState(null);
     const [selectedDashboardCourseId, setSelectedDashboardCourseId] = useState("");
     const [selectedDashboardTopicId, setSelectedDashboardTopicId] = useState("");
+    const [activeWeeklyPeriodByGroup, setActiveWeeklyPeriodByGroup] = useState({});
 
     const displayedRows = useMemo(() => {
         if (activeConfig?.resource !== "students") return rows;
@@ -1886,7 +1887,7 @@ const AdminPage = () => {
 
     const renderBaselineStudent = (student) => (
         <article key={student.user_id}>
-            <div>
+            <div className="student-identity">
                 <b>{student.name}</b>
                 <small>{student.email || "No email"}</small>
             </div>
@@ -1905,6 +1906,9 @@ const AdminPage = () => {
 
     const renderWeeklyActivityProgress = (group) => {
         const weeks = weeklyProgressForGroup(selectedDashboardCourse, group);
+        const periodGroupKey = `${selectedDashboardCourse?.course_id || "course"}:${group.course_group_id || "ungrouped"}`;
+        const activeWeekKey = activeWeeklyPeriodByGroup[periodGroupKey];
+        const activeWeek = weeks.find((week) => week.key === activeWeekKey) || weeks[0];
         return (
             <div className="weekly-progress">
                 <div className="weekly-progress-note">
@@ -1915,13 +1919,29 @@ const AdminPage = () => {
                         <span key={kind}>{weeklyKindLabel(kind)} min {required}</span>
                     ))}
                 </div>
-                {weeks.map((week) => (
-                    <section className="weekly-progress-card" key={week.key}>
+                {weeks.length > 0 && (
+                    <div className="weekly-period-tabs" aria-label="Weekly period filter">
+                        {weeks.map((week) => (
+                            <button
+                                key={week.key}
+                                type="button"
+                                className={week.key === activeWeek.key ? "is-active" : ""}
+                                onClick={() => setActiveWeeklyPeriodByGroup((current) => ({...current, [periodGroupKey]: week.key}))}
+                            >
+                                <span>Weekly period</span>
+                                <strong>{week.label}</strong>
+                                <small>{formatAdminNumber(Object.values(week.totals).reduce((total, value) => total + value, 0))} sessions</small>
+                            </button>
+                        ))}
+                    </div>
+                )}
+                {activeWeek && (
+                    <section className="weekly-progress-card" key={activeWeek.key}>
                         <header>
                             <div>
                                 <span>Weekly period</span>
-                                <h4>{week.label}</h4>
-                                {week.topic_names.length > 0 && <p>{week.topic_names.join(", ")}</p>}
+                                <h4>{activeWeek.label}</h4>
+                                {activeWeek.topic_names.length > 0 && <p>{activeWeek.topic_names.join(", ")}</p>}
                             </div>
                             <small>Available submitted/saved activity data only</small>
                         </header>
@@ -1929,7 +1949,7 @@ const AdminPage = () => {
                             {Object.entries(WEEKLY_BASELINE).map(([kind]) => (
                                 <article key={kind}>
                                     <span>{weeklyKindLabel(kind)}</span>
-                                    <strong>{formatAdminNumber(week.totals[kind])}</strong>
+                                    <strong>{formatAdminNumber(activeWeek.totals[kind])}</strong>
                                     <small>sessions</small>
                                 </article>
                             ))}
@@ -1938,26 +1958,26 @@ const AdminPage = () => {
                             <section className="weekly-student-list weekly-student-list--met">
                                 <header>
                                     <strong>Baseline met</strong>
-                                    <span>{formatAdminNumber(week.students_met.length)} students</span>
+                                    <span>{formatAdminNumber(activeWeek.students_met.length)} students</span>
                                 </header>
                                 <div>
-                                    {week.students_met.map(renderBaselineStudent)}
-                                    {week.students_met.length === 0 && <p>No students have met all weekly baseline criteria yet.</p>}
+                                    {activeWeek.students_met.map(renderBaselineStudent)}
+                                    {activeWeek.students_met.length === 0 && <p>No students have met all weekly baseline criteria yet.</p>}
                                 </div>
                             </section>
                             <section className="weekly-student-list weekly-student-list--pending">
                                 <header>
                                     <strong>Needs progress</strong>
-                                    <span>{formatAdminNumber(week.students_pending.length)} students</span>
+                                    <span>{formatAdminNumber(activeWeek.students_pending.length)} students</span>
                                 </header>
                                 <div>
-                                    {week.students_pending.map(renderBaselineStudent)}
-                                    {week.students_pending.length === 0 && <p>Every student has met the weekly baseline.</p>}
+                                    {activeWeek.students_pending.map(renderBaselineStudent)}
+                                    {activeWeek.students_pending.length === 0 && <p>Every student has met the weekly baseline.</p>}
                                 </div>
                             </section>
                         </div>
                     </section>
-                ))}
+                )}
                 {weeks.length === 0 && <p>No weekly activity data available for this group yet.</p>}
             </div>
         );
@@ -1989,8 +2009,10 @@ const AdminPage = () => {
             <div>
                 {students.map((student) => (
                     <article key={student.user_id}>
-                        <b>{student.name}</b>
-                        <small>{student.email || "No email"}</small>
+                        <div className="student-identity">
+                            <b>{student.name}</b>
+                            <small>{student.email || "No email"}</small>
+                        </div>
                     </article>
                 ))}
                 {students.length === 0 && <p>All students have completed this assessment.</p>}

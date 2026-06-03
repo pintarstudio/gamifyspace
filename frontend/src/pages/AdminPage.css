@@ -1074,13 +1074,15 @@
     line-height: 1;
 }
 
-.instructor-topic-tabs {
+.instructor-topic-tabs,
+.weekly-period-tabs {
     display: grid;
     gap: 10px;
     grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
 }
 
-.instructor-topic-tabs button {
+.instructor-topic-tabs button,
+.weekly-period-tabs button {
     background: #ffffff;
     border: 1px solid #d9e3ea;
     border-radius: 8px;
@@ -1093,20 +1095,24 @@
     text-align: left;
 }
 
-.instructor-topic-tabs button.is-active {
+.instructor-topic-tabs button.is-active,
+.weekly-period-tabs button.is-active {
     border-color: #0f766e;
     box-shadow: inset 0 0 0 2px rgba(15, 118, 110, 0.18), 0 12px 28px rgba(15, 118, 110, 0.12);
 }
 
 .instructor-topic-tabs span,
-.instructor-topic-tabs small {
+.instructor-topic-tabs small,
+.weekly-period-tabs span,
+.weekly-period-tabs small {
     color: #64748b;
     font-size: 11px;
     font-weight: 900;
     text-transform: uppercase;
 }
 
-.instructor-topic-tabs strong {
+.instructor-topic-tabs strong,
+.weekly-period-tabs strong {
     font-size: 15px;
 }
 
@@ -1639,6 +1645,15 @@
     text-transform: uppercase;
 }
 
+.weekly-period-tabs {
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+}
+
+.weekly-period-tabs button {
+    min-height: 84px;
+    padding: 12px;
+}
+
 .weekly-progress-card {
     background: #ffffff;
     border: 1px solid #e2e8f0;
@@ -1776,6 +1791,18 @@
     display: grid;
     gap: 8px;
     padding: 10px;
+}
+
+.student-identity {
+    align-content: start;
+    display: grid;
+    gap: 5px;
+    min-width: 0;
+}
+
+.student-identity b,
+.student-identity small {
+    line-height: 1.25;
 }
 
 .weekly-student-list article b {
@@ -1959,6 +1986,7 @@
 }
 
 .missing-assessment-grid {
+    align-items: start;
     display: grid;
     gap: 12px;
     grid-template-columns: repeat(2, minmax(220px, 1fr));
@@ -1966,6 +1994,8 @@
 }
 
 .missing-assessment-section {
+    align-content: start;
+    align-self: start;
     background: #f8fafc;
     border: 1px solid #e2e8f0;
     border-radius: 8px;
@@ -1997,11 +2027,13 @@
 }
 
 .missing-assessment-section > div {
+    align-content: start;
     display: grid;
     gap: 8px;
 }
 
 .missing-assessment-section article {
+    align-content: start;
     background: #ffffff;
     border: 1px solid #e2e8f0;
     border-radius: 8px;
