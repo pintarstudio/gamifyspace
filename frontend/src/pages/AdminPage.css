@@ -1668,6 +1668,14 @@
     margin: 3px 0 0;
 }
 
+.weekly-progress-card > header p {
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 850;
+    line-height: 1.35;
+    margin: 4px 0 0;
+}
+
 .weekly-progress-card > header small {
     color: #64748b;
     font-weight: 850;
@@ -1708,12 +1716,15 @@
 }
 
 .weekly-student-grid {
+    align-items: start;
     display: grid;
     gap: 12px;
     grid-template-columns: repeat(2, minmax(240px, 1fr));
 }
 
 .weekly-student-list {
+    align-content: start;
+    align-self: start;
     border-radius: 8px;
     display: grid;
     gap: 10px;
@@ -1753,6 +1764,7 @@
 }
 
 .weekly-student-list > div {
+    align-content: start;
     display: grid;
     gap: 8px;
 }
@@ -1780,17 +1792,23 @@
 }
 
 .weekly-baseline-counts {
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
     gap: 6px;
+    grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
 }
 
 .weekly-baseline-counts span {
     border-radius: 999px;
+    box-sizing: border-box;
+    display: inline-flex;
     font-size: 10px;
     font-weight: 950;
+    justify-content: center;
+    line-height: 1.15;
     padding: 5px 7px;
+    text-align: center;
     text-transform: uppercase;
+    width: 100%;
 }
 
 .weekly-baseline-counts .is-met {

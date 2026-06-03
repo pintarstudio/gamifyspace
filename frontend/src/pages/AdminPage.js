@@ -471,6 +471,13 @@ function emptyWeeklyCounts() {
     };
 }
 
+function emptyWeeklySessionBuckets() {
+    return Object.keys(WEEKLY_BASELINE).reduce((buckets, kind) => {
+        buckets[kind] = new Set();
+        return buckets;
+    }, {});
+}
+
 function weeklyActivityKind(activity) {
     if (activity.type === "group") return "group";
     if (activity.type === "quiz") return "quiz";
@@ -486,6 +493,46 @@ function weeklyKindLabel(kind) {
     if (kind === "group") return "Group Activity";
     if (kind === "quiz") return "Fun Quiz";
     return kind;
+}
+
+function formatWeekDate(date) {
+    return date.toLocaleDateString(undefined, {month: "short", day: "numeric"});
+}
+
+function localDateKey(date) {
+    return [
+        date.getFullYear(),
+        String(date.getMonth() + 1).padStart(2, "0"),
+        String(date.getDate()).padStart(2, "0"),
+    ].join("-");
+}
+
+function weekPeriodForDate(value) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    const start = new Date(date);
+    start.setHours(0, 0, 0, 0);
+    const day = start.getDay();
+    const mondayOffset = day === 0 ? -6 : 1 - day;
+    start.setDate(start.getDate() + mondayOffset);
+    const end = new Date(start);
+    end.setDate(start.getDate() + 6);
+    const key = localDateKey(start);
+    const sameYear = start.getFullYear() === end.getFullYear();
+    const label = sameYear
+        ? `${formatWeekDate(start)} - ${formatWeekDate(end)}, ${end.getFullYear()}`
+        : `${formatWeekDate(start)}, ${start.getFullYear()} - ${formatWeekDate(end)}, ${end.getFullYear()}`;
+    return {key, label, start_time: start.getTime()};
+}
+
+function weeklyActivitySessionKey(activity, topic, kind) {
+    return [
+        kind,
+        activity.activity_id || activity.id || activity.session_id || activity.quiz_session_id || "activity",
+        topic?.topic_id || "topic",
+        activity.user_id || "",
+        activity.submitted_at || "",
+    ].join(":");
 }
 
 function createStudentBaseline(student) {
@@ -507,18 +554,28 @@ function weeklyProgressForGroup(course, selectedGroup) {
         for (const activity of topicGroup.activities || []) {
             const kind = weeklyActivityKind(activity);
             if (!kind) continue;
+            const period = weekPeriodForDate(activity.submitted_at);
+            if (!period) continue;
 
-            const key = String(topic.topic_id);
+            const key = period.key;
             const week = weekMap.get(key) || {
-                topic_id: topic.topic_id,
-                week: topic.week,
-                topic_name: topic.topic_name,
+                key,
+                label: period.label,
+                start_time: period.start_time,
+                topics: new Map(),
                 totals: emptyWeeklyCounts(),
-                students: new Map((topicGroup.students || []).map((student) => [String(student.user_id), createStudentBaseline(student)])),
+                session_keys: emptyWeeklySessionBuckets(),
+                students: new Map((selectedGroup.students || topicGroup.students || []).map((student) => [String(student.user_id), createStudentBaseline(student)])),
             };
 
-            week.totals[kind] += 1;
+            const sessionKey = weeklyActivitySessionKey(activity, topic, kind);
+            if (!week.session_keys[kind].has(sessionKey)) {
+                week.session_keys[kind].add(sessionKey);
+                week.totals[kind] += 1;
+            }
+            week.topics.set(String(topic.topic_id), topic.topic_name);
             for (const participant of activity.participants || []) {
+                if (!participant.user_id) continue;
                 const studentKey = String(participant.user_id);
                 if (!week.students.has(studentKey)) {
                     week.students.set(studentKey, createStudentBaseline({
@@ -542,11 +599,12 @@ function weeklyProgressForGroup(course, selectedGroup) {
             }));
             return {
                 ...week,
+                topic_names: [...week.topics.values()].sort((a, b) => a.localeCompare(b)),
                 students_met: withStatus.filter((student) => student.baseline_met),
                 students_pending: withStatus.filter((student) => !student.baseline_met),
             };
         })
-        .sort((a, b) => Number(a.week || 0) - Number(b.week || 0) || a.topic_name.localeCompare(b.topic_name));
+        .sort((a, b) => a.start_time - b.start_time);
 }
 
 function studentsByXp(group) {
@@ -1858,13 +1916,14 @@ const AdminPage = () => {
                     ))}
                 </div>
                 {weeks.map((week) => (
-                    <section className="weekly-progress-card" key={week.topic_id}>
+                    <section className="weekly-progress-card" key={week.key}>
                         <header>
                             <div>
-                                <span>{week.week ? `Week ${week.week}` : "Week"}</span>
-                                <h4>{week.topic_name}</h4>
+                                <span>Weekly period</span>
+                                <h4>{week.label}</h4>
+                                {week.topic_names.length > 0 && <p>{week.topic_names.join(", ")}</p>}
                             </div>
-                            <small>Available activity data only</small>
+                            <small>Available submitted/saved activity data only</small>
                         </header>
                         <div className="weekly-session-totals">
                             {Object.entries(WEEKLY_BASELINE).map(([kind]) => (
