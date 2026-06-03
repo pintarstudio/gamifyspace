@@ -455,23 +455,98 @@ function activityClass(type) {
     return "individual";
 }
 
-const ACTIVITY_GROUPS = [
-    {type: "individual", label: "Individual"},
-    {type: "pre_test", label: "Pre-test"},
-    {type: "post_test", label: "Post-test"},
-    {type: "group", label: "Group"},
-    {type: "quiz", label: "Quiz"},
-];
+const WEEKLY_BASELINE = {
+    individual_mc: 2,
+    individual_case: 1,
+    group: 2,
+    quiz: 4,
+};
 
-function sortBySubmittedDesc(items = []) {
-    return [...items].sort((a, b) => new Date(b.submitted_at || 0) - new Date(a.submitted_at || 0));
+function emptyWeeklyCounts() {
+    return {
+        individual_mc: 0,
+        individual_case: 0,
+        group: 0,
+        quiz: 0,
+    };
 }
 
-function groupedActivities(activities = []) {
-    return ACTIVITY_GROUPS.map((group) => ({
-        ...group,
-        activities: sortBySubmittedDesc(activities.filter((activity) => activity.type === group.type)),
-    }));
+function weeklyActivityKind(activity) {
+    if (activity.type === "group") return "group";
+    if (activity.type === "quiz") return "quiz";
+    if (activity.type === "individual" && activity.activity_type === "exercise") {
+        return activity.question_kind === "case_study" ? "individual_case" : "individual_mc";
+    }
+    return null;
+}
+
+function weeklyKindLabel(kind) {
+    if (kind === "individual_mc") return "Individual MC";
+    if (kind === "individual_case") return "Individual Case";
+    if (kind === "group") return "Group Activity";
+    if (kind === "quiz") return "Fun Quiz";
+    return kind;
+}
+
+function createStudentBaseline(student) {
+    return {
+        user_id: student.user_id,
+        name: student.name,
+        email: student.email,
+        counts: emptyWeeklyCounts(),
+    };
+}
+
+function weeklyProgressForGroup(course, selectedGroup) {
+    const weekMap = new Map();
+
+    for (const topic of course?.topics || []) {
+        const topicGroup = (topic.groups || []).find((group) => String(group.course_group_id) === String(selectedGroup.course_group_id));
+        if (!topicGroup) continue;
+
+        for (const activity of topicGroup.activities || []) {
+            const kind = weeklyActivityKind(activity);
+            if (!kind) continue;
+
+            const key = String(topic.topic_id);
+            const week = weekMap.get(key) || {
+                topic_id: topic.topic_id,
+                week: topic.week,
+                topic_name: topic.topic_name,
+                totals: emptyWeeklyCounts(),
+                students: new Map((topicGroup.students || []).map((student) => [String(student.user_id), createStudentBaseline(student)])),
+            };
+
+            week.totals[kind] += 1;
+            for (const participant of activity.participants || []) {
+                const studentKey = String(participant.user_id);
+                if (!week.students.has(studentKey)) {
+                    week.students.set(studentKey, createStudentBaseline({
+                        user_id: participant.user_id,
+                        name: participant.name || activity.student_name || "Student",
+                        email: participant.email || "",
+                    }));
+                }
+                week.students.get(studentKey).counts[kind] += 1;
+            }
+            weekMap.set(key, week);
+        }
+    }
+
+    return [...weekMap.values()]
+        .map((week) => {
+            const students = [...week.students.values()].sort((a, b) => a.name.localeCompare(b.name));
+            const withStatus = students.map((student) => ({
+                ...student,
+                baseline_met: Object.entries(WEEKLY_BASELINE).every(([kind, required]) => student.counts[kind] >= required),
+            }));
+            return {
+                ...week,
+                students_met: withStatus.filter((student) => student.baseline_met),
+                students_pending: withStatus.filter((student) => !student.baseline_met),
+            };
+        })
+        .sort((a, b) => Number(a.week || 0) - Number(b.week || 0) || a.topic_name.localeCompare(b.topic_name));
 }
 
 function studentsByXp(group) {
@@ -1751,74 +1826,81 @@ const AdminPage = () => {
         URL.revokeObjectURL(url);
     };
 
-    const renderActivityTable = (activities) => {
-        const showScore = activities.some((activity) => activity.score !== undefined || activity.average_score !== undefined);
-        const showXp = activities.some((activity) => activity.xp !== undefined && activity.xp !== null);
-        const colSpan = 4 + (showScore ? 1 : 0) + (showXp ? 1 : 0);
-
-        return (
-            <div className="instructor-activity-table-wrap">
-                <table className="instructor-activity-table">
-                    <thead>
-                    <tr>
-                        <th>Type</th>
-                        <th>Activity</th>
-                        <th>Student / Members</th>
-                        {showScore && <th>Score</th>}
-                        {showXp && <th>XP</th>}
-                        <th>Submitted</th>
-                    </tr>
-                    </thead>
-                    <tbody>
-                    {activities.map((activity) => (
-                        <tr key={activity.id}>
-                            <td><span className={`activity-pill activity-pill--${activityClass(activity.type)}`}>{activity.label}</span></td>
-                            <td>{activity.title}</td>
-                            <td>{activity.student_name || `${activity.member_count || 0} members`}</td>
-                            {showScore && <td>{activity.score ?? activity.average_score ?? "-"}</td>}
-                            {showXp && <td>{activity.xp ?? "-"}</td>}
-                            <td>{formatAdminDate(activity.submitted_at)}</td>
-                        </tr>
-                    ))}
-                    {activities.length === 0 && (
-                        <tr><td colSpan={colSpan}>No saved activity in this category yet.</td></tr>
-                    )}
-                    </tbody>
-                </table>
+    const renderBaselineStudent = (student) => (
+        <article key={student.user_id}>
+            <div>
+                <b>{student.name}</b>
+                <small>{student.email || "No email"}</small>
             </div>
-        );
-    };
+            <div className="weekly-baseline-counts">
+                {Object.entries(WEEKLY_BASELINE).map(([kind, required]) => {
+                    const value = student.counts[kind] || 0;
+                    return (
+                        <span className={value >= required ? "is-met" : "is-pending"} key={kind}>
+                            {weeklyKindLabel(kind)} {value}/{required}
+                        </span>
+                    );
+                })}
+            </div>
+        </article>
+    );
 
-    const renderActivityDetail = (group) => {
-        const buckets = groupedActivities(group.activities || []);
+    const renderWeeklyActivityProgress = (group) => {
+        const weeks = weeklyProgressForGroup(selectedDashboardCourse, group);
         return (
-            <>
-                <div className="instructor-activity-summary">
-                    <article>
-                        <span>Total activities done</span>
-                        <strong>{formatAdminNumber(group.activity_counts?.total)}</strong>
-                    </article>
-                    <article>
-                        <span>Total group XP</span>
-                        <strong>{formatAdminNumber(group.total_group_xp)}</strong>
-                    </article>
-                    <article>
-                        <span>Total individual XP</span>
-                        <strong>{formatAdminNumber(group.total_individual_xp)}</strong>
-                    </article>
+            <div className="weekly-progress">
+                <div className="weekly-progress-note">
+                    Weekly totals are counted by completed/saved sessions. Student baseline status is counted by each student's participation.
                 </div>
-                <div className="instructor-activity-groups">
-                    {buckets.map((bucket) => (
-                        <details className="instructor-activity-bucket" key={bucket.type}>
-                            <summary>
-                                <span className={`activity-pill activity-pill--${activityClass(bucket.type)}`}>{bucket.label}</span>
-                                <b>{formatAdminNumber(bucket.activities.length)} done</b>
-                            </summary>
-                            {renderActivityTable(bucket.activities)}
-                        </details>
+                <div className="weekly-baseline-rules">
+                    {Object.entries(WEEKLY_BASELINE).map(([kind, required]) => (
+                        <span key={kind}>{weeklyKindLabel(kind)} min {required}</span>
                     ))}
                 </div>
-            </>
+                {weeks.map((week) => (
+                    <section className="weekly-progress-card" key={week.topic_id}>
+                        <header>
+                            <div>
+                                <span>{week.week ? `Week ${week.week}` : "Week"}</span>
+                                <h4>{week.topic_name}</h4>
+                            </div>
+                            <small>Available activity data only</small>
+                        </header>
+                        <div className="weekly-session-totals">
+                            {Object.entries(WEEKLY_BASELINE).map(([kind]) => (
+                                <article key={kind}>
+                                    <span>{weeklyKindLabel(kind)}</span>
+                                    <strong>{formatAdminNumber(week.totals[kind])}</strong>
+                                    <small>sessions</small>
+                                </article>
+                            ))}
+                        </div>
+                        <div className="weekly-student-grid">
+                            <section className="weekly-student-list weekly-student-list--met">
+                                <header>
+                                    <strong>Baseline met</strong>
+                                    <span>{formatAdminNumber(week.students_met.length)} students</span>
+                                </header>
+                                <div>
+                                    {week.students_met.map(renderBaselineStudent)}
+                                    {week.students_met.length === 0 && <p>No students have met all weekly baseline criteria yet.</p>}
+                                </div>
+                            </section>
+                            <section className="weekly-student-list weekly-student-list--pending">
+                                <header>
+                                    <strong>Needs progress</strong>
+                                    <span>{formatAdminNumber(week.students_pending.length)} students</span>
+                                </header>
+                                <div>
+                                    {week.students_pending.map(renderBaselineStudent)}
+                                    {week.students_pending.length === 0 && <p>Every student has met the weekly baseline.</p>}
+                                </div>
+                            </section>
+                        </div>
+                    </section>
+                ))}
+                {weeks.length === 0 && <p>No weekly activity data available for this group yet.</p>}
+            </div>
         );
     };
 
@@ -2100,7 +2182,7 @@ const AdminPage = () => {
 
                                 <details open>
                                     <summary>Activity detail</summary>
-                                    {renderActivityDetail(group)}
+                                    {renderWeeklyActivityProgress(group)}
                                 </details>
 
                                 {group.gamification_enabled && (

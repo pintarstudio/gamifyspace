@@ -67,16 +67,12 @@
       <change afterPath="$PROJECT_DIR$/frontend/src/pixi/objectHandler.js" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/frontend/src/utils/socketClient.js" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/frontend/src/utils/validate.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/frontend/package-lock.json" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/package-lock.json" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/frontend/package.json" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/package.json" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/frontend/public/index.html" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/public/index.html" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/frontend/src/App.js" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/App.js" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/frontend/src/index.css" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/index.css" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/frontend/src/index.js" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/index.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/logs/backend.log" beforeDir="false" afterPath="$PROJECT_DIR$/logs/backend.log" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/logs/frontend.log" beforeDir="false" afterPath="$PROJECT_DIR$/logs/frontend.log" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/logs/frontend.pid" beforeDir="false" afterPath="$PROJECT_DIR$/logs/frontend.pid" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -169,7 +165,7 @@
       <workItem from="1777861296650" duration="649000" />
       <workItem from="1778283557635" duration="19871000" />
       <workItem from="1779721604372" duration="7000" />
-      <workItem from="1779890658229" duration="3350000" />
+      <workItem from="1779890658229" duration="3982000" />
     </task>
     <servers />
   </component>

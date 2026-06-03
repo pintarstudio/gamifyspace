@@ -595,7 +595,13 @@ export async function getInstructorDashboard(req, res) {
                      s.submitted_at,
                      s.created_at,
                      COUNT(DISTINCT m.user_id)::int AS member_count,
-                     COUNT(DISTINCT a.user_id)::int AS answer_count
+                     COUNT(DISTINCT a.user_id)::int AS answer_count,
+                     JSONB_AGG(
+                         DISTINCT JSONB_BUILD_OBJECT(
+                             'user_id', u.user_id,
+                             'name', u.name
+                         )
+                     ) FILTER (WHERE u.user_id IS NOT NULL) AS members
                  FROM table_group_sessions s
                  LEFT JOIN users creator ON creator.user_id = s.created_by
                  LEFT JOIN course_groups cg
@@ -604,6 +610,9 @@ export async function getInstructorDashboard(req, res) {
                  LEFT JOIN topics t ON t.topic_id = s.topic_id
                  LEFT JOIN topic_cases tc ON tc.case_id = s.case_id
                  LEFT JOIN table_group_members m ON m.session_id = s.session_id
+                 LEFT JOIN users u
+                   ON u.user_id = m.user_id
+                  AND u.deleted_at IS NULL
                  LEFT JOIN table_group_answers a
                    ON a.session_id = s.session_id
                   AND COALESCE(a.answer_text, '') <> ''
@@ -655,7 +664,13 @@ export async function getInstructorDashboard(req, res) {
                      qs.created_at,
                      qsr.results_json,
                      qsr.created_at AS result_saved_at,
-                     COUNT(DISTINCT qm.user_id)::int AS member_count
+                     COUNT(DISTINCT qm.user_id)::int AS member_count,
+                     JSONB_AGG(
+                         DISTINCT JSONB_BUILD_OBJECT(
+                             'user_id', u.user_id,
+                             'name', u.name
+                         )
+                     ) FILTER (WHERE u.user_id IS NOT NULL) AS members
                  FROM quiz_sessions qs
                  LEFT JOIN users host ON host.user_id = qs.hosted_by
                  LEFT JOIN course_groups cg
@@ -663,6 +678,9 @@ export async function getInstructorDashboard(req, res) {
                   AND cg.deleted_at IS NULL
                  LEFT JOIN topics t ON t.topic_id = qs.topic_id
                  LEFT JOIN quiz_members qm ON qm.quiz_session_id = qs.quiz_session_id
+                 LEFT JOIN users u
+                   ON u.user_id = qm.user_id
+                  AND u.deleted_at IS NULL
                  LEFT JOIN quiz_session_results qsr ON qsr.quiz_session_id = qs.quiz_session_id
                  WHERE qs.course_id = ANY($1::int[])
                    AND qs.status = 'saved'
@@ -838,6 +856,10 @@ export async function getInstructorDashboard(req, res) {
                 label: activityTypeLabel(activityType, row.question_kind),
                 title: activityTypeLabel(activityType, row.question_kind),
                 student_name: row.student_name,
+                user_id: row.user_id,
+                participants: [{user_id: row.user_id, name: row.student_name}],
+                activity_type: row.activity_type,
+                question_kind: row.question_kind,
                 score: toNumber(row.score_total),
                 correct_count: toNumber(row.correct_count),
                 xp: toNumber(row.xp_earned),
@@ -874,6 +896,7 @@ export async function getInstructorDashboard(req, res) {
                 title: row.activity_title,
                 member_count: toNumber(row.member_count),
                 answer_count: toNumber(row.answer_count),
+                participants: row.members || [],
                 xp: toNumber(row.group_xp),
                 xp_reason: row.group_xp_reason || "",
                 submitted_at: row.submitted_at,
@@ -911,6 +934,7 @@ export async function getInstructorDashboard(req, res) {
                 top_score: scoreboard[0]?.total_score || 0,
                 top_student: scoreboard[0]?.name || "",
                 scoreboard,
+                participants: row.members || [],
                 submitted_at: row.saved_at || row.result_saved_at || row.created_at,
             });
         }

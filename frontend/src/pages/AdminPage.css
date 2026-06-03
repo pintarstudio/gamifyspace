@@ -1605,6 +1605,204 @@
     padding: 0 12px 12px;
 }
 
+.weekly-progress {
+    display: grid;
+    gap: 12px;
+    margin-top: 12px;
+}
+
+.weekly-progress-note {
+    background: #eef7f6;
+    border: 1px solid #cde7e2;
+    border-radius: 8px;
+    color: #115e59;
+    font-size: 13px;
+    font-weight: 850;
+    line-height: 1.4;
+    padding: 10px 12px;
+}
+
+.weekly-baseline-rules {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.weekly-baseline-rules span {
+    background: #f8fafc;
+    border: 1px solid #d9e3ea;
+    border-radius: 999px;
+    color: #334155;
+    font-size: 11px;
+    font-weight: 950;
+    padding: 7px 10px;
+    text-transform: uppercase;
+}
+
+.weekly-progress-card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    display: grid;
+    gap: 12px;
+    padding: 14px;
+}
+
+.weekly-progress-card > header {
+    align-items: center;
+    display: flex;
+    gap: 12px;
+    justify-content: space-between;
+}
+
+.weekly-progress-card > header span {
+    color: #0f766e;
+    font-size: 11px;
+    font-weight: 950;
+    text-transform: uppercase;
+}
+
+.weekly-progress-card > header h4 {
+    color: #172033;
+    font-size: 18px;
+    margin: 3px 0 0;
+}
+
+.weekly-progress-card > header small {
+    color: #64748b;
+    font-weight: 850;
+}
+
+.weekly-session-totals {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: repeat(4, minmax(130px, 1fr));
+}
+
+.weekly-session-totals article {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    display: grid;
+    gap: 5px;
+    padding: 12px;
+}
+
+.weekly-session-totals span {
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 950;
+    text-transform: uppercase;
+}
+
+.weekly-session-totals strong {
+    color: #172033;
+    font-size: 24px;
+    line-height: 1;
+}
+
+.weekly-session-totals small {
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 850;
+}
+
+.weekly-student-grid {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(2, minmax(240px, 1fr));
+}
+
+.weekly-student-list {
+    border-radius: 8px;
+    display: grid;
+    gap: 10px;
+    padding: 12px;
+}
+
+.weekly-student-list--met {
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+}
+
+.weekly-student-list--pending {
+    background: #fff7ed;
+    border: 1px solid #fed7aa;
+}
+
+.weekly-student-list > header {
+    align-items: center;
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.weekly-student-list > header strong {
+    color: #172033;
+    font-size: 14px;
+}
+
+.weekly-student-list > header span {
+    background: #ffffff;
+    border-radius: 999px;
+    color: #334155;
+    font-size: 11px;
+    font-weight: 950;
+    padding: 5px 8px;
+    white-space: nowrap;
+}
+
+.weekly-student-list > div {
+    display: grid;
+    gap: 8px;
+}
+
+.weekly-student-list article {
+    background: #ffffff;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    border-radius: 8px;
+    display: grid;
+    gap: 8px;
+    padding: 10px;
+}
+
+.weekly-student-list article b {
+    color: #334155;
+    font-size: 13px;
+}
+
+.weekly-student-list article small,
+.weekly-student-list p {
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 850;
+    margin: 0;
+}
+
+.weekly-baseline-counts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.weekly-baseline-counts span {
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 950;
+    padding: 5px 7px;
+    text-transform: uppercase;
+}
+
+.weekly-baseline-counts .is-met {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.weekly-baseline-counts .is-pending {
+    background: #ffedd5;
+    color: #9a3412;
+}
+
 .instructor-xp-summary {
     display: flex;
     flex-wrap: wrap;
@@ -1845,6 +2043,8 @@
     .instructor-topic-actions,
     .instructor-comparison-header,
     .comparison-level-group header,
+    .weekly-progress-card > header,
+    .weekly-student-list > header,
     .instructor-group-detail > header {
         align-items: stretch;
         flex-direction: column;
@@ -1867,6 +2067,11 @@
     }
 
     .missing-assessment-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .weekly-session-totals,
+    .weekly-student-grid {
         grid-template-columns: 1fr;
     }
 
