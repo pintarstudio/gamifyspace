@@ -3,6 +3,27 @@ import {useLocation, useNavigate} from "react-router-dom";
 import {apiDelete, apiGet, apiPatch, apiPost} from "../api/apiClient";
 import "./AdminPage.css";
 
+const DASHBOARD_COURSE_SESSION_KEY = "gamifyit:selectedInstructorDashboardCourseId";
+
+function readDashboardCourseSession() {
+    if (typeof window === "undefined") return "";
+    try {
+        return window.sessionStorage.getItem(DASHBOARD_COURSE_SESSION_KEY) || "";
+    } catch {
+        return "";
+    }
+}
+
+function writeDashboardCourseSession(courseId) {
+    if (typeof window === "undefined") return;
+    try {
+        if (courseId) window.sessionStorage.setItem(DASHBOARD_COURSE_SESSION_KEY, String(courseId));
+        else window.sessionStorage.removeItem(DASHBOARD_COURSE_SESSION_KEY);
+    } catch {
+        // Ignore storage failures so dashboard selection still works normally.
+    }
+}
+
 const COURSE_ITEM = {
     label: "Course",
     path: "/courseadmin",
@@ -1006,7 +1027,7 @@ const AdminPage = () => {
         target_course_group_id: "",
     });
     const [instructorDashboard, setInstructorDashboard] = useState(null);
-    const [selectedDashboardCourseId, setSelectedDashboardCourseId] = useState("");
+    const [selectedDashboardCourseId, setSelectedDashboardCourseId] = useState(() => readDashboardCourseSession());
     const [selectedDashboardTopicId, setSelectedDashboardTopicId] = useState("");
     const [activeWeeklyPeriodByGroup, setActiveWeeklyPeriodByGroup] = useState({});
 
@@ -1045,6 +1066,23 @@ const AdminPage = () => {
         if (!topics.length) return null;
         return topics.find((topic) => String(topic.topic_id) === String(selectedDashboardTopicId)) || topics[0];
     }, [selectedDashboardCourse, selectedDashboardTopicId]);
+
+    useEffect(() => {
+        if (!dashboardCourses.length) return;
+        const selectedExists = dashboardCourses.some((course) => String(course.course_id) === String(selectedDashboardCourseId));
+        if (selectedExists) {
+            writeDashboardCourseSession(selectedDashboardCourseId);
+            return;
+        }
+
+        const storedCourseId = readDashboardCourseSession();
+        const storedCourse = dashboardCourses.find((course) => String(course.course_id) === String(storedCourseId));
+        const nextCourseId = storedCourse?.course_id || dashboardCourses[0]?.course_id || "";
+        if (nextCourseId) {
+            setSelectedDashboardCourseId(nextCourseId);
+            writeDashboardCourseSession(nextCourseId);
+        }
+    }, [dashboardCourses, selectedDashboardCourseId]);
 
     useEffect(() => {
         let active = true;
@@ -2152,6 +2190,7 @@ const AdminPage = () => {
         const changedCourse = (courseId) => {
             const nextCourse = dashboardCourses.find((course) => String(course.course_id) === String(courseId));
             setSelectedDashboardCourseId(courseId);
+            writeDashboardCourseSession(courseId);
             setSelectedDashboardTopicId(nextCourse?.topics?.[0]?.topic_id || "");
         };
 
