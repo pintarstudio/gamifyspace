@@ -143,7 +143,7 @@ function shuffleChoicesWithAnswer(choices, correctAnswerIndex) {
 
 function normalizeDigest(digest) {
     return {
-        summary: trimWords(digest.summary, 700),
+        summary: trimWords(digest.summary, 800),
         key_concepts: (digest.key_concepts || []).slice(0, 20).map((item) => trimWords(item, 40)),
         common_misconceptions: (digest.common_misconceptions || []).slice(0, 12).map((item) => trimWords(item, 40)),
         important_excerpts: (digest.important_excerpts || []).slice(0, 18).map((item) => trimWords(item, 60)),
@@ -278,7 +278,7 @@ export async function generateMaterialDigest({topicName, materialTitle, contentT
             material_title: materialTitle,
             material_text: contentText,
             digest_limits: {
-                summary: "550 to 700 words",
+                summary: "650 to 800 words",
                 key_concepts: "maximum 20 items, each item 25 to 40 words",
                 common_misconceptions: "maximum 12 items, each item 25 to 40 words",
                 important_excerpts: "maximum 18 items, each item 40 to 60 words",
