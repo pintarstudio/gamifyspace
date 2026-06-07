@@ -86,6 +86,7 @@ export default function ChatLauncher({currentUser}) {
     const lastUnreadRef = useRef(null);
     const toastTimerRef = useRef(null);
     const attentionTimerRef = useRef(null);
+    const joinedRoomIdsRef = useRef(new Set());
 
     const isInstructor = String(currentUser?.role_id) === String(INSTRUCTOR_ROLE_ID);
     const maxLength = bootstrap.max_message_length || 160;
@@ -180,10 +181,13 @@ export default function ChatLauncher({currentUser}) {
     useEffect(() => {
         loadBootstrap();
         const intervalId = window.setInterval(() => loadBootstrap({silent: true}), POLL_MS);
+        const joinedRoomIds = joinedRoomIdsRef.current;
         return () => {
             window.clearInterval(intervalId);
             if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
             if (attentionTimerRef.current) window.clearTimeout(attentionTimerRef.current);
+            joinedRoomIds.forEach((roomId) => socket.emit("chat:leave_room", {room_id: roomId}));
+            joinedRoomIds.clear();
         };
     }, [loadBootstrap]);
 
@@ -222,21 +226,36 @@ export default function ChatLauncher({currentUser}) {
     useEffect(() => {
         if (!currentUser?.user_id || !currentUser?.course_id) return undefined;
 
+        const currentRoomIds = new Set([
+            bootstrap.broadcast?.room?.chat_room_id,
+            ...bootstrap.rooms.map((room) => room.chat_room_id),
+        ].filter(Boolean).map((roomId) => String(roomId)));
+
+        joinedRoomIdsRef.current.forEach((roomId) => {
+            if (!currentRoomIds.has(roomId)) {
+                socket.emit("chat:leave_room", {room_id: roomId});
+                joinedRoomIdsRef.current.delete(roomId);
+            }
+        });
+        currentRoomIds.forEach((roomId) => {
+            if (!joinedRoomIdsRef.current.has(roomId)) {
+                socket.emit("chat:join_room", {room_id: roomId});
+                joinedRoomIdsRef.current.add(roomId);
+            }
+        });
+
         socket.emit("chat:join", {
             user_id: currentUser.user_id,
             course_id: currentUser.course_id,
-            room_ids: [
-                bootstrap.broadcast?.room?.chat_room_id,
-                ...bootstrap.rooms.map((room) => room.chat_room_id),
-            ].filter(Boolean),
+            room_ids: Array.from(currentRoomIds),
         });
-        bootstrap.rooms.forEach((room) => socket.emit("chat:join_room", {room_id: room.chat_room_id}));
 
         const roomLabel = (event) => {
             if (event.room_name) return event.room_name;
             const eventRoomId = event.room_id ? String(event.room_id) : "";
             return bootstrap.rooms.find((room) => String(room.chat_room_id) === eventRoomId)?.room_name || "Group chat";
         };
+        const canSeeGroupRoom = (roomId) => bootstrap.rooms.some((room) => String(room.chat_room_id) === String(roomId));
 
         const notifyForChatEvent = (eventName, event = {}) => {
             if (eventName === "chat:reaction:update") return;
@@ -249,6 +268,7 @@ export default function ChatLauncher({currentUser}) {
                     }
                     return;
                 }
+                if (!canSeeGroupRoom(event.room_id)) return;
                 showToast(`New message in ${roomLabel(event)}`);
                 if (!open || activeTab !== "groups" || String(selectedRoomId) !== String(event.room_id)) {
                     showLauncherAttention("group", "New group chat", event.room_id);
@@ -265,6 +285,7 @@ export default function ChatLauncher({currentUser}) {
                 return;
             }
             if (eventName === "chat:room:left") {
+                if (!canSeeGroupRoom(event.room_id)) return;
                 if (String(event.user_id) !== String(currentUser.user_id)) {
                     showToast(`${event.user_name || "A student"} left ${roomLabel(event)}`);
                 }
@@ -418,6 +439,7 @@ export default function ChatLauncher({currentUser}) {
             return;
         }
         socket.emit("chat:leave_room", {room_id: roomId});
+        joinedRoomIdsRef.current.delete(String(roomId));
         setConfirmLeaveRoomId(null);
         setCreatingRoom(false);
         setInvitePanelOpen(false);
@@ -676,6 +698,10 @@ export default function ChatLauncher({currentUser}) {
 
             <div className="chat-room-thread">
                 {selectedRoom ? (
+                    (() => {
+                        const activeMemberCount = Number(roomData?.members?.length || selectedRoom.member_count || 0);
+                        const canSendGroupMessage = !isInstructor && activeMemberCount > 1;
+                        return (
                     <>
                         <div className="chat-room-thread__header">
                             <div>
@@ -683,12 +709,12 @@ export default function ChatLauncher({currentUser}) {
                                 <span>
                                     {isInstructor
                                         ? `${selectedRoom.course_group_name || "Group"} inspection`
-                                        : `${roomData?.members?.length || selectedRoom.member_count || 0} members`}
+                                        : `${activeMemberCount} members`}
                                 </span>
                             </div>
                             {!isInstructor && (
                                 <div className="chat-room-actions">
-                                    {bootstrap.available_students.length > 0 && (
+                                    {canSendGroupMessage && bootstrap.available_students.length > 0 && (
                                         <button
                                             className="chat-invite-room"
                                             type="button"
@@ -738,7 +764,13 @@ export default function ChatLauncher({currentUser}) {
                             </div>
                         )}
                         {renderMessages(roomData?.messages || [], {readOnly: isInstructor, allowReactions: false})}
-                        {!isInstructor && (
+                        {!isInstructor && !canSendGroupMessage && (
+                            <div className="chat-room-locked" role="status">
+                                <strong>Only you are left in this group chat.</strong>
+                                <span>You can no longer send messages. Please leave this group chat.</span>
+                            </div>
+                        )}
+                        {canSendGroupMessage && (
                             <div className="chat-composer">
                                 <textarea
                                     maxLength={maxLength}
@@ -773,6 +805,8 @@ export default function ChatLauncher({currentUser}) {
                             </div>
                         )}
                     </>
+                        );
+                    })()
                 ) : (
                     <p className="chat-empty">Select a chat.</p>
                 )}

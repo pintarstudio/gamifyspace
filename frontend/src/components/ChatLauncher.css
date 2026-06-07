@@ -753,6 +753,27 @@
     color: #ffffff;
 }
 
+.chat-room-locked {
+    background: #fff7ed;
+    border: 1px solid #fed7aa;
+    border-radius: 8px;
+    color: #7c2d12;
+    display: grid;
+    gap: 4px;
+    padding: 10px;
+}
+
+.chat-room-locked strong {
+    font-size: 13px;
+    font-weight: 900;
+}
+
+.chat-room-locked span {
+    font-size: 12px;
+    font-weight: 800;
+    line-height: 1.35;
+}
+
 .chat-create label {
     display: grid;
     gap: 6px;

@@ -900,6 +900,19 @@ export async function addMessageToRoom(user, roomId, messageText) {
         error.status = 403;
         throw error;
     }
+    if (room.room_type === "group" && assertStudent(user)) {
+        const membersResult = await pool.query(
+            `SELECT COUNT(*)::int AS member_count
+             FROM chat_room_members
+             WHERE chat_room_id = $1`,
+            [room.chat_room_id]
+        );
+        if ((membersResult.rows[0]?.member_count || 0) < 2) {
+            const error = new Error("This group chat has only one member left. Please leave the group chat.");
+            error.status = 409;
+            throw error;
+        }
+    }
 
     const text = normalizeText(messageText);
     if (!text) {

@@ -429,7 +429,7 @@ const NoVirtualSpacePage = ({user, setLoggedIn, setUser}) => {
                             </div>
                             <div>
                                 <strong>{item.name}</strong>
-                                <span>{item.quizzes_count} quizzes</span>
+                                <span>{item.group_name || "No group"} · {item.quizzes_count} quizzes</span>
                             </div>
                             <b>{item.total_quiz_score} pts</b>
                         </article>

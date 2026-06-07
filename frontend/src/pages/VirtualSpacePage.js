@@ -770,7 +770,7 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
                                 <AvatarIcon path={item.avatar_public_path} alt={item.name} />
                                 <div>
                                     <strong>{item.name}</strong>
-                                    <span>{item.quizzes_count} quizzes</span>
+                                    <span>{item.group_name || "No group"} · {item.quizzes_count} quizzes</span>
                                 </div>
                                 <b>{item.total_quiz_score} pts</b>
                             </article>

@@ -28,10 +28,21 @@ async function createGamificationTables() {
             color_hex TEXT NOT NULL,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            CHECK (level_id BETWEEN 1 AND 5),
+            CHECK (level_id BETWEEN 1 AND 10),
             CHECK (min_xp >= 0),
             CHECK (max_xp IS NULL OR max_xp >= min_xp)
         )
+    `);
+
+    await pool.query(`
+        ALTER TABLE gamification_levels
+        DROP CONSTRAINT IF EXISTS gamification_levels_level_id_check
+    `);
+
+    await pool.query(`
+        ALTER TABLE gamification_levels
+        ADD CONSTRAINT gamification_levels_level_id_check
+        CHECK (level_id BETWEEN 1 AND 10)
     `);
 
     await pool.query(
@@ -41,7 +52,12 @@ async function createGamificationTables() {
              (2, 'Explorer', 100, 249, '#2F7197'),
              (3, 'Achiever', 250, 499, '#2D6A4F'),
              (4, 'Strategist', 500, 899, '#8A4F08'),
-             (5, 'Mastermind', 900, NULL, '#A03C53')
+             (5, 'Mastermind', 900, 2499, '#A03C53'),
+             (6, 'Specialist', 2500, 4999, '#7C3AED'),
+             (7, 'Innovator', 5000, 8499, '#0F766E'),
+             (8, 'Expert', 8500, 12999, '#C2410C'),
+             (9, 'Grandmaster', 13000, 17999, '#B45309'),
+             (10, 'Legend', 18000, NULL, '#111827')
          ON CONFLICT (level_id)
          DO UPDATE SET
              level_name = EXCLUDED.level_name,

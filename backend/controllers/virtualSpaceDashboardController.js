@@ -216,6 +216,7 @@ export async function getVirtualSpaceDashboard(req, res) {
                 `SELECT
                      u.user_id,
                      u.name,
+                     cg.group_name,
                      a.avatar_public_path,
                      COALESCE(quiz_scores.total_quiz_score, 0)::int AS total_quiz_score,
                      COALESCE(quiz_scores.quizzes_count, 0)::int AS quizzes_count
