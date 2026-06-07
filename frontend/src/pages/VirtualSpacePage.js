@@ -2,9 +2,12 @@
 import React, {useCallback, useEffect, useMemo, useState} from "react";
 import {useNavigate} from "react-router-dom";
 import {apiGet, apiPost} from "../api/apiClient";
+import ActivityBaselineCard from "../components/ActivityBaselineCard";
+import ActivityHistoryList from "../components/ActivityHistoryList";
 import AvatarIcon from "../components/AvatarIcon";
 import ChatLauncher from "../components/ChatLauncher";
 import DashboardTabIcon from "../components/DashboardTabIcon";
+import TopicProgressCard from "../components/TopicProgressCard";
 import VirtualSpacePixi from "../components/VirtualSpacePixi";
 import UserHUD from "../components/UserHUD";
 import IndividualActivityPage from "./IndividualActivityPage";
@@ -30,13 +33,6 @@ const quizOutcome = (activity, score) => {
     if (!winner) return "";
     if (winner.is_tie) return "Tie";
     return String(winner.user_id) === String(score.user_id) ? "Winner" : "Lose";
-};
-
-const activityQuizOutcomeLabel = (outcome) => {
-    if (outcome === "win") return "Win";
-    if (outcome === "lose") return "Lose";
-    if (outcome === "tie") return "Tie";
-    return "";
 };
 
 const individualActivityLabel = (activity) => {
@@ -88,6 +84,7 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
     const [detailLoading, setDetailLoading] = useState(false);
     const [retryingHistoryFeedback, setRetryingHistoryFeedback] = useState(false);
     const [activeDashboardTab, setActiveDashboardTab] = useState(null);
+    const [selectedDashboardTopicId, setSelectedDashboardTopicId] = useState("");
     const [expandedLeaderboardGroups, setExpandedLeaderboardGroups] = useState({});
     const [showOrientationTutorial, setShowOrientationTutorial] = useState(false);
     const [orientationTutorialStep, setOrientationTutorialStep] = useState(0);
@@ -116,9 +113,13 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
 
         let active = true;
         const loadDashboard = () => {
-            apiGet("/virtualspace/dashboard").then((data) => {
+            const query = selectedDashboardTopicId ? `?topic_id=${encodeURIComponent(selectedDashboardTopicId)}` : "";
+            apiGet(`/virtualspace/dashboard${query}`).then((data) => {
                 if (!active) return;
                 setDashboard(data);
+                if (!selectedDashboardTopicId && data.active_topic?.topic_id) {
+                    setSelectedDashboardTopicId(String(data.active_topic.topic_id));
+                }
                 if (data.user) {
                     const nextUser = {...currentUser, ...data.user};
                     setCurrentUser(nextUser);
@@ -135,7 +136,7 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
             window.clearInterval(intervalId);
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [currentUser?.user_id, isInstructor]);
+    }, [currentUser?.user_id, isInstructor, selectedDashboardTopicId]);
 
     useEffect(() => {
         if (!currentUser || isInstructor) return;
@@ -479,9 +480,21 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
     const quizLeaderboard = dashboard?.quiz_leaderboard || [];
     const individualLeaderboard = dashboard?.individual_leaderboard || [];
     const individualActivities = dashboard?.individual_activities || [];
+    const sortedIndividualActivities = [...individualActivities].sort((a, b) => {
+        const rank = (activity) => {
+            if (activity.individual_activity_type === "pre_test") return 0;
+            if (activity.individual_activity_type === "post_test") return 1;
+            return 2;
+        };
+        const rankDiff = rank(a) - rank(b);
+        if (rankDiff !== 0) return rankDiff;
+        return new Date(b.submitted_at || 0) - new Date(a.submitted_at || 0);
+    });
     const groupActivities = dashboard?.group_activities || [];
     const groupCaseActivities = groupActivities.filter((activity) => activity.activity_type !== "quiz");
-    const quizActivities = groupActivities.filter((activity) => activity.activity_type === "quiz");
+    const quizActivities = dashboard?.quiz_activities || groupActivities.filter((activity) => activity.activity_type === "quiz");
+    const activeDashboardTopic = dashboard?.active_topic || null;
+    const dashboardTopics = dashboard?.dashboard_topics || [];
     const visibleTabs = [
         ...(showGameLayer ? [{id: "leaderboard", label: "Leaderboard", caption: "Peringkat"}] : []),
         {id: "individual", label: "Individual", caption: "Riwayat pribadi"},
@@ -492,8 +505,8 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
         ? activeDashboardTab
         : (showGameLayer ? "leaderboard" : "individual");
     const dashboardHistoryIntro = showGameLayer
-        ? "Buka tab di bawah untuk melihat leaderboard dan riwayat aktivitas yang sudah kamu kerjakan."
-        : "Buka tab di bawah untuk melihat riwayat aktivitas yang sudah kamu kerjakan.";
+        ? "Data di bawah hanya berlaku untuk topik yang sedang dipilih. Buka tab untuk melihat leaderboard dan riwayat aktivitas pada topik ini."
+        : "Data di bawah hanya berlaku untuk topik yang sedang dipilih. Buka tab untuk melihat riwayat aktivitas pada topik ini.";
     const instructorMonitor = instructorDashboard?.monitor || {};
     const instructorSummary = instructorMonitor.summary || instructorDashboard?.summary || {};
     const instructorGroups = instructorMonitor.groups || instructorDashboard?.groups || [];
@@ -644,53 +657,12 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
     );
 
     const renderActivityList = (activities, emptyText) => (
-        <div className="activity-list">
-            {activities.length > 0 ? (
-                activities.map((activity) => (
-                    <button
-                        className={[
-                            "activity-card",
-                            activity.activity_type === "individual"
-                                && ["pre_test", "post_test"].includes(activity.individual_activity_type)
-                                ? "activity-card--assessment"
-                                : "",
-                            activity.activity_type === "quiz" && activity.quiz_outcome
-                                ? `activity-card--quiz-outcome activity-card--quiz-outcome-${activity.quiz_outcome}`
-                                : "",
-                        ].filter(Boolean).join(" ")}
-                        key={activity.activity_key || activity.session_id}
-                        onClick={() => openActivity(activity)}
-                        type="button"
-                    >
-                        <strong>{activity.activity_name}</strong>
-                        <span>{activity.topic_name || "Topic"} · {activity.case_title}</span>
-                        {showGameLayer && (
-                            <small>
-                                {activity.activity_type === "individual"
-                                    ? (activity.individual_activity_type === "exercise"
-                                        ? `${activity.my_xp || activity.xp_total || 0} individual XP`
-                                        : `${activity.score_total || 0}/100 score`)
-                                    : activity.activity_type === "quiz"
-                                        ? `${activity.quiz_points || 0} pts`
-                                    : `${activity.group_xp || 0} group XP`}
-                            </small>
-                        )}
-                        {activity.activity_type === "individual" && (
-                            <small>
-                                Waktu digunakan {formatSeconds(activity.seconds_spent)} · Sisa {formatSeconds(activity.seconds_left)}
-                            </small>
-                        )}
-                        {activity.activity_type === "quiz" && activity.quiz_outcome && (
-                            <small className={`activity-card__quiz-outcome activity-card__quiz-outcome--${activity.quiz_outcome}`}>
-                                vs {activity.quiz_competitor_name || "Competitor"} · {activityQuizOutcomeLabel(activity.quiz_outcome)}
-                            </small>
-                        )}
-                    </button>
-                ))
-            ) : (
-                <p className="panel-empty">{emptyText}</p>
-            )}
-        </div>
+        <ActivityHistoryList
+            activities={activities}
+            emptyText={emptyText}
+            showGameLayer={showGameLayer}
+            onOpen={openActivity}
+        />
     );
 
     const toggleLeaderboardGroup = (courseGroupId) => {
@@ -828,6 +800,15 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
             </main>
 
             <aside className="virtual-sidebar" aria-label="Activity dashboard">
+                {!isInstructor && (
+                    <TopicProgressCard
+                        activeTopic={activeDashboardTopic}
+                        topics={dashboardTopics}
+                        selectedTopicId={selectedDashboardTopicId}
+                        onChange={setSelectedDashboardTopicId}
+                        courseName={currentUser.course_name || "Course"}
+                    />
+                )}
                 <UserHUD
                     currentUser={currentUser}
                     handleLogout={handleLogout}
@@ -841,6 +822,11 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
                         <strong>Riwayat aktivitas kamu</strong>
                         <span>{dashboardHistoryIntro}</span>
                     </div>
+                    <ActivityBaselineCard
+                        individualActivities={individualActivities}
+                        groupActivities={groupCaseActivities}
+                        quizActivities={quizActivities}
+                    />
                     <div className="dashboard-tabs" role="tablist" aria-label="Dashboard sections">
                         {visibleTabs.map((tab) => (
                             <button
@@ -880,7 +866,7 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
                                 <span>{individualActivities.length}</span>
                             </div>
                             <p className="dashboard-tab-copy">{dashboardTabCopy.individual}</p>
-                            {renderActivityList(individualActivities, "No individual activities yet.")}
+                            {renderActivityList(sortedIndividualActivities, "No individual activities yet.")}
                         </div>
                     )}
 

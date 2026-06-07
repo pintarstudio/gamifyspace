@@ -280,6 +280,9 @@ async function ensureTopicAdminSchema() {
                 ADD COLUMN IF NOT EXISTS show_topic BOOLEAN NOT NULL DEFAULT TRUE;
 
                 ALTER TABLE topics
+                ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+
+                ALTER TABLE topics
                 ADD COLUMN IF NOT EXISTS show_pre_test BOOLEAN NOT NULL DEFAULT TRUE;
 
                 ALTER TABLE topics
@@ -535,6 +538,7 @@ export async function listAdminResource(resource) {
                  t.topic_name,
                  t.week,
                  t.show_topic,
+                 t.is_active,
                  t.pre_test_start_at,
                  t.pre_test_end_at,
                  t.post_test_start_at,
@@ -746,19 +750,21 @@ export async function createAdminResource(resource, payload) {
                  topic_name,
                  week,
                  show_topic,
+                 is_active,
                  pre_test_start_at,
                  pre_test_end_at,
                  post_test_start_at,
                  post_test_end_at,
                  updated_at
              )
-             VALUES ($1, $2, $3, $4, $5::timestamptz, $6::timestamptz, $7::timestamptz, $8::timestamptz, NOW())
+             VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7::timestamptz, $8::timestamptz, $9::timestamptz, NOW())
              RETURNING topic_id`,
             [
                 nullableInteger(payload.course_id),
                 nullableText(payload.topic_name),
                 nullableInteger(payload.week),
                 booleanValue(payload.show_topic),
+                booleanValue(payload.is_active),
                 nullableTimestamp(payload.pre_test_start_at),
                 nullableTimestamp(payload.pre_test_end_at),
                 nullableTimestamp(payload.post_test_start_at),
@@ -947,10 +953,11 @@ export async function updateAdminResource(resource, id, payload) {
                  topic_name = $3,
                  week = $4,
                  show_topic = $5,
-                 pre_test_start_at = $6::timestamptz,
-                 pre_test_end_at = $7::timestamptz,
-                 post_test_start_at = $8::timestamptz,
-                 post_test_end_at = $9::timestamptz,
+                 is_active = $6,
+                 pre_test_start_at = $7::timestamptz,
+                 pre_test_end_at = $8::timestamptz,
+                 post_test_start_at = $9::timestamptz,
+                 post_test_end_at = $10::timestamptz,
                  updated_at = NOW()
              WHERE topic_id = $1
                AND deleted_at IS NULL
@@ -961,6 +968,7 @@ export async function updateAdminResource(resource, id, payload) {
                 nullableText(payload.topic_name),
                 nullableInteger(payload.week),
                 booleanValue(payload.show_topic),
+                booleanValue(payload.is_active),
                 nullableTimestamp(payload.pre_test_start_at),
                 nullableTimestamp(payload.pre_test_end_at),
                 nullableTimestamp(payload.post_test_start_at),

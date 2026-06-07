@@ -67,6 +67,42 @@ function buildQuizCardOutcome(activity, user) {
     };
 }
 
+async function ensureDashboardTopicSchema() {
+    await pool.query(`ALTER TABLE topics ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE`);
+}
+
+async function getDashboardTopics(courseId) {
+    await ensureDashboardTopicSchema();
+    const result = await pool.query(
+        `SELECT
+             topic_id,
+             topic_name,
+             week,
+             COALESCE(is_active, TRUE) AS is_active
+         FROM topics
+         WHERE course_id = $1
+           AND deleted_at IS NULL
+           AND COALESCE(show_topic, TRUE) = TRUE
+         ORDER BY
+             CASE WHEN COALESCE(is_active, TRUE) THEN 0 ELSE 1 END ASC,
+             week DESC NULLS LAST,
+             topic_id DESC`,
+        [courseId]
+    );
+    return result.rows;
+}
+
+async function getDashboardTopic(courseId, selectedTopicId = null) {
+    const topics = await getDashboardTopics(courseId);
+    const selected = selectedTopicId
+        ? topics.find((topic) => String(topic.topic_id) === String(selectedTopicId))
+        : null;
+    return {
+        topic: selected || topics[0] || null,
+        topics,
+    };
+}
+
 export async function getVirtualSpaceDashboard(req, res) {
     try {
         await ensureGamificationTables();
@@ -74,6 +110,12 @@ export async function getVirtualSpaceDashboard(req, res) {
         await ensureIndividualActivityTables();
         const user = await getAuthenticatedUser(req, res);
         if (!user) return;
+        const requestedTopicId = Number.parseInt(req.query?.topic_id, 10);
+        const {topic: activeTopic, topics: dashboardTopics} = await getDashboardTopic(
+            user.course_id,
+            Number.isFinite(requestedTopicId) ? requestedTopicId : null
+        );
+        const activeTopicId = activeTopic?.topic_id || null;
 
         const [
             summaryResult,
@@ -104,40 +146,55 @@ export async function getVirtualSpaceDashboard(req, res) {
                   AND gus.activity_id = s.session_id
                   AND gus.user_id = $1
                  WHERE m.user_id = $1
-                   AND s.submitted_at IS NOT NULL`,
-                [user.user_id]
+                   AND s.submitted_at IS NOT NULL
+                   AND s.topic_id = $2`,
+                [user.user_id, activeTopicId]
             ),
             pool.query(
                 `SELECT COUNT(DISTINCT qs.quiz_session_id)::int AS completed_quizzes
                  FROM quiz_sessions qs
                  JOIN quiz_members qm
-                   ON qm.quiz_session_id = qs.quiz_session_id
-                  AND qm.user_id = $1
-                 WHERE qs.status = 'saved'`,
-                [user.user_id]
+                  ON qm.quiz_session_id = qs.quiz_session_id
+                 AND qm.user_id = $1
+                 WHERE qs.status = 'saved'
+                   AND qs.topic_id = $2`,
+                [user.user_id, activeTopicId]
             ),
             pool.query(
                 `SELECT COUNT(*)::int AS completed_individual_activities
                  FROM individual_activity_sessions
                  WHERE user_id = $1
-                   AND status = 'completed'`,
-                [user.user_id]
+                   AND status = 'completed'
+                   AND topic_id = $2`,
+                [user.user_id, activeTopicId]
             ),
             pool.query(
-                `SELECT COALESCE(SUM(xp_earned), 0)::int AS total_individual_exercise_xp
-                 FROM gamification_user_scores
-                 WHERE activity_type = 'individual_exercise'
-                   AND user_id = $1
-                   AND course_id = $2`,
-                [user.user_id, user.course_id]
+                `SELECT COALESCE(SUM(gus.xp_earned), 0)::int AS total_individual_exercise_xp
+                 FROM gamification_user_scores gus
+                 JOIN individual_activity_sessions ias
+                   ON ias.session_id = gus.activity_id
+                  AND ias.user_id = gus.user_id
+                  AND ias.course_id = gus.course_id
+                 WHERE gus.activity_type = 'individual_exercise'
+                   AND gus.user_id = $1
+                   AND gus.course_id = $2
+                   AND ias.status = 'completed'
+                   AND ias.topic_id = $3`,
+                [user.user_id, user.course_id, activeTopicId]
             ),
             pool.query(
                 `WITH total AS (
-                     SELECT COALESCE(SUM(xp_earned), 0)::int AS total_xp
-                     FROM gamification_user_scores
-                     WHERE activity_type = 'individual_exercise'
-                       AND user_id = $1
-                       AND course_id = $2
+                     SELECT COALESCE(SUM(gus.xp_earned), 0)::int AS total_xp
+                     FROM gamification_user_scores gus
+                     JOIN individual_activity_sessions ias
+                       ON ias.session_id = gus.activity_id
+                      AND ias.user_id = gus.user_id
+                      AND ias.course_id = gus.course_id
+                     WHERE gus.activity_type = 'individual_exercise'
+                       AND gus.user_id = $1
+                       AND gus.course_id = $2
+                       AND ias.status = 'completed'
+                       AND ias.topic_id = $3
                  )
                  SELECT
                      gl.level_id,
@@ -155,7 +212,7 @@ export async function getVirtualSpaceDashboard(req, res) {
                    ON next_level.level_id = gl.level_id + 1
                  ORDER BY gl.level_id DESC
                  LIMIT 1`,
-                [user.user_id, user.course_id]
+                [user.user_id, user.course_id, activeTopicId]
             ),
             pool.query(
                 `WITH student_scores AS (
@@ -164,8 +221,10 @@ export async function getVirtualSpaceDashboard(req, res) {
                          u.name,
                          u.course_group_id,
                          a.avatar_public_path,
-                         COALESCE(SUM(gus.xp_earned), 0)::int AS total_xp,
-                         COUNT(DISTINCT gus.activity_id)::int AS activities_count
+                         COALESCE(SUM(
+                             CASE WHEN score_session.session_id IS NOT NULL THEN gus.xp_earned ELSE 0 END
+                         ), 0)::int AS total_xp,
+                         COUNT(DISTINCT score_session.session_id)::int AS activities_count
                      FROM users u
                      LEFT JOIN sessions latest_session
                        ON latest_session.user_id = u.user_id
@@ -179,6 +238,11 @@ export async function getVirtualSpaceDashboard(req, res) {
                        ON gus.user_id = u.user_id
                       AND gus.course_id = $1
                       AND gus.activity_type = 'table_case_study'
+                     LEFT JOIN table_group_sessions score_session
+                       ON score_session.session_id = gus.activity_id
+                      AND score_session.course_id = gus.course_id
+                      AND score_session.topic_id = $2
+                      AND score_session.submitted_at IS NOT NULL
                      WHERE u.course_id = $1
                        AND u.deleted_at IS NULL
                      GROUP BY u.user_id, u.name, u.course_group_id, a.avatar_public_path
@@ -210,7 +274,7 @@ export async function getVirtualSpaceDashboard(req, res) {
                    AND cg.gamification_enabled = TRUE
                  GROUP BY cg.course_group_id, cg.group_name
                  ORDER BY total_group_xp DESC, activities_count DESC, cg.group_name ASC`,
-                [user.course_id]
+                [user.course_id, activeTopicId]
             ),
             pool.query(
                 `SELECT
@@ -245,6 +309,7 @@ export async function getVirtualSpaceDashboard(req, res) {
                      ) AS score(value)
                      WHERE qs.course_id = $1
                        AND qs.status = 'saved'
+                       AND qs.topic_id = $2
                        AND (score.value->>'user_id')::int = u.user_id
                  ) quiz_scores ON TRUE
                  JOIN course_groups cg
@@ -255,7 +320,7 @@ export async function getVirtualSpaceDashboard(req, res) {
                    AND u.deleted_at IS NULL
                  ORDER BY total_quiz_score DESC, quizzes_count DESC, u.name ASC
                  LIMIT 10`,
-                [user.course_id]
+                [user.course_id, activeTopicId]
             ),
             pool.query(
                 `WITH individual_scores AS (
@@ -264,8 +329,10 @@ export async function getVirtualSpaceDashboard(req, res) {
                          u.name,
                          cg.group_name,
                          a.avatar_public_path,
-                         COALESCE(SUM(gus.xp_earned), 0)::int AS total_xp,
-                         COUNT(DISTINCT gus.activity_id)::int AS activities_count
+                         COALESCE(SUM(
+                             CASE WHEN score_session.session_id IS NOT NULL THEN gus.xp_earned ELSE 0 END
+                         ), 0)::int AS total_xp,
+                         COUNT(DISTINCT score_session.session_id)::int AS activities_count
                      FROM users u
                      LEFT JOIN sessions latest_session
                        ON latest_session.user_id = u.user_id
@@ -279,6 +346,12 @@ export async function getVirtualSpaceDashboard(req, res) {
                        ON gus.user_id = u.user_id
                       AND gus.course_id = $1
                       AND gus.activity_type = 'individual_exercise'
+                     LEFT JOIN individual_activity_sessions score_session
+                       ON score_session.session_id = gus.activity_id
+                      AND score_session.user_id = gus.user_id
+                      AND score_session.course_id = gus.course_id
+                      AND score_session.status = 'completed'
+                      AND score_session.topic_id = $2
                      JOIN course_groups cg
                        ON cg.course_group_id = u.course_group_id
                       AND cg.deleted_at IS NULL
@@ -305,7 +378,7 @@ export async function getVirtualSpaceDashboard(req, res) {
                           individual_scores.activities_count DESC,
                           individual_scores.name ASC
                  LIMIT 10`,
-                [user.course_id]
+                [user.course_id, activeTopicId]
             ),
             pool.query(
                 `SELECT
@@ -316,6 +389,8 @@ export async function getVirtualSpaceDashboard(req, res) {
                      s.topic_id,
                      t.topic_name,
                      COALESCE(tc.case_title, s.case_title) AS case_title,
+                     s.created_at,
+                     s.work_started_at,
                      s.submitted_at,
                      s.feedback_status,
                      COALESCE(ggs.xp_total, 0)::int AS group_xp,
@@ -338,6 +413,7 @@ export async function getVirtualSpaceDashboard(req, res) {
                   AND gus.activity_id = s.session_id
                   AND gus.user_id = $1
                  WHERE s.submitted_at IS NOT NULL
+                   AND s.topic_id = $2
                  GROUP BY
                      s.session_id,
                      s.group_id,
@@ -345,13 +421,15 @@ export async function getVirtualSpaceDashboard(req, res) {
                      t.topic_name,
                      tc.case_title,
                      s.case_title,
+                     s.created_at,
+                     s.work_started_at,
                      s.submitted_at,
                      s.feedback_status,
                      ggs.xp_total,
                      gus.xp_earned
                  ORDER BY s.submitted_at DESC
-                LIMIT 12`,
-                [user.user_id]
+                `,
+                [user.user_id, activeTopicId]
             ),
             pool.query(
                 `SELECT
@@ -362,6 +440,7 @@ export async function getVirtualSpaceDashboard(req, res) {
                      qs.topic_id,
                      t.topic_name,
                      CONCAT('Quiz: ', COALESCE(t.topic_name, 'Topic')) AS case_title,
+                     qs.created_at,
                      qs.saved_at AS submitted_at,
                      'ready' AS feedback_status,
                      0::int AS group_xp,
@@ -398,16 +477,18 @@ export async function getVirtualSpaceDashboard(req, res) {
                  LEFT JOIN topics t ON t.topic_id = qs.topic_id
                  LEFT JOIN quiz_session_results qsr ON qsr.quiz_session_id = qs.quiz_session_id
                  WHERE qs.status = 'saved'
+                   AND qs.topic_id = $2
                  GROUP BY
                      qs.quiz_session_id,
                      qs.group_id,
                      qs.topic_id,
                      t.topic_name,
+                     qs.created_at,
                      qs.saved_at,
                      qsr.results_json
                  ORDER BY qs.saved_at DESC
-                 LIMIT 12`,
-                [user.user_id]
+                `,
+                [user.user_id, activeTopicId]
             ),
             pool.query(
                 `SELECT
@@ -431,6 +512,7 @@ export async function getVirtualSpaceDashboard(req, res) {
                          WHEN ias.question_kind = 'case_study' THEN CONCAT('Case Study: ', COALESCE(t.topic_name, 'Topic'))
                          ELSE CONCAT('Exercise: ', COALESCE(t.topic_name, 'Topic'))
                      END AS case_title,
+                     ias.started_at AS created_at,
                      ias.completed_at AS submitted_at,
                      'ready' AS feedback_status,
                      0::int AS group_xp,
@@ -449,23 +531,22 @@ export async function getVirtualSpaceDashboard(req, res) {
                  WHERE ias.user_id = $1
                    AND ias.course_id = $2
                    AND ias.status = 'completed'
+                   AND ias.topic_id = $3
                  ORDER BY ias.completed_at DESC
-                 LIMIT 12`,
-                [user.user_id, user.course_id]
+                `,
+                [user.user_id, user.course_id, activeTopicId]
             ),
         ]);
 
-        const groupActivities = [
-            ...activitiesResult.rows.map((activity) => ({
-                ...activity,
-                activity_name: `Group ${activity.group_id} Activity`,
-            })),
-            ...quizActivitiesResult.rows.map((activity) => ({
-                ...activity,
-                activity_name: "Big Table Quiz",
-                ...buildQuizCardOutcome(activity, user),
-            })),
-        ].sort((a, b) => new Date(b.submitted_at || 0) - new Date(a.submitted_at || 0)).slice(0, 12);
+        const groupActivities = activitiesResult.rows.map((activity) => ({
+            ...activity,
+            activity_name: `Group ${activity.group_id} Activity`,
+        }));
+        const quizActivities = quizActivitiesResult.rows.map((activity) => ({
+            ...activity,
+            activity_name: "Big Table Quiz",
+            ...buildQuizCardOutcome(activity, user),
+        }));
         const individualActivities = individualActivitiesResult.rows;
 
         const hud = summaryResult.rows[0] || {
@@ -512,15 +593,23 @@ export async function getVirtualSpaceDashboard(req, res) {
                 gamification_enabled: !!user.gamification_enabled,
                 use_no_virtual_space: !!user.use_no_virtual_space,
             },
+            active_topic: activeTopic ? {
+                topic_id: activeTopic.topic_id,
+                topic_name: activeTopic.topic_name,
+                week: activeTopic.week,
+                is_active: !!activeTopic.is_active,
+            } : null,
+            dashboard_topics: dashboardTopics,
             hud,
             leaderboard: leaderboardResult.rows,
             quiz_leaderboard: quizLeaderboardResult.rows,
             individual_leaderboard: individualLeaderboardResult.rows,
-            activities: [...individualActivities, ...groupActivities]
+            activities: [...individualActivities, ...groupActivities, ...quizActivities]
                 .sort((a, b) => new Date(b.submitted_at || 0) - new Date(a.submitted_at || 0))
                 .slice(0, 12),
             individual_activities: individualActivities,
             group_activities: groupActivities,
+            quiz_activities: quizActivities,
         });
     } catch (error) {
         console.error("Virtual space dashboard error:", error);

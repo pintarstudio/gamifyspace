@@ -37,6 +37,7 @@ async function ensureTopicVisibilityColumns() {
     if (columns.length === 0) return [];
 
     await pool.query(`ALTER TABLE topics ADD COLUMN IF NOT EXISTS show_topic BOOLEAN NOT NULL DEFAULT TRUE`);
+    await pool.query(`ALTER TABLE topics ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE`);
     await pool.query(`ALTER TABLE topics ADD COLUMN IF NOT EXISTS show_pre_test BOOLEAN NOT NULL DEFAULT TRUE`);
     await pool.query(`ALTER TABLE topics ADD COLUMN IF NOT EXISTS show_post_test BOOLEAN NOT NULL DEFAULT TRUE`);
     await pool.query(`ALTER TABLE topics ADD COLUMN IF NOT EXISTS pre_test_start_at TIMESTAMPTZ`);
@@ -62,6 +63,7 @@ async function ensureTopicVisibilityColumns() {
     return Array.from(new Set([
         ...columns,
         "show_topic",
+        "is_active",
         "show_pre_test",
         "show_post_test",
         "pre_test_start_at",
@@ -237,6 +239,7 @@ export async function getTopicsForCourse(courseId, options = {}) {
         selectColumns.push(`NULL AS topic_description`);
     }
     selectColumns.push(`COALESCE(show_topic, TRUE) AS show_topic`);
+    selectColumns.push(`COALESCE(is_active, TRUE) AS is_active`);
     selectColumns.push(`COALESCE(show_pre_test, TRUE) AS show_pre_test`);
     selectColumns.push(`COALESCE(show_post_test, TRUE) AS show_post_test`);
     selectColumns.push(`pre_test_start_at`);
