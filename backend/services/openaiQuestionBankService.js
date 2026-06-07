@@ -9,22 +9,22 @@ const materialDigestSchema = {
         summary: {type: "string"},
         key_concepts: {
             type: "array",
-            maxItems: 15,
+            maxItems: 20,
             items: {type: "string"},
         },
         common_misconceptions: {
             type: "array",
-            maxItems: 10,
+            maxItems: 12,
             items: {type: "string"},
         },
         important_excerpts: {
             type: "array",
-            maxItems: 10,
+            maxItems: 18,
             items: {type: "string"},
         },
         question_targets: {
             type: "array",
-            maxItems: 15,
+            maxItems: 20,
             items: {type: "string"},
         },
     },
