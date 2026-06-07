@@ -1744,11 +1744,18 @@ const AdminPage = () => {
         event.preventDefault();
         setBusy(true);
         setMessage("Generating question drafts from saved digest/material...");
-        const data = await apiPost("/admin/question-bank/generate", questionSettings);
-        if (data.message) setMessage(data.message);
-        setDrafts(data.items || []);
-        setDraftMeta(data.items ? data : null);
-        setBusy(false);
+        try {
+            const data = await apiPost("/admin/question-bank/generate", questionSettings);
+            if (data.message) setMessage(data.message);
+            setDrafts(data.items || []);
+            setDraftMeta(data.items ? data : null);
+        } catch (error) {
+            setMessage("Gagal membuat draft question. Koneksi server terputus atau proses terlalu lama.");
+            setDrafts([]);
+            setDraftMeta(null);
+        } finally {
+            setBusy(false);
+        }
     };
 
     const getBankQuestionType = () => {
