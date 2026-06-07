@@ -4,6 +4,8 @@ import {apiDelete, apiGet, apiPatch, apiPost} from "../api/apiClient";
 import "./AdminPage.css";
 
 const DASHBOARD_COURSE_SESSION_KEY = "gamifyit:selectedInstructorDashboardCourseId";
+const QUESTION_BANK_TOPIC_SESSION_KEY = "gamifyit:questionBankTopicId";
+const BANK_FILTER_SESSION_PREFIX = "gamifyit:bankFilters:";
 
 function readDashboardCourseSession() {
     if (typeof window === "undefined") return "";
@@ -21,6 +23,56 @@ function writeDashboardCourseSession(courseId) {
         else window.sessionStorage.removeItem(DASHBOARD_COURSE_SESSION_KEY);
     } catch {
         // Ignore storage failures so dashboard selection still works normally.
+    }
+}
+
+function readSessionValue(key) {
+    if (typeof window === "undefined") return "";
+    try {
+        return window.sessionStorage.getItem(key) || "";
+    } catch {
+        return "";
+    }
+}
+
+function writeSessionValue(key, value) {
+    if (typeof window === "undefined") return;
+    try {
+        if (value) window.sessionStorage.setItem(key, String(value));
+        else window.sessionStorage.removeItem(key);
+    } catch {
+        // Ignore storage failures so filters still work during the current session.
+    }
+}
+
+function readBankFiltersSession(bankType = "") {
+    if (!bankType || typeof window === "undefined") {
+        return {course_id: "", topic_id: "", activity_type: "", question_kind: ""};
+    }
+    try {
+        const parsed = JSON.parse(window.sessionStorage.getItem(`${BANK_FILTER_SESSION_PREFIX}${bankType}`) || "{}");
+        return {
+            course_id: parsed.course_id || "",
+            topic_id: parsed.topic_id || "",
+            activity_type: parsed.activity_type || "",
+            question_kind: parsed.question_kind || "",
+        };
+    } catch {
+        return {course_id: "", topic_id: "", activity_type: "", question_kind: ""};
+    }
+}
+
+function writeBankFiltersSession(bankType = "", filters = {}) {
+    if (!bankType || typeof window === "undefined") return;
+    try {
+        window.sessionStorage.setItem(`${BANK_FILTER_SESSION_PREFIX}${bankType}`, JSON.stringify({
+            course_id: filters.course_id || "",
+            topic_id: filters.topic_id || "",
+            activity_type: filters.activity_type || "",
+            question_kind: filters.question_kind || "",
+        }));
+    } catch {
+        // Ignore storage failures so filters still work during the current session.
     }
 }
 
@@ -763,25 +815,43 @@ function groupActivityComparison(group) {
 function topicComparisonRows(groups = []) {
     const rows = groups.map((group) => {
         const activityCounts = groupActivityComparison(group);
+        const studentsEarnedGroupXp = (group.xp_contributions || [])
+            .filter((item) => item.activity_type === "group")
+            .reduce((total, item) => total + Number(item.xp_earned || 0), 0);
         return {
             group,
             groupName: group.group_name || "Ungrouped",
             individualXp: Number(group.total_individual_xp || 0),
-            groupXp: Number(group.total_group_xp || 0),
-            totalXp: Number(group.total_individual_xp || 0) + Number(group.total_group_xp || 0),
+            sharedGroupXp: Number(group.total_group_xp || 0),
+            studentsEarnedGroupXp,
             totalActivities: Object.values(activityCounts).reduce((total, value) => total + value, 0),
             activityCounts,
         };
     });
-    const maxXp = Math.max(0, ...rows.map((row) => row.totalXp));
     const maxActivities = Math.max(0, ...rows.map((row) => row.totalActivities));
-    const leaderXp = maxXp;
+    const totals = {
+        individualXp: rows.reduce((total, row) => total + row.individualXp, 0),
+        sharedGroupXp: rows.reduce((total, row) => total + row.sharedGroupXp, 0),
+        studentsEarnedGroupXp: rows.reduce((total, row) => total + row.studentsEarnedGroupXp, 0),
+    };
+    const highest = {
+        individualXp: Math.max(0, ...rows.map((row) => row.individualXp)),
+        sharedGroupXp: Math.max(0, ...rows.map((row) => row.sharedGroupXp)),
+        studentsEarnedGroupXp: Math.max(0, ...rows.map((row) => row.studentsEarnedGroupXp)),
+    };
     return rows.map((row) => ({
         ...row,
-        maxXp,
         maxActivities,
-        xpPercent: percentage(row.totalXp, maxXp),
-        xpDifference: row.totalXp - leaderXp,
+        xpTypePercentages: {
+            individualXp: percentage(row.individualXp, totals.individualXp),
+            sharedGroupXp: percentage(row.sharedGroupXp, totals.sharedGroupXp),
+            studentsEarnedGroupXp: percentage(row.studentsEarnedGroupXp, totals.studentsEarnedGroupXp),
+        },
+        topXpTypes: {
+            individualXp: highest.individualXp > 0 && row.individualXp === highest.individualXp,
+            sharedGroupXp: highest.sharedGroupXp > 0 && row.sharedGroupXp === highest.sharedGroupXp,
+            studentsEarnedGroupXp: highest.studentsEarnedGroupXp > 0 && row.studentsEarnedGroupXp === highest.studentsEarnedGroupXp,
+        },
     }));
 }
 
@@ -1031,6 +1101,7 @@ const AdminPage = () => {
         confirm_password: "",
     });
     const [materials, setMaterials] = useState([]);
+    const [materialTopicFilter, setMaterialTopicFilter] = useState(() => readSessionValue(QUESTION_BANK_TOPIC_SESSION_KEY));
     const [materialForm, setMaterialForm] = useState({
         topic_id: "",
         title: "",
@@ -1038,7 +1109,7 @@ const AdminPage = () => {
     });
     const [editingMaterial, setEditingMaterial] = useState(null);
     const [questionSettings, setQuestionSettings] = useState({
-        topic_id: "",
+        topic_id: readSessionValue(QUESTION_BANK_TOPIC_SESSION_KEY),
         material_ids: [],
         bank_type: "quiz_question_bank",
         activity_type: "exercise",
@@ -1053,7 +1124,7 @@ const AdminPage = () => {
     const [bankPage, setBankPage] = useState(1);
     const [bankForm, setBankForm] = useState({});
     const [editingBankRow, setEditingBankRow] = useState(null);
-    const [bankFilters, setBankFilters] = useState({activity_type: "", question_kind: ""});
+    const [bankFilters, setBankFilters] = useState({course_id: "", topic_id: "", activity_type: "", question_kind: ""});
     const [showScrollTop, setShowScrollTop] = useState(false);
     const [selectedStudentIds, setSelectedStudentIds] = useState([]);
     const [selectedBankIds, setSelectedBankIds] = useState([]);
@@ -1199,7 +1270,9 @@ const AdminPage = () => {
         setEditingBankRow(null);
         setBankForm({});
         setBankPage(1);
-        setBankFilters({activity_type: "", question_kind: ""});
+        setBankFilters(activeConfig?.custom === "bankManager"
+            ? readBankFiltersSession(activeConfig.bankType)
+            : {course_id: "", topic_id: "", activity_type: "", question_kind: ""});
         setSelectedStudentIds([]);
         setSelectedBankIds([]);
         setStudentBulk({course_id: "", course_group_id: "", search: "", target_course_group_id: ""});
@@ -1243,9 +1316,8 @@ const AdminPage = () => {
         if (!data.message) setReferences(data);
     };
 
-    const loadMaterials = async (topicId = "") => {
-        const query = topicId ? `?topic_id=${topicId}` : "";
-        const data = await apiGet(`/admin/materials${query}`);
+    const loadMaterials = async () => {
+        const data = await apiGet("/admin/materials");
         setMaterials(data.materials || []);
     };
 
@@ -1567,6 +1639,33 @@ const AdminPage = () => {
         ))
     );
 
+    const topicOptionsForCourse = (courseId = "") => (
+        (references.topics || []).filter((topic) => !courseId || String(topic.course_id) === String(courseId))
+    );
+
+    const updateBankFilter = (key, value) => {
+        setBankFilters((current) => {
+            const next = {...current, [key]: value};
+            if (key === "course_id") next.topic_id = "";
+            writeBankFiltersSession(activeConfig?.bankType, next);
+            return next;
+        });
+        setBankPage(1);
+        setSelectedBankIds([]);
+    };
+
+    const updateMaterialTopicFilter = (value) => {
+        setMaterialTopicFilter(value);
+        writeSessionValue(QUESTION_BANK_TOPIC_SESSION_KEY, value);
+        setQuestionSettings((current) => ({
+            ...current,
+            topic_id: value,
+            material_ids: [],
+        }));
+        setDrafts([]);
+        setDraftMeta(null);
+    };
+
     const renderField = (field) => {
         const value = formData[field.key];
         const selectedRole = (references.roles || []).find((role) => String(role.role_id) === String(formData.role_id));
@@ -1634,7 +1733,7 @@ const AdminPage = () => {
         if (data.data) {
             setEditingMaterial(null);
             setMaterialForm({topic_id: "", title: "", content_text: ""});
-            await loadMaterials(questionSettings.topic_id);
+            await loadMaterials();
         }
         setBusy(false);
     };
@@ -1653,7 +1752,7 @@ const AdminPage = () => {
         setBusy(true);
         const data = await apiDelete(`/admin/materials/${material.material_id}`);
         if (data.message) setMessage(data.message);
-        await loadMaterials(questionSettings.topic_id);
+        await loadMaterials();
         setBusy(false);
     };
 
@@ -1662,7 +1761,7 @@ const AdminPage = () => {
         setMessage("Generating compact digest from material...");
         const data = await apiPost(`/admin/materials/${material.material_id}/digest`, {});
         if (data.message) setMessage(data.message);
-        await loadMaterials(questionSettings.topic_id);
+        await loadMaterials();
         setBusy(false);
     };
 
@@ -1670,7 +1769,8 @@ const AdminPage = () => {
         const next = {...questionSettings, [key]: value};
         if (key === "topic_id") {
             next.material_ids = [];
-            await loadMaterials(value);
+            setMaterialTopicFilter(value);
+            writeSessionValue(QUESTION_BANK_TOPIC_SESSION_KEY, value);
         }
         if (key === "bank_type" && value === "quiz_question_bank") {
             next.activity_type = "exercise";
@@ -2137,9 +2237,12 @@ const AdminPage = () => {
 
     const renderGroupComparison = (groups) => {
         const rows = topicComparisonRows(groups);
-        const maxIndividualXp = Math.max(0, ...rows.map((row) => row.individualXp));
-        const maxGroupXp = Math.max(0, ...rows.map((row) => row.groupXp));
         const maxStudents = Math.max(0, ...groups.map((group) => Number(group.student_count || group.students?.length || 0)));
+        const xpComparisonTypes = [
+            ["Individual XP", "individualXp"],
+            ["Shared Group XP", "sharedGroupXp"],
+            ["Students Group XP", "studentsEarnedGroupXp"],
+        ];
 
         return (
             <section className="instructor-comparison">
@@ -2159,23 +2262,39 @@ const AdminPage = () => {
                                 <div className="comparison-xp-group" key={`xp-${row.group.course_group_id}`}>
                                     <header>
                                         <strong>{row.groupName}</strong>
-                                        <span>{formatAdminNumber(row.totalXp)} total XP · {row.xpPercent}% of leader</span>
                                     </header>
-                                    <div className="comparison-xp-row">
-                                        <span>Individual XP</span>
-                                        <div className="comparison-bar-track">
-                                            <i className="comparison-bar comparison-bar--individual" style={{width: `${barWidth(row.individualXp, maxIndividualXp)}%`}}/>
-                                        </div>
-                                        <b>{formatAdminNumber(row.individualXp)} XP</b>
+                                    <div className="comparison-xp-values">
+                                        <article className={row.topXpTypes.individualXp ? "is-top-xp" : ""}>
+                                            <span>Individual XP</span>
+                                            <b>{formatAdminNumber(row.individualXp)} XP</b>
+                                            {row.topXpTypes.individualXp && <small>Highest</small>}
+                                        </article>
+                                        <article className={row.topXpTypes.sharedGroupXp ? "is-top-xp" : ""}>
+                                            <span>Shared Group XP</span>
+                                            <b>{formatAdminNumber(row.sharedGroupXp)} XP</b>
+                                            {row.topXpTypes.sharedGroupXp && <small>Highest</small>}
+                                        </article>
+                                        <article className={row.topXpTypes.studentsEarnedGroupXp ? "is-top-xp" : ""}>
+                                            <span>Students Group XP</span>
+                                            <b>{formatAdminNumber(row.studentsEarnedGroupXp)} XP</b>
+                                            {row.topXpTypes.studentsEarnedGroupXp && <small>Highest</small>}
+                                        </article>
                                     </div>
-                                    <div className="comparison-xp-row">
-                                        <span>Group XP</span>
-                                        <div className="comparison-bar-track">
-                                            <i className="comparison-bar comparison-bar--group" style={{width: `${barWidth(row.groupXp, maxGroupXp)}%`}}/>
-                                        </div>
-                                        <b>{formatAdminNumber(row.groupXp)} XP</b>
+                                </div>
+                            ))}
+                        </div>
+                        <div className="comparison-xp-percentages">
+                            <h5>Percentage from total XP type</h5>
+                            {rows.map((row) => (
+                                <div className="comparison-xp-percent-group" key={`xp-percent-${row.group.course_group_id}`}>
+                                    <strong>{row.groupName}</strong>
+                                    <div>
+                                        {xpComparisonTypes.map(([label, key]) => (
+                                            <span className={row.topXpTypes[key] ? "is-top-xp" : ""} key={key}>
+                                                {label}: <b>{row.xpTypePercentages[key]}%</b>
+                                            </span>
+                                        ))}
                                     </div>
-                                    {row.xpDifference < 0 && <small>{formatAdminNumber(Math.abs(row.xpDifference))} XP behind leader</small>}
                                 </div>
                             ))}
                         </div>
@@ -2814,12 +2933,13 @@ const AdminPage = () => {
     const renderBankManager = () => {
         const config = BANK_CONFIGS[activeConfig.bankType];
         const isIndividualBank = activeConfig.bankType === "individual_questions";
-        const filteredBankRows = isIndividualBank
-            ? bankRows.filter((row) => (
-                (!bankFilters.activity_type || row.activity_type === bankFilters.activity_type)
-                && (!bankFilters.question_kind || row.question_kind === bankFilters.question_kind)
-            ))
-            : bankRows;
+        const bankTopicOptions = topicOptionsForCourse(bankFilters.course_id);
+        const filteredBankRows = bankRows.filter((row) => (
+            (!bankFilters.course_id || String(row.course_id) === String(bankFilters.course_id))
+            && (!bankFilters.topic_id || String(row.topic_id) === String(bankFilters.topic_id))
+            && (!isIndividualBank || !bankFilters.activity_type || row.activity_type === bankFilters.activity_type)
+            && (!isIndividualBank || !bankFilters.question_kind || row.question_kind === bankFilters.question_kind)
+        ));
         const totalPages = Math.max(1, Math.ceil(filteredBankRows.length / BANK_PAGE_SIZE));
         const safePage = Math.min(bankPage, totalPages);
         const pageStart = (safePage - 1) * BANK_PAGE_SIZE;
@@ -2837,39 +2957,63 @@ const AdminPage = () => {
                 </div>
                 {message && <div className="admin-inline-message">{message}</div>}
                 {renderBankForm()}
-                {isIndividualBank && (
-                    <div className="admin-bank-filters">
-                        <label>
-                            Activity
-                            <select
-                                value={bankFilters.activity_type}
-                                onChange={(event) => {
-                                    setBankFilters((current) => ({...current, activity_type: event.target.value}));
-                                    setBankPage(1);
-                                }}
-                            >
-                                <option value="">All Activities</option>
-                                <option value="exercise">Exercise</option>
-                                <option value="pre_test">Pre-test</option>
-                                <option value="post_test">Post-test</option>
-                            </select>
-                        </label>
-                        <label>
-                            Type
-                            <select
-                                value={bankFilters.question_kind}
-                                onChange={(event) => {
-                                    setBankFilters((current) => ({...current, question_kind: event.target.value}));
-                                    setBankPage(1);
-                                }}
-                            >
-                                <option value="">All Types</option>
-                                <option value="multiple_choice">Multiple Choice</option>
-                                <option value="case_study">Case Study</option>
-                            </select>
-                        </label>
-                    </div>
-                )}
+                <div className="admin-bank-filters">
+                    <label>
+                        Course
+                        <select
+                            value={bankFilters.course_id}
+                            onChange={(event) => updateBankFilter("course_id", event.target.value)}
+                        >
+                            <option value="">All Courses</option>
+                            {(references.courses || []).map((course) => (
+                                <option key={course.course_id} value={course.course_id}>
+                                    {course.course_name}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+                    <label>
+                        Topic
+                        <select
+                            value={bankFilters.topic_id}
+                            onChange={(event) => updateBankFilter("topic_id", event.target.value)}
+                        >
+                            <option value="">All Topics</option>
+                            {bankTopicOptions.map((topic) => (
+                                <option key={topic.topic_id} value={topic.topic_id}>
+                                    {topic.course_name} - {topic.topic_name}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+                    {isIndividualBank && (
+                        <>
+                            <label>
+                                Activity
+                                <select
+                                    value={bankFilters.activity_type}
+                                    onChange={(event) => updateBankFilter("activity_type", event.target.value)}
+                                >
+                                    <option value="">All Activities</option>
+                                    <option value="exercise">Exercise</option>
+                                    <option value="pre_test">Pre-test</option>
+                                    <option value="post_test">Post-test</option>
+                                </select>
+                            </label>
+                            <label>
+                                Type
+                                <select
+                                    value={bankFilters.question_kind}
+                                    onChange={(event) => updateBankFilter("question_kind", event.target.value)}
+                                >
+                                    <option value="">All Types</option>
+                                    <option value="multiple_choice">Multiple Choice</option>
+                                    <option value="case_study">Case Study</option>
+                                </select>
+                            </label>
+                        </>
+                    )}
+                </div>
                 <div className="admin-bulk-actions admin-bank-bulk-actions">
                     <span>{selectedBankIds.length} selected</span>
                     <button
@@ -2968,6 +3112,10 @@ const AdminPage = () => {
     };
 
     const renderQuestionBank = () => {
+        const materialTopicOptions = topicOptionsForCourse("");
+        const visibleMaterials = materialTopicFilter
+            ? materials.filter((material) => String(material.topic_id) === String(materialTopicFilter))
+            : materials;
         const selectedTopicMaterials = questionSettings.topic_id
             ? materials.filter((material) => String(material.topic_id) === String(questionSettings.topic_id))
             : [];
@@ -2986,7 +3134,7 @@ const AdminPage = () => {
                 {message && <div className="admin-inline-message">{message}</div>}
 
                 <section className="admin-qb-grid">
-                    <form className="admin-data-form" onSubmit={saveMaterial}>
+                    <form className="admin-data-form admin-qb-panel-form" onSubmit={saveMaterial}>
                         <div>
                             <h2>{editingMaterial ? "Edit Course Material" : "Add Course Material"}</h2>
                             {editingMaterial && (
@@ -3030,9 +3178,25 @@ const AdminPage = () => {
                     </form>
 
                     <section className="admin-material-list">
-                        <h2>Saved Materials</h2>
-                        {materials.length === 0 && <p>No material found yet.</p>}
-                        {materials.map((material) => (
+                        <div className="admin-material-list-header">
+                            <h2>Saved Materials</h2>
+                            <label>
+                                Topic
+                                <select
+                                    value={materialTopicFilter}
+                                    onChange={(event) => updateMaterialTopicFilter(event.target.value)}
+                                >
+                                    <option value="">All Topics</option>
+                                    {materialTopicOptions.map((topic) => (
+                                        <option key={topic.topic_id} value={topic.topic_id}>
+                                            {topic.course_name} - {topic.topic_name}
+                                        </option>
+                                    ))}
+                                </select>
+                            </label>
+                        </div>
+                        {visibleMaterials.length === 0 && <p>No material found yet.</p>}
+                        {visibleMaterials.map((material) => (
                             <article key={material.material_id}>
                                 <div>
                                     <strong>{material.title}</strong>
@@ -3054,7 +3218,7 @@ const AdminPage = () => {
                     </section>
                 </section>
 
-                <form className="admin-data-form" onSubmit={generateDrafts}>
+                <form className="admin-data-form admin-qb-generate-form" onSubmit={generateDrafts}>
                     <div>
                         <h2>Generate Question Drafts</h2>
                     </div>
