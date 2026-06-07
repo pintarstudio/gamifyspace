@@ -8,6 +8,13 @@ function formatLoginTime(date = new Date()) {
     }).format(date);
 }
 
+function formatStudentGroup(user) {
+    if (user.course_group_name && user.course_group_id) {
+        return `${user.course_group_name} (#${user.course_group_id})`;
+    }
+    return user.course_group_name || user.course_group_id || "-";
+}
+
 export async function notifyStudentLogin({user, course}) {
     const token = process.env.TELEGRAM_BOT_TOKEN;
     const chatId = process.env.TELEGRAM_LOGIN_CHAT_ID;
@@ -19,6 +26,7 @@ export async function notifyStudentLogin({user, course}) {
         `Name: ${user.name || "-"}`,
         `Email: ${user.email || "-"}`,
         `Course: ${course.course_name || "-"}`,
+        `Group: ${formatStudentGroup(user)}`,
         `Time: ${formatLoginTime()}`,
     ].join("\n");
 
