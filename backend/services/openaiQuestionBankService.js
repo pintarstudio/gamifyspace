@@ -143,11 +143,11 @@ function shuffleChoicesWithAnswer(choices, correctAnswerIndex) {
 
 function normalizeDigest(digest) {
     return {
-        summary: trimWords(digest.summary, 450),
-        key_concepts: (digest.key_concepts || []).slice(0, 15).map((item) => trimWords(item, 30)),
-        common_misconceptions: (digest.common_misconceptions || []).slice(0, 10).map((item) => trimWords(item, 30)),
-        important_excerpts: (digest.important_excerpts || []).slice(0, 10).map((item) => trimWords(item, 45)),
-        question_targets: (digest.question_targets || []).slice(0, 15).map((item) => trimWords(item, 30)),
+        summary: trimWords(digest.summary, 700),
+        key_concepts: (digest.key_concepts || []).slice(0, 20).map((item) => trimWords(item, 40)),
+        common_misconceptions: (digest.common_misconceptions || []).slice(0, 12).map((item) => trimWords(item, 40)),
+        important_excerpts: (digest.important_excerpts || []).slice(0, 18).map((item) => trimWords(item, 60)),
+        question_targets: (digest.question_targets || []).slice(0, 20).map((item) => trimWords(item, 40)),
     };
 }
 
@@ -278,14 +278,14 @@ export async function generateMaterialDigest({topicName, materialTitle, contentT
             material_title: materialTitle,
             material_text: contentText,
             digest_limits: {
-                summary: "350 to 450 words",
-                key_concepts: "maximum 15 items, each item 20 to 30 words",
-                common_misconceptions: "maximum 10 items, each item 20 to 30 words",
-                important_excerpts: "maximum 10 items, each item 30 to 45 words",
-                question_targets: "maximum 15 items, each item 15 to 30 words",
+                summary: "550 to 700 words",
+                key_concepts: "maximum 20 items, each item 25 to 40 words",
+                common_misconceptions: "maximum 12 items, each item 25 to 40 words",
+                important_excerpts: "maximum 18 items, each item 40 to 60 words",
+                question_targets: "maximum 20 items, each item 25 to 40 words",
             },
         }),
-        maxOutputTokens: 5000,
+        maxOutputTokens: 8000,
     });
 
     return {
