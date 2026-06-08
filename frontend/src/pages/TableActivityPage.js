@@ -71,6 +71,8 @@ const isNoVirtualCode = (value) => {
     return String(parsed) === String(value).trim() && parsed >= 101 && parsed <= 150;
 };
 
+const isTopicSelectable = (topic) => !!topic && topic.is_active !== false;
+
 const isTypingTarget = (target) =>
     target && (
         target.tagName === "INPUT" ||
@@ -155,8 +157,10 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack, activit
         setContext(data);
         setActiveSession(useActiveSession ? stampSession(data.active_session || null) : null);
         setAnswerText(useActiveSession ? data.active_session?.my_answer?.answer_text || "" : "");
-        if (!selectedTopicId && data.topics?.length > 0) {
-            setSelectedTopicId(String((useActiveSession ? data.active_session?.topic_id : null) || data.topics[0].topic_id));
+        const selectedTopicInList = data.topics?.find((topic) => String(topic.topic_id) === String(selectedTopicId));
+        if ((!selectedTopicId || !isTopicSelectable(selectedTopicInList)) && data.topics?.length > 0) {
+            const selectableTopic = data.topics.find(isTopicSelectable);
+            setSelectedTopicId(String((useActiveSession ? data.active_session?.topic_id : null) || selectableTopic?.topic_id || ""));
         }
         setLoading(false);
     };
@@ -1064,7 +1068,7 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack, activit
 
     const hasActiveSession = !!activeSession;
     const groupFull = activeSession?.is_full;
-    const canStart = !hasActiveSession && !!selectedTopicId;
+    const canStart = !hasActiveSession && !!selectedTopicId && isTopicSelectable(selectedTopic);
     const canJoin = hasActiveSession && !groupFull && !activeSession?.is_started && !activeSession?.is_time_up;
 
     return (
@@ -1093,18 +1097,26 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack, activit
 
                     {context?.topics?.length > 0 ? (
                         <div className="topic-list">
-                            {context.topics.map((topic) => (
-                                <button
-                                    type="button"
-                                    className={`topic-option${String(topic.topic_id) === String(selectedTopicId) ? " is-selected" : ""}`}
-                                    key={topic.topic_id}
-                                    onClick={() => setSelectedTopicId(String(topic.topic_id))}
-                                    disabled={hasActiveSession}
-                                >
-                                    <strong>{topic.topic_name}</strong>
-                                    {topic.topic_description && <span>{topic.topic_description}</span>}
-                                </button>
-                            ))}
+                            {context.topics.map((topic) => {
+                                const selectableTopic = isTopicSelectable(topic);
+                                return (
+                                    <button
+                                        type="button"
+                                        className={`topic-option${String(topic.topic_id) === String(selectedTopicId) ? " is-selected" : ""}${selectableTopic ? "" : " is-inactive"}`}
+                                        key={topic.topic_id}
+                                        onClick={() => {
+                                            if (selectableTopic) setSelectedTopicId(String(topic.topic_id));
+                                        }}
+                                        disabled={hasActiveSession || !selectableTopic}
+                                    >
+                                        <div className="topic-option__heading">
+                                            <strong>{topic.topic_name}</strong>
+                                            {!selectableTopic && <span className="topic-inactive-badge">Tidak aktif</span>}
+                                        </div>
+                                        {topic.topic_description && <span>{topic.topic_description}</span>}
+                                    </button>
+                                );
+                            })}
                         </div>
                     ) : (
                         <p className="table-empty">Belum ada topik untuk course ini.</p>
@@ -1169,7 +1181,9 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack, activit
                         <>
                             <p className="table-status__copy">
                                 {selectedTopic
-                                    ? `Mulai studi kasus untuk ${selectedTopic.topic_name}.`
+                                    ? isTopicSelectable(selectedTopic)
+                                        ? `Mulai studi kasus untuk ${selectedTopic.topic_name}.`
+                                        : "Topik ini tidak aktif untuk aktivitas baru."
                                     : "Pilih topik sebelum membuat group."}
                             </p>
                             {noVirtual ? (

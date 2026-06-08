@@ -163,6 +163,18 @@
     display: block;
 }
 
+.individual-topic__heading {
+    align-items: flex-start;
+    display: flex;
+    gap: 8px;
+    justify-content: space-between;
+}
+
+.individual-topic__heading strong {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
 .individual-topic > span {
     color: #68737d;
     font-size: 13px;
@@ -240,6 +252,28 @@
     background: #eef7fb;
     border-color: #3a7ca5;
     box-shadow: inset 4px 0 0 #3a7ca5;
+}
+
+.individual-topic.is-inactive {
+    background: #f8fafc;
+    border-color: #cbd5e1;
+    color: #475569;
+    cursor: not-allowed;
+    opacity: 1;
+}
+
+.topic-inactive-badge {
+    background: #f1f5f9;
+    border: 1px solid #cbd5e1;
+    border-radius: 999px;
+    color: #475569;
+    flex: 0 0 auto;
+    font-size: 10px;
+    font-weight: 1000;
+    line-height: 1;
+    padding: 5px 8px;
+    text-transform: uppercase;
+    white-space: nowrap;
 }
 
 .individual-segment {

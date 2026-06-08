@@ -28,6 +28,8 @@ const isNoVirtualCode = (value) => {
     return String(parsed) === String(value).trim() && parsed >= 101 && parsed <= 150;
 };
 
+const isTopicSelectable = (topic) => !!topic && topic.is_active !== false;
+
 function formatChoiceLabel(index) {
     return ["A", "B", "C", "D"][index] || String(index + 1);
 }
@@ -126,8 +128,10 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
         }
         setContext(data);
         setActiveSession(stampSession(nextActiveSession));
-        if (!selectedTopicId && data.topics?.length > 0) {
-            setSelectedTopicId(String(nextActiveSession?.topic_id || data.topics[0].topic_id));
+        const selectedTopicInList = data.topics?.find((topic) => String(topic.topic_id) === String(selectedTopicId));
+        if ((!selectedTopicId || !isTopicSelectable(selectedTopicInList)) && data.topics?.length > 0) {
+            const selectableTopic = data.topics.find(isTopicSelectable);
+            setSelectedTopicId(String(nextActiveSession?.topic_id || selectableTopic?.topic_id || ""));
         }
         setLoading(false);
     };
@@ -534,8 +538,10 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
         setMessage("");
         const data = await apiGet(`/quiz/context?table_id=${encodeURIComponent(nextGroupId)}&group_id=${encodeURIComponent(nextGroupId)}`);
         setContext(data);
-        if (!selectedTopicId && data.topics?.length > 0) {
-            setSelectedTopicId(String(data.active_session?.topic_id || data.topics[0].topic_id));
+        const selectedTopicInList = data.topics?.find((topic) => String(topic.topic_id) === String(selectedTopicId));
+        if ((!selectedTopicId || !isTopicSelectable(selectedTopicInList)) && data.topics?.length > 0) {
+            const selectableTopic = data.topics.find(isTopicSelectable);
+            setSelectedTopicId(String(data.active_session?.topic_id || selectableTopic?.topic_id || ""));
         }
 
         if (!data.active_session) {
@@ -1013,7 +1019,7 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
     }
 
     const hasActiveSession = !!activeSession;
-    const canStart = !hasActiveSession && !!selectedTopicId;
+    const canStart = !hasActiveSession && !!selectedTopicId && isTopicSelectable(selectedTopic);
     const canJoin = hasActiveSession && !activeSession.is_full && ["lobby", "in_progress"].includes(activeSession.status);
 
     return (
@@ -1043,18 +1049,26 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
                     </div>
                     {context?.topics?.length > 0 ? (
                         <div className="quiz-topic-list">
-                            {context.topics.map((topic) => (
-                                <button
-                                    type="button"
-                                    className={`quiz-topic${String(topic.topic_id) === String(selectedTopicId) ? " is-selected" : ""}`}
-                                    key={topic.topic_id}
-                                    onClick={() => setSelectedTopicId(String(topic.topic_id))}
-                                    disabled={hasActiveSession}
-                                >
-                                    <strong>{topic.topic_name}</strong>
-                                    {topic.topic_description && <span>{topic.topic_description}</span>}
-                                </button>
-                            ))}
+                            {context.topics.map((topic) => {
+                                const selectableTopic = isTopicSelectable(topic);
+                                return (
+                                    <button
+                                        type="button"
+                                        className={`quiz-topic${String(topic.topic_id) === String(selectedTopicId) ? " is-selected" : ""}${selectableTopic ? "" : " is-inactive"}`}
+                                        key={topic.topic_id}
+                                        onClick={() => {
+                                            if (selectableTopic) setSelectedTopicId(String(topic.topic_id));
+                                        }}
+                                        disabled={hasActiveSession || !selectableTopic}
+                                    >
+                                        <div className="quiz-topic__heading">
+                                            <strong>{topic.topic_name}</strong>
+                                            {!selectableTopic && <span className="topic-inactive-badge">Tidak aktif</span>}
+                                        </div>
+                                        {topic.topic_description && <span>{topic.topic_description}</span>}
+                                    </button>
+                                );
+                            })}
                         </div>
                     ) : (
                         <p className="quiz-empty">No topics found for this course yet.</p>
@@ -1111,7 +1125,9 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
                         <>
                             <p>
                                 {selectedTopic
-                                    ? `Host a 5-question quiz for ${selectedTopic.topic_name}.`
+                                    ? isTopicSelectable(selectedTopic)
+                                        ? `Host a 5-question quiz for ${selectedTopic.topic_name}.`
+                                        : "Topik ini tidak aktif untuk quiz baru."
                                     : "Select a topic before hosting."}
                             </p>
                             {noVirtual ? (

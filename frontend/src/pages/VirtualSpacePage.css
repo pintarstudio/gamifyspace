@@ -80,6 +80,14 @@
     overflow-wrap: anywhere;
 }
 
+.dashboard-active-topic__heading {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    justify-content: space-between;
+}
+
 .dashboard-active-topic label {
     color: #8a2f0b;
     display: block;
@@ -87,6 +95,29 @@
     font-weight: 900;
     line-height: 1.2;
     text-transform: uppercase;
+}
+
+.dashboard-active-topic__status {
+    border-radius: 999px;
+    display: inline-flex;
+    flex: 0 0 auto;
+    font-size: 10px;
+    font-weight: 900;
+    line-height: 1;
+    padding: 5px 8px;
+    text-transform: uppercase;
+}
+
+.dashboard-active-topic__status.is-active {
+    background: #dcfce7;
+    border: 1px solid #86efac;
+    color: #166534;
+}
+
+.dashboard-active-topic__status.is-history {
+    background: #fef3c7;
+    border: 1px solid #fbbf24;
+    color: #92400e;
 }
 
 .dashboard-active-topic select {

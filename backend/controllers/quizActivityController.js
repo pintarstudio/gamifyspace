@@ -312,7 +312,7 @@ export async function getQuizContext(req, res) {
         const tableId = normalizeTableId(groupId || req.query.table_id || req.query.object_id);
         const [course, topics, activeSession] = await Promise.all([
             getCourseById(user.course_id),
-            getTopicsForCourse(user.course_id),
+            getTopicsForCourse(user.course_id, {includeInactive: true}),
             getActiveQuizSession(user.course_id, tableId, user.course_group_id || null),
         ]);
 

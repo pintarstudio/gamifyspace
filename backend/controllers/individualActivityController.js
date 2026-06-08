@@ -694,7 +694,7 @@ export async function getIndividualContext(req, res) {
         const includeHiddenTopics = req.query.admin === "1";
         const [course, topics, activeSession] = await Promise.all([
             getCourseById(user.course_id),
-            getTopicsForCourse(user.course_id, {includeHidden: includeHiddenTopics}),
+            getTopicsForCourse(user.course_id, {includeHidden: includeHiddenTopics, includeInactive: true}),
             getActiveIndividualSession({courseId: user.course_id, userId: user.user_id, objectId}),
         ]);
 

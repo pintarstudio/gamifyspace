@@ -161,6 +161,10 @@ function assessmentShortStatus(topic, type) {
     return "Belum dijadwalkan";
 }
 
+function isTopicSelectable(topic) {
+    return !!topic && topic.is_active !== false;
+}
+
 function feedbackForAnswer(session, answer) {
     return (session?.result?.wrong_answer_feedback || session?.feedback?.wrong_answer_feedback || [])
         .find((item) => String(item.question_id) === String(answer.question_id));
@@ -237,9 +241,10 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
         }
         setContext(data);
         setActiveSession(stampSession(nextActiveSession));
-        const hasSelectedTopic = data.topics?.some((topic) => String(topic.topic_id) === String(selectedTopicId));
-        if ((!selectedTopicId || !hasSelectedTopic) && data.topics?.length > 0) {
-            setSelectedTopicId(String(nextActiveSession?.topic_id || data.topics[0].topic_id));
+        const selectedTopicInList = data.topics?.find((topic) => String(topic.topic_id) === String(selectedTopicId));
+        if ((!selectedTopicId || !isTopicSelectable(selectedTopicInList)) && data.topics?.length > 0) {
+            const selectableTopic = data.topics.find(isTopicSelectable);
+            setSelectedTopicId(String(nextActiveSession?.topic_id || selectableTopic?.topic_id || ""));
         }
         if (nextActiveSession) {
             setActivityType(nextActiveSession.activity_type);
@@ -910,6 +915,7 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
     }
 
     const canStart = !!selectedTopicId
+        && isTopicSelectable(selectedTopic)
         && availableActivityTypes.includes(activityType)
         && !isAssessmentCompleted(selectedTopic, activityType)
         && isAssessmentOpen(selectedTopic, activityType);
@@ -939,29 +945,38 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
                         <span>{context?.topics?.length || 0} available</span>
                     </div>
                     <div className="individual-topic-list">
-                        {(context?.topics || []).map((topic) => (
-                            <button
-                                type="button"
-                                className={`individual-topic${String(topic.topic_id) === String(selectedTopicId) ? " is-selected" : ""}`}
-                                key={topic.topic_id}
-                                onClick={() => setSelectedTopicId(String(topic.topic_id))}
-                            >
-                                <strong>{topic.topic_name}</strong>
-                                <div className="individual-topic-assessments">
-                                    {["pre_test", "post_test"].map((type) => (
-                                        <div className="individual-topic-assessment" key={type}>
-                                            <span className={`individual-topic-assessment__badge is-${assessmentStatusKind(topic, type)}`}>
-                                                {assessmentShortStatus(topic, type)}
-                                            </span>
-                                            <div>
-                                                <b>{activityTitle(type, "multiple_choice")}</b>
-                                                <small>{assessmentStatusText(topic, type)}</small>
+                        {(context?.topics || []).map((topic) => {
+                            const selectableTopic = isTopicSelectable(topic);
+                            return (
+                                <button
+                                    type="button"
+                                    className={`individual-topic${String(topic.topic_id) === String(selectedTopicId) ? " is-selected" : ""}${selectableTopic ? "" : " is-inactive"}`}
+                                    key={topic.topic_id}
+                                    onClick={() => {
+                                        if (selectableTopic) setSelectedTopicId(String(topic.topic_id));
+                                    }}
+                                    disabled={!selectableTopic}
+                                >
+                                    <div className="individual-topic__heading">
+                                        <strong>{topic.topic_name}</strong>
+                                        {!selectableTopic && <span className="topic-inactive-badge">Tidak aktif</span>}
+                                    </div>
+                                    <div className="individual-topic-assessments">
+                                        {["pre_test", "post_test"].map((type) => (
+                                            <div className="individual-topic-assessment" key={type}>
+                                                <span className={`individual-topic-assessment__badge is-${assessmentStatusKind(topic, type)}`}>
+                                                    {assessmentShortStatus(topic, type)}
+                                                </span>
+                                                <div>
+                                                    <b>{activityTitle(type, "multiple_choice")}</b>
+                                                    <small>{assessmentStatusText(topic, type)}</small>
+                                                </div>
                                             </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            </button>
-                        ))}
+                                        ))}
+                                    </div>
+                                </button>
+                            );
+                        })}
                     </div>
                 </div>
 

@@ -795,6 +795,8 @@ export async function getInstructorDashboard(req, res) {
                         level_id: level.level_id,
                         level_name: level.level_name,
                         color_hex: level.color_hex,
+                        min_xp: level.min_xp,
+                        max_xp: level.max_xp,
                         students: groupStudents.filter((student) => Number(student.level_id) === Number(level.level_id)),
                     })).filter((level) => level.students.length > 0);
 
@@ -804,6 +806,7 @@ export async function getInstructorDashboard(req, res) {
                         topic_name: topic.topic_name,
                         students: groupStudents,
                         level_distribution: levelDistribution,
+                        level_rules: levelsResult.rows,
                         activity_counts: makeEmptyActivityCounts(),
                         activities: [],
                         xp_contributions: [],
@@ -843,6 +846,7 @@ export async function getInstructorDashboard(req, res) {
             topicGroup.xp_contributions.push({
                 activity_id: row.session_id,
                 activity_type: activityType,
+                topic_id: row.topic_id,
                 user_id: row.user_id,
                 student_name: row.student_name,
                 xp_earned: toNumber(row.xp_earned),
@@ -851,6 +855,7 @@ export async function getInstructorDashboard(req, res) {
             });
             topicGroup.activities.push({
                 id: `individual-${row.session_id}`,
+                topic_id: row.topic_id,
                 kind: "individual",
                 type: activityType,
                 label: activityTypeLabel(activityType, row.question_kind),
@@ -890,6 +895,7 @@ export async function getInstructorDashboard(req, res) {
             topicGroup.total_group_xp += toNumber(row.group_xp);
             topicGroup.activities.push({
                 id: `group-${row.session_id}`,
+                topic_id: row.topic_id,
                 kind: "group",
                 type: "group",
                 label: "Group Activity",
@@ -909,6 +915,7 @@ export async function getInstructorDashboard(req, res) {
             topicGroup.xp_contributions.push({
                 activity_id: row.session_id,
                 activity_type: "group",
+                topic_id: row.topic_id,
                 user_id: row.user_id,
                 student_name: row.student_name,
                 xp_earned: toNumber(row.xp_earned),
@@ -925,6 +932,7 @@ export async function getInstructorDashboard(req, res) {
             incrementActivityCount(topicGroup.activity_counts, "quiz");
             topicGroup.activities.push({
                 id: `quiz-${row.quiz_session_id}`,
+                topic_id: row.topic_id,
                 kind: "quiz",
                 type: "quiz",
                 label: "Quiz",

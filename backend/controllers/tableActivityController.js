@@ -344,7 +344,7 @@ export async function getTableContext(req, res) {
         const groupId = normalizeGroupId(req.query.group_id);
         const [course, topics, rawActiveSession] = await Promise.all([
             getCourseById(user.course_id),
-            getTopicsForCourse(user.course_id),
+            getTopicsForCourse(user.course_id, {includeInactive: true}),
             getActiveGroupSession(user.course_id, groupId, user.course_group_id || null),
         ]);
         const activeSession = rawActiveSession

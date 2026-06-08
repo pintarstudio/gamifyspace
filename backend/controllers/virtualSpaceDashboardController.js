@@ -68,32 +68,71 @@ function buildQuizCardOutcome(activity, user) {
 }
 
 async function ensureDashboardTopicSchema() {
+    await pool.query(`ALTER TABLE topics ADD COLUMN IF NOT EXISTS show_topic BOOLEAN NOT NULL DEFAULT TRUE`);
     await pool.query(`ALTER TABLE topics ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE`);
 }
 
-async function getDashboardTopics(courseId) {
+async function getDashboardTopics(courseId, userId) {
     await ensureDashboardTopicSchema();
     const result = await pool.query(
-        `SELECT
-             topic_id,
-             topic_name,
-             week,
-             COALESCE(is_active, TRUE) AS is_active
-         FROM topics
-         WHERE course_id = $1
-           AND deleted_at IS NULL
-           AND COALESCE(show_topic, TRUE) = TRUE
+        `WITH history_topics AS (
+             SELECT DISTINCT s.topic_id
+             FROM table_group_sessions s
+             JOIN table_group_members m
+               ON m.session_id = s.session_id
+              AND m.user_id = $2
+             WHERE s.course_id = $1
+               AND s.topic_id IS NOT NULL
+               AND s.submitted_at IS NOT NULL
+
+             UNION
+
+             SELECT DISTINCT qs.topic_id
+             FROM quiz_sessions qs
+             JOIN quiz_members qm
+               ON qm.quiz_session_id = qs.quiz_session_id
+              AND qm.user_id = $2
+             WHERE qs.course_id = $1
+               AND qs.topic_id IS NOT NULL
+               AND qs.status = 'saved'
+
+             UNION
+
+             SELECT DISTINCT ias.topic_id
+             FROM individual_activity_sessions ias
+             WHERE ias.course_id = $1
+               AND ias.user_id = $2
+               AND ias.topic_id IS NOT NULL
+               AND ias.status = 'completed'
+         )
+         SELECT
+             t.topic_id,
+             t.topic_name,
+             t.week,
+             COALESCE(t.show_topic, TRUE) AS show_topic,
+             COALESCE(t.is_active, TRUE) AS is_active,
+             (COALESCE(t.show_topic, TRUE) = TRUE AND COALESCE(t.is_active, TRUE) = TRUE) AS is_activity_available,
+             (h.topic_id IS NOT NULL) AS has_history
+         FROM topics t
+         LEFT JOIN history_topics h ON h.topic_id = t.topic_id
+         WHERE t.course_id = $1
+           AND t.deleted_at IS NULL
+           AND (COALESCE(t.show_topic, TRUE) = TRUE OR h.topic_id IS NOT NULL)
          ORDER BY
-             CASE WHEN COALESCE(is_active, TRUE) THEN 0 ELSE 1 END ASC,
-             week DESC NULLS LAST,
-             topic_id DESC`,
-        [courseId]
+             CASE
+                 WHEN COALESCE(t.show_topic, TRUE) = TRUE AND COALESCE(t.is_active, TRUE) = TRUE THEN 0
+                 WHEN h.topic_id IS NOT NULL THEN 1
+                 ELSE 2
+             END ASC,
+             t.week DESC NULLS LAST,
+             t.topic_id DESC`,
+        [courseId, userId]
     );
     return result.rows;
 }
 
-async function getDashboardTopic(courseId, selectedTopicId = null) {
-    const topics = await getDashboardTopics(courseId);
+async function getDashboardTopic(courseId, userId, selectedTopicId = null) {
+    const topics = await getDashboardTopics(courseId, userId);
     const selected = selectedTopicId
         ? topics.find((topic) => String(topic.topic_id) === String(selectedTopicId))
         : null;
@@ -113,6 +152,7 @@ export async function getVirtualSpaceDashboard(req, res) {
         const requestedTopicId = Number.parseInt(req.query?.topic_id, 10);
         const {topic: activeTopic, topics: dashboardTopics} = await getDashboardTopic(
             user.course_id,
+            user.user_id,
             Number.isFinite(requestedTopicId) ? requestedTopicId : null
         );
         const activeTopicId = activeTopic?.topic_id || null;
@@ -598,6 +638,9 @@ export async function getVirtualSpaceDashboard(req, res) {
                 topic_name: activeTopic.topic_name,
                 week: activeTopic.week,
                 is_active: !!activeTopic.is_active,
+                show_topic: activeTopic.show_topic !== false,
+                is_activity_available: !!activeTopic.is_activity_available,
+                has_history: !!activeTopic.has_history,
             } : null,
             dashboard_topics: dashboardTopics,
             hud,

@@ -259,6 +259,9 @@ export async function getTopicsForCourse(courseId, options = {}) {
     if (!options.includeHidden) {
         where.push(`COALESCE(show_topic, TRUE) = TRUE`);
     }
+    if (!options.includeInactive) {
+        where.push(`COALESCE(is_active, TRUE) = TRUE`);
+    }
 
     const result = await pool.query(
         `SELECT ${selectColumns.join(", ")}
@@ -277,7 +280,7 @@ export async function getTopicById(topicId, courseId) {
 }
 
 export async function getTopicByIdIncludingHidden(topicId, courseId) {
-    const topics = await getTopicsForCourse(courseId, {includeHidden: true});
+    const topics = await getTopicsForCourse(courseId, {includeHidden: true, includeInactive: true});
     return topics.find((topic) => String(topic.topic_id) === String(topicId)) || null;
 }
 

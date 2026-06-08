@@ -522,21 +522,12 @@ function scoreWidth(value) {
     return Math.max(0, Math.min(100, parsed));
 }
 
-function activityClass(type) {
-    if (type === "pre_test") return "pre";
-    if (type === "post_test") return "post";
-    if (type === "group") return "group";
-    if (type === "quiz") return "quiz";
-    return "individual";
-}
-
 const WEEKLY_BASELINE = {
     individual_mc: 2,
     individual_case: 1,
     group: 2,
     quiz: 4,
 };
-const TOPIC_PROGRESS_TAB_KEY = "__topic_progress__";
 
 function emptyWeeklyCounts() {
     return {
@@ -569,36 +560,6 @@ function weeklyKindLabel(kind) {
     if (kind === "group") return "Group Activity";
     if (kind === "quiz") return "Fun Quiz";
     return kind;
-}
-
-function formatWeekDate(date) {
-    return date.toLocaleDateString(undefined, {month: "short", day: "numeric"});
-}
-
-function localDateKey(date) {
-    return [
-        date.getFullYear(),
-        String(date.getMonth() + 1).padStart(2, "0"),
-        String(date.getDate()).padStart(2, "0"),
-    ].join("-");
-}
-
-function weekPeriodForDate(value) {
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return null;
-    const start = new Date(date);
-    start.setHours(0, 0, 0, 0);
-    const day = start.getDay();
-    const mondayOffset = day === 0 ? -6 : 1 - day;
-    start.setDate(start.getDate() + mondayOffset);
-    const end = new Date(start);
-    end.setDate(start.getDate() + 6);
-    const key = localDateKey(start);
-    const sameYear = start.getFullYear() === end.getFullYear();
-    const label = sameYear
-        ? `${formatWeekDate(start)} - ${formatWeekDate(end)}, ${end.getFullYear()}`
-        : `${formatWeekDate(start)}, ${start.getFullYear()} - ${formatWeekDate(end)}, ${end.getFullYear()}`;
-    return {key, label, start_time: start.getTime()};
 }
 
 function weeklyActivitySessionKey(activity, topic, kind) {
@@ -668,35 +629,6 @@ function finalizeProgressBuckets(progressBuckets) {
         });
 }
 
-function weeklyProgressForGroup(course, selectedGroup) {
-    const weekMap = new Map();
-
-    for (const topic of course?.topics || []) {
-        const topicGroup = (topic.groups || []).find((group) => String(group.course_group_id) === String(selectedGroup.course_group_id));
-        if (!topicGroup) continue;
-
-        for (const activity of topicGroup.activities || []) {
-            const kind = weeklyActivityKind(activity);
-            if (!kind) continue;
-            const period = weekPeriodForDate(activity.submitted_at);
-            if (!period) continue;
-
-            const key = period.key;
-            const week = weekMap.get(key) || createProgressBucket(selectedGroup.students || topicGroup.students || [], {
-                key,
-                label: period.label,
-                start_time: period.start_time,
-            });
-
-            addActivityToProgressBucket(week, activity, topic, kind);
-            weekMap.set(key, week);
-        }
-    }
-
-    return finalizeProgressBuckets([...weekMap.values()])
-        .sort((a, b) => a.start_time - b.start_time);
-}
-
 function topicProgressForGroup(course, selectedGroup) {
     const topicBuckets = [];
 
@@ -723,38 +655,6 @@ function topicProgressForGroup(course, selectedGroup) {
 
     return finalizeProgressBuckets(topicBuckets)
         .sort((a, b) => a.start_time - b.start_time || a.label.localeCompare(b.label));
-}
-
-function studentsByXp(group) {
-    const byStudent = new Map((group.students || []).map((student) => [
-        String(student.user_id),
-        {
-            user_id: student.user_id,
-            name: student.name,
-            total_xp: 0,
-            activities: 0,
-            latest_reason: "",
-            level_name: student.level_name,
-            level_color: student.level_color,
-        },
-    ]));
-
-    for (const item of group.xp_contributions || []) {
-        const key = String(item.user_id);
-        const current = byStudent.get(key) || {
-            user_id: item.user_id,
-            name: item.student_name,
-            total_xp: 0,
-            activities: 0,
-            latest_reason: "",
-        };
-        current.total_xp += Number(item.xp_earned || 0);
-        current.activities += 1;
-        if (item.reason) current.latest_reason = item.reason;
-        byStudent.set(key, current);
-    }
-
-    return [...byStudent.values()].sort((a, b) => b.total_xp - a.total_xp || a.name.localeCompare(b.name));
 }
 
 function missingAssessmentStudents(group) {
@@ -802,8 +702,12 @@ function isIndividualCaseActivity(activity) {
     return /case/i.test(`${activity.label || ""} ${activity.title || ""}`);
 }
 
-function groupActivityComparison(group) {
-    const activities = group.activities || [];
+function matchesTopicScope(item, topicId) {
+    return !topicId || !item.topic_id || String(item.topic_id) === String(topicId);
+}
+
+function groupActivityComparison(group, topicId = "") {
+    const activities = (group.activities || []).filter((activity) => matchesTopicScope(activity, topicId));
     return {
         individual_mc: activities.filter((activity) => activity.type === "individual" && !isIndividualCaseActivity(activity)).length,
         individual_case: activities.filter((activity) => activity.type === "individual" && isIndividualCaseActivity(activity)).length,
@@ -812,17 +716,25 @@ function groupActivityComparison(group) {
     };
 }
 
-function topicComparisonRows(groups = []) {
+function topicComparisonRows(groups = [], topicId = "") {
     const rows = groups.map((group) => {
-        const activityCounts = groupActivityComparison(group);
-        const studentsEarnedGroupXp = (group.xp_contributions || [])
+        const activityCounts = groupActivityComparison(group, topicId);
+        const scopedActivities = (group.activities || []).filter((activity) => matchesTopicScope(activity, topicId));
+        const scopedContributions = (group.xp_contributions || []).filter((item) => matchesTopicScope(item, topicId));
+        const individualXp = scopedContributions
+            .filter((item) => item.activity_type !== "group")
+            .reduce((total, item) => total + Number(item.xp_earned || 0), 0);
+        const sharedGroupXp = scopedActivities
+            .filter((activity) => activity.type === "group")
+            .reduce((total, activity) => total + Number(activity.xp || 0), 0);
+        const studentsEarnedGroupXp = scopedContributions
             .filter((item) => item.activity_type === "group")
             .reduce((total, item) => total + Number(item.xp_earned || 0), 0);
         return {
             group,
             groupName: group.group_name || "Ungrouped",
-            individualXp: Number(group.total_individual_xp || 0),
-            sharedGroupXp: Number(group.total_group_xp || 0),
+            individualXp,
+            sharedGroupXp,
             studentsEarnedGroupXp,
             totalActivities: Object.values(activityCounts).reduce((total, value) => total + value, 0),
             activityCounts,
@@ -853,6 +765,59 @@ function topicComparisonRows(groups = []) {
             studentsEarnedGroupXp: highest.studentsEarnedGroupXp > 0 && row.studentsEarnedGroupXp === highest.studentsEarnedGroupXp,
         },
     }));
+}
+
+function levelRuleForXp(levelRules = [], xp = 0) {
+    const parsedXp = Number(xp || 0);
+    return (levelRules || []).find((level) => (
+        parsedXp >= Number(level.min_xp || 0)
+        && (level.max_xp === null || level.max_xp === undefined || parsedXp <= Number(level.max_xp))
+    )) || levelRules?.[0] || {
+        level_id: "unleveled",
+        level_name: "No level",
+        color_hex: "#64748b",
+        min_xp: 0,
+        max_xp: null,
+    };
+}
+
+function topicLevelDistribution(group, topicId = "") {
+    const levelRules = (group.level_rules?.length ? group.level_rules : group.level_distribution || [])
+        .map((level) => ({
+            level_id: level.level_id,
+            level_name: level.level_name,
+            color_hex: level.color_hex || level.level_color || "#64748b",
+            min_xp: level.min_xp ?? 0,
+            max_xp: level.max_xp ?? null,
+        }));
+    const xpByStudent = new Map((group.students || []).map((student) => [String(student.user_id), 0]));
+
+    for (const contribution of group.xp_contributions || []) {
+        if (!matchesTopicScope(contribution, topicId)) continue;
+        const key = String(contribution.user_id);
+        xpByStudent.set(key, Number(xpByStudent.get(key) || 0) + Number(contribution.xp_earned || 0));
+    }
+
+    const byLevel = new Map();
+    for (const student of group.students || []) {
+        const topicXp = Number(xpByStudent.get(String(student.user_id)) || 0);
+        const level = levelRuleForXp(levelRules, topicXp);
+        const levelKey = String(level.level_id);
+        const current = byLevel.get(levelKey) || {
+            ...level,
+            students: [],
+        };
+        current.students.push({...student, topic_xp: topicXp});
+        byLevel.set(levelKey, current);
+    }
+
+    return [...byLevel.values()]
+        .map((level) => ({
+            ...level,
+            students: level.students.sort((a, b) => b.topic_xp - a.topic_xp || a.name.localeCompare(b.name)),
+        }))
+        .filter((level) => level.students.length > 0)
+        .sort((a, b) => Number(a.min_xp || 0) - Number(b.min_xp || 0));
 }
 
 function columnName(index) {
@@ -1145,7 +1110,6 @@ const AdminPage = () => {
     const [instructorDashboard, setInstructorDashboard] = useState(null);
     const [selectedDashboardCourseId, setSelectedDashboardCourseId] = useState(() => readDashboardCourseSession());
     const [selectedDashboardTopicId, setSelectedDashboardTopicId] = useState("");
-    const [activeWeeklyPeriodByGroup, setActiveWeeklyPeriodByGroup] = useState({});
 
     const displayedRows = useMemo(() => {
         if (activeConfig?.resource !== "students") return rows;
@@ -2094,127 +2058,70 @@ const AdminPage = () => {
         </article>
     );
 
-    const renderWeeklyActivityProgress = (group) => {
-        const weeks = weeklyProgressForGroup(selectedDashboardCourse, group);
-        const topicProgress = topicProgressForGroup(selectedDashboardCourse, group);
-        const periodGroupKey = `${selectedDashboardCourse?.course_id || "course"}:${group.course_group_id || "ungrouped"}`;
-        const activeWeekKey = activeWeeklyPeriodByGroup[periodGroupKey];
-        const topicSessionTotal = topicProgress.reduce((total, topic) => (
-            total + Object.values(topic.totals).reduce((sum, value) => sum + value, 0)
-        ), 0);
-        const showTopicProgress = activeWeekKey === TOPIC_PROGRESS_TAB_KEY;
-        const activeWeek = weeks.find((week) => week.key === activeWeekKey) || weeks[0];
-        const renderProgressCard = (progress, label, note) => (
-            <section className="weekly-progress-card" key={progress.key}>
-                <header>
-                    <div>
-                        <span>{label}</span>
-                        <h4>{progress.label}</h4>
-                        {progress.sub_label && <p>{progress.sub_label}</p>}
-                        {!progress.sub_label && progress.topic_names.length > 0 && <p>{progress.topic_names.join(", ")}</p>}
-                    </div>
-                    <small>{note}</small>
-                </header>
-                <div className="weekly-session-totals">
-                    {Object.entries(WEEKLY_BASELINE).map(([kind]) => (
-                        <article key={kind}>
-                            <span>{weeklyKindLabel(kind)}</span>
-                            <strong>{formatAdminNumber(progress.totals[kind])}</strong>
-                            <small>sessions</small>
-                        </article>
-                    ))}
-                </div>
-                <div className="weekly-student-grid">
-                    <section className="weekly-student-list weekly-student-list--met">
-                        <header>
-                            <strong>Baseline met</strong>
-                            <span>{formatAdminNumber(progress.students_met.length)} students</span>
-                        </header>
-                        <div>
-                            {progress.students_met.map(renderBaselineStudent)}
-                            {progress.students_met.length === 0 && <p>No students have met all baseline criteria yet.</p>}
-                        </div>
-                    </section>
-                    <section className="weekly-student-list weekly-student-list--pending">
-                        <header>
-                            <strong>Needs progress</strong>
-                            <span>{formatAdminNumber(progress.students_pending.length)} students</span>
-                        </header>
-                        <div>
-                            {progress.students_pending.map(renderBaselineStudent)}
-                            {progress.students_pending.length === 0 && <p>Every student has met the baseline.</p>}
-                        </div>
-                    </section>
-                </div>
-            </section>
-        );
-
+    const renderTopicActivityProgress = (group) => {
+        const topicProgress = topicProgressForGroup(selectedDashboardCourse, group)
+            .filter((topic) => String(topic.key) === `topic:${selectedDashboardTopic?.topic_id}`);
         return (
             <div className="weekly-progress">
                 <div className="weekly-progress-note">
                     Activity totals are counted by completed/saved sessions. Student baseline status is counted by each student's participation.
                 </div>
-                <div className="weekly-baseline-rules">
-                    {Object.entries(WEEKLY_BASELINE).map(([kind, required]) => (
-                        <span key={kind}>{weeklyKindLabel(kind)} min {required}</span>
-                    ))}
+                <div className="topic-progress-list">
+                    {topicProgress.map((topic) => {
+                        const totalSessions = Object.values(topic.totals).reduce((total, value) => total + value, 0);
+                        return (
+                            <details className="topic-progress-collapse" key={topic.key}>
+                                <summary>
+                                    <span>{topic.sub_label || "Topic"}</span>
+                                    <strong>{topic.label}</strong>
+                                    <small>{formatAdminNumber(totalSessions)} total sessions</small>
+                                </summary>
+                                <section className="weekly-progress-card">
+                                    <div className="weekly-session-totals">
+                                        <article className="weekly-session-total-card">
+                                            <span>Total Sessions</span>
+                                            <strong>{formatAdminNumber(totalSessions)}</strong>
+                                            <small>completed/saved</small>
+                                        </article>
+                                        {Object.entries(WEEKLY_BASELINE).map(([kind]) => (
+                                            <article className={`weekly-session-total-card weekly-session-total-card--${kind}`} key={kind}>
+                                                <span>{weeklyKindLabel(kind)}</span>
+                                                <strong>{formatAdminNumber(topic.totals[kind])}</strong>
+                                                <small>sessions</small>
+                                            </article>
+                                        ))}
+                                    </div>
+                                    <div className="weekly-student-grid">
+                                        <section className="weekly-student-list weekly-student-list--met">
+                                            <header>
+                                                <strong>Baseline met</strong>
+                                                <span>{formatAdminNumber(topic.students_met.length)} students</span>
+                                            </header>
+                                            <div>
+                                                {topic.students_met.map(renderBaselineStudent)}
+                                                {topic.students_met.length === 0 && <p>No students have met all baseline criteria yet.</p>}
+                                            </div>
+                                        </section>
+                                        <section className="weekly-student-list weekly-student-list--pending">
+                                            <header>
+                                                <strong>Needs progress</strong>
+                                                <span>{formatAdminNumber(topic.students_pending.length)} students</span>
+                                            </header>
+                                            <div>
+                                                {topic.students_pending.map(renderBaselineStudent)}
+                                                {topic.students_pending.length === 0 && <p>Every student has met the baseline.</p>}
+                                            </div>
+                                        </section>
+                                    </div>
+                                </section>
+                            </details>
+                        );
+                    })}
+                    {topicProgress.length === 0 && <p>No topic activity data available for this group yet.</p>}
                 </div>
-                {(weeks.length > 0 || topicProgress.length > 0) && (
-                    <div className="weekly-period-tabs" aria-label="Weekly period filter">
-                        <button
-                            type="button"
-                            className={showTopicProgress ? "is-active" : ""}
-                            onClick={() => setActiveWeeklyPeriodByGroup((current) => ({...current, [periodGroupKey]: TOPIC_PROGRESS_TAB_KEY}))}
-                        >
-                            <span>View mode</span>
-                            <strong>By Topic</strong>
-                            <small>{formatAdminNumber(topicSessionTotal)} sessions</small>
-                        </button>
-                        {weeks.map((week) => (
-                            <button
-                                key={week.key}
-                                type="button"
-                                className={!showTopicProgress && week.key === activeWeek.key ? "is-active" : ""}
-                                onClick={() => setActiveWeeklyPeriodByGroup((current) => ({...current, [periodGroupKey]: week.key}))}
-                            >
-                                <span>Weekly period</span>
-                                <strong>{week.label}</strong>
-                                <small>{formatAdminNumber(Object.values(week.totals).reduce((total, value) => total + value, 0))} sessions</small>
-                            </button>
-                        ))}
-                    </div>
-                )}
-                {showTopicProgress && (
-                    <div className="topic-progress-list">
-                        {topicProgress.map((topic) => renderProgressCard(topic, "Topic progress", "All submitted/saved activity data in this topic"))}
-                        {topicProgress.length === 0 && <p>No topic activity data available for this group yet.</p>}
-                    </div>
-                )}
-                {!showTopicProgress && activeWeek && (
-                    renderProgressCard(activeWeek, "Weekly period", "Available submitted/saved activity data only")
-                )}
-                {weeks.length === 0 && <p>No weekly activity data available for this group yet.</p>}
             </div>
         );
     };
-
-    const renderStudentsByXp = (group) => {
-        const rankedStudents = studentsByXp(group);
-        return (
-            <div className="instructor-student-xp-list">
-                {rankedStudents.map((student, index) => (
-                    <div key={student.user_id || student.name}>
-                        <b>{index + 1}</b>
-                        <span>{student.name}</span>
-                        <strong>{formatAdminNumber(student.total_xp)} XP</strong>
-                        <small>{student.activities ? `${student.activities} XP activities` : "No XP activity yet"}</small>
-                    </div>
-                ))}
-                {rankedStudents.length === 0 && <p>No student XP recorded yet.</p>}
-            </div>
-        );
-    };
-
     const renderMissingAssessmentList = (title, students) => (
         <section className="missing-assessment-section">
             <header>
@@ -2236,7 +2143,7 @@ const AdminPage = () => {
     );
 
     const renderGroupComparison = (groups) => {
-        const rows = topicComparisonRows(groups);
+        const rows = topicComparisonRows(groups, selectedDashboardTopic?.topic_id);
         const maxStudents = Math.max(0, ...groups.map((group) => Number(group.student_count || group.students?.length || 0)));
         const xpComparisonTypes = [
             ["Individual XP", "individualXp"],
@@ -2329,13 +2236,14 @@ const AdminPage = () => {
                         <div className="comparison-levels">
                             {groups.map((group) => {
                                 const groupTotal = Number(group.student_count || group.students?.length || 0);
+                                const topicLevels = topicLevelDistribution(group, selectedDashboardTopic?.topic_id);
                                 return (
                                     <div className="comparison-level-group" key={`level-${group.course_group_id}`}>
                                         <header>
                                             <strong>{group.group_name || "Ungrouped"}</strong>
                                             <span>{formatAdminNumber(groupTotal)} students</span>
                                         </header>
-                                        {(group.level_distribution || []).map((level) => {
+                                        {topicLevels.map((level) => {
                                             const count = level.students?.length || 0;
                                             const percent = percentage(count, groupTotal || maxStudents);
                                             return (
@@ -2345,11 +2253,11 @@ const AdminPage = () => {
                                                         <i style={{width: `${barWidth(count, groupTotal || maxStudents)}%`, background: level.color_hex}}/>
                                                     </div>
                                                     <b>{percent}%</b>
-                                                    <small>{level.students.map((student) => student.name).join(", ")}</small>
+                                                    <small>{level.students.map((student) => `${student.name} (${formatAdminNumber(student.topic_xp)} XP)`).join(", ")}</small>
                                                 </div>
                                             );
                                         })}
-                                        {(!group.level_distribution || group.level_distribution.length === 0) && (
+                                        {topicLevels.length === 0 && (
                                             <p>No level data yet.</p>
                                         )}
                                     </div>
@@ -2481,48 +2389,12 @@ const AdminPage = () => {
                                         <span>{group.gamification_enabled ? "Gamification enabled" : "Gamification disabled"}</span>
                                         <h3>{group.group_name || "Ungrouped"}</h3>
                                     </div>
-                                    <div className="instructor-group-kpis">
-                                        <b>{formatAdminNumber(group.activity_counts?.total)} activities</b>
-                                        <b>{formatAdminNumber(group.student_count)} students</b>
-                                        {group.gamification_enabled && <b>{formatAdminNumber(group.total_group_xp)} group XP</b>}
-                                    </div>
                                 </header>
 
-                                <div className="activity-type-strip">
-                                    {["individual", "pre_test", "post_test", "group", "quiz"].map((type) => (
-                                        <span className={`activity-pill activity-pill--${activityClass(type)}`} key={type}>
-                                            {type.replace("_", " ")}: {formatAdminNumber(group.activity_counts?.[type] || 0)} done
-                                        </span>
-                                    ))}
-                                </div>
-
-                                <details open>
-                                    <summary>Activity detail</summary>
-                                    {renderWeeklyActivityProgress(group)}
-                                </details>
-
-                                {group.gamification_enabled && (
-                                    <>
-                                        <details>
-                                            <summary>Students by XP</summary>
-                                            {renderStudentsByXp(group)}
-                                        </details>
-
-                                        <details>
-                                            <summary>Students by level</summary>
-                                            <div className="instructor-levels">
-                                                {(group.level_distribution || []).map((level) => (
-                                                    <div key={level.level_id}>
-                                                        <b style={{borderColor: level.color_hex}}>{level.level_name}</b>
-                                                        <strong>{formatAdminNumber(level.students.length)} students</strong>
-                                                        <span>{level.students.map((student) => student.name).join(", ")}</span>
-                                                    </div>
-                                                ))}
-                                                {(!group.level_distribution || group.level_distribution.length === 0) && <p>No level data yet.</p>}
-                                            </div>
-                                        </details>
-                                    </>
-                                )}
+                                <section className="instructor-topic-activity-detail">
+                                    <h4>Activity detail</h4>
+                                    {renderTopicActivityProgress(group)}
+                                </section>
 
                                 <details>
                                     <summary>Pre-test vs post-test</summary>
