@@ -1093,35 +1093,6 @@
     font-weight: 850;
 }
 
-.instructor-metric-grid {
-    display: grid;
-    gap: 12px;
-    grid-template-columns: repeat(4, minmax(140px, 1fr));
-}
-
-.instructor-metric-grid article {
-    background: #ffffff;
-    border: 1px solid #d9e3ea;
-    border-radius: 8px;
-    box-shadow: 0 10px 24px rgba(23, 32, 51, 0.05);
-    display: grid;
-    gap: 8px;
-    padding: 16px;
-}
-
-.instructor-metric-grid span {
-    color: #64748b;
-    font-size: 11px;
-    font-weight: 950;
-    text-transform: uppercase;
-}
-
-.instructor-metric-grid strong {
-    color: #172033;
-    font-size: 28px;
-    line-height: 1;
-}
-
 .instructor-topic-tabs {
     background: rgba(248, 250, 252, 0.96);
     border: 1px solid #d9e3ea;
@@ -1144,7 +1115,7 @@
     cursor: pointer;
     display: grid;
     gap: 5px;
-    min-height: 96px;
+    min-height: 78px;
     padding: 14px;
     text-align: left;
 }
@@ -1155,8 +1126,7 @@
     box-shadow: inset 0 0 0 2px rgba(15, 118, 110, 0.18), 0 12px 28px rgba(15, 118, 110, 0.12);
 }
 
-.instructor-topic-tabs span,
-.instructor-topic-tabs small {
+.instructor-topic-tabs span {
     color: #64748b;
     font-size: 11px;
     font-weight: 900;
@@ -1189,7 +1159,7 @@
     justify-content: flex-end;
 }
 
-.instructor-topic-stats b {
+.instructor-topic-stats .topic-stat {
     border-radius: 999px;
     font-size: 11px;
     font-weight: 950;
@@ -1197,9 +1167,29 @@
     text-transform: uppercase;
 }
 
-.instructor-topic-stats b {
-    background: #e6f6f4;
-    color: #0f766e;
+.topic-stat--activities {
+    background: #dbeafe;
+    color: #1d4ed8;
+}
+
+.topic-stat--pre {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.topic-stat--post {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.topic-stat--group-xp {
+    background: #ede9fe;
+    color: #6d28d9;
+}
+
+.topic-stat--individual-xp {
+    background: #ffe4e6;
+    color: #be123c;
 }
 
 .instructor-topic-actions {
@@ -2163,10 +2153,6 @@
 
     .instructor-dashboard-controls {
         min-width: 0;
-    }
-
-    .instructor-metric-grid {
-        grid-template-columns: repeat(2, minmax(130px, 1fr));
     }
 
     .instructor-activity-summary {

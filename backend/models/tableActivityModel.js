@@ -482,6 +482,28 @@ export async function getSessionMembers(sessionId) {
     return result.rows;
 }
 
+export async function getSessionParticipants(sessionId) {
+    const result = await pool.query(
+        `SELECT
+             m.member_id,
+             m.session_id,
+             m.user_id,
+             u.name,
+             u.email,
+             m.avatar_public_path,
+             m.object_id,
+             m.joined_at,
+             m.last_seen_at,
+             m.is_active
+         FROM table_group_members m
+         JOIN users u ON u.user_id = m.user_id
+         WHERE m.session_id = $1
+         ORDER BY m.joined_at ASC`,
+        [sessionId]
+    );
+    return result.rows;
+}
+
 export async function getSessionAnswers(sessionId) {
     await cleanupStaleMembers(sessionId);
 
@@ -788,7 +810,6 @@ export async function beginFeedbackRetry(sessionId) {
              updated_at = NOW()
          WHERE session_id = $1
            AND submitted_at IS NOT NULL
-           AND is_active = TRUE
            AND COALESCE(feedback_status, 'idle') <> 'generating'
          RETURNING *`,
         [sessionId]
@@ -813,7 +834,7 @@ export async function markFeedbackGenerationFailed(sessionId, errorMessage) {
 export async function submitSessionFeedbackFailed(sessionId, userId, errorMessage) {
     const result = await pool.query(
         `UPDATE table_group_sessions
-         SET submitted_by = COALESCE(submitted_by, $2),
+             SET submitted_by = COALESCE(submitted_by, $2),
              submitted_at = COALESCE(submitted_at, NOW()),
              feedback_status = 'error',
              feedback_error = $3,
@@ -825,7 +846,7 @@ export async function submitSessionFeedbackFailed(sessionId, userId, errorMessag
              seconds_left = GREATEST(0, duration_seconds - LEAST(duration_seconds, GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - COALESCE(work_started_at, created_at))))::int))),
              updated_at = NOW()
          WHERE session_id = $1
-           AND is_active = TRUE
+           AND (is_active = TRUE OR submitted_at IS NOT NULL)
          RETURNING *`,
         [sessionId, userId, errorMessage || "Feedback generation failed"]
     );
@@ -920,11 +941,10 @@ export async function saveSessionFeedbackResult(sessionId, feedback, model) {
                  feedback_status = 'ready',
                  feedback_error = NULL,
                  updated_at = NOW()
-	             WHERE session_id = $1
-	               AND submitted_at IS NOT NULL
-	               AND is_active = TRUE
-	               AND feedback_status = 'generating'
-             RETURNING *`,
+		             WHERE session_id = $1
+		               AND submitted_at IS NOT NULL
+		               AND feedback_status = 'generating'
+	             RETURNING *`,
             [sessionId, buildFeedbackText(feedback), JSON.stringify(feedback.combined_feedback), model]
         );
 

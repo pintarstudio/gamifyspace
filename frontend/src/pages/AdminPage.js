@@ -2271,7 +2271,6 @@ const AdminPage = () => {
     };
 
     const renderInstructorDashboard = () => {
-        const summary = instructorDashboard?.summary || {};
         if (!instructorDashboard && busy) {
             return <div className="admin-empty-dashboard"><h1>Loading dashboard...</h1></div>;
         }
@@ -2291,6 +2290,13 @@ const AdminPage = () => {
 
         const topicGroups = selectedDashboardTopic?.groups || [];
         const selectedAssessmentCount = topicGroups.reduce((total, group) => total + (group.assessment_comparison?.length || 0), 0);
+        const selectedTopicCounts = topicGroups.reduce((totals, group) => {
+            const counts = group.activity_counts || {};
+            totals.activities += Number(counts.individual || 0) + Number(counts.group || 0) + Number(counts.quiz || 0);
+            totals.preTest += Number(counts.pre_test || 0);
+            totals.postTest += Number(counts.post_test || 0);
+            return totals;
+        }, {activities: 0, preTest: 0, postTest: 0});
         const changedCourse = (courseId) => {
             const nextCourse = dashboardCourses.find((course) => String(course.course_id) === String(courseId));
             setSelectedDashboardCourseId(courseId);
@@ -2326,17 +2332,6 @@ const AdminPage = () => {
                     </div>
                 </section>
 
-                <section className="instructor-metric-grid">
-                    <article><span>Courses</span><strong>{formatAdminNumber(summary.managed_courses)}</strong></article>
-                    <article><span>Topics</span><strong>{formatAdminNumber(summary.total_topics)}</strong></article>
-                    <article><span>Groups</span><strong>{formatAdminNumber(summary.total_groups)}</strong></article>
-                    <article><span>Students</span><strong>{formatAdminNumber(summary.total_students)}</strong></article>
-                    <article><span>Activities</span><strong>{formatAdminNumber(summary.total_activities)}</strong></article>
-                    <article><span>Group XP</span><strong>{formatAdminNumber(summary.total_group_xp)}</strong></article>
-                    <article><span>Individual XP</span><strong>{formatAdminNumber(summary.total_individual_xp)}</strong></article>
-                    <article><span>Score Lift</span><strong>{summary.average_score_improvement > 0 ? "+" : ""}{summary.average_score_improvement || 0}</strong></article>
-                </section>
-
                 <section className="instructor-topic-tabs" aria-label="Topic filter">
                     {(selectedDashboardCourse?.topics || []).map((topic) => (
                         <button
@@ -2347,7 +2342,6 @@ const AdminPage = () => {
                         >
                             <span>{topic.week ? `Week ${topic.week}` : "Topic"}</span>
                             <strong>{topic.topic_name}</strong>
-                            <small>{formatAdminNumber(topic.summary?.total_activities)} activities</small>
                         </button>
                     ))}
                 </section>
@@ -2359,9 +2353,11 @@ const AdminPage = () => {
                             <h2>{selectedDashboardTopic?.topic_name || "Topic"}</h2>
                         </div>
                         <div className="instructor-topic-stats">
-                            <b>{formatAdminNumber(selectedDashboardTopic?.summary?.total_activities)} activities</b>
-                            <b>{formatAdminNumber(selectedDashboardTopic?.summary?.total_group_xp)} group XP</b>
-                            <b>{formatAdminNumber(selectedDashboardTopic?.summary?.total_individual_xp)} individual XP</b>
+                            <b className="topic-stat topic-stat--activities">{formatAdminNumber(selectedTopicCounts.activities)} activities</b>
+                            <b className="topic-stat topic-stat--pre">{formatAdminNumber(selectedTopicCounts.preTest)} pre-test</b>
+                            <b className="topic-stat topic-stat--post">{formatAdminNumber(selectedTopicCounts.postTest)} post-test</b>
+                            <b className="topic-stat topic-stat--group-xp">{formatAdminNumber(selectedDashboardTopic?.summary?.total_group_xp)} group XP</b>
+                            <b className="topic-stat topic-stat--individual-xp">{formatAdminNumber(selectedDashboardTopic?.summary?.total_individual_xp)} individual XP</b>
                         </div>
                     </div>
 

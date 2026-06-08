@@ -90,6 +90,13 @@ const formatSeconds = (value) => {
     return `${minutes}:${String(seconds).padStart(2, "0")}`;
 };
 
+function historySessionId(activity) {
+    return String(activity?.session_id || activity?.activity_key || "")
+        .replace(/^(individual|quiz|table)-/, "")
+        .replace(/^group_discussion[:-]/, "")
+        .replace(/^(individual_exercise|individual_pre_test|individual_post_test|quiz):/, "");
+}
+
 const noVirtualComputerObjectId = (userId) => `novirtual-computer-${userId || "student"}`;
 
 const buildNoVirtualActivityFromStatus = (status, userId) => {
@@ -353,8 +360,8 @@ const NoVirtualSpacePage = ({user, setLoggedIn, setUser}) => {
 
     const retryHistoryFeedback = async () => {
         if (!selectedActivity || retryingHistoryFeedback) return;
-        const rawSessionId = String(selectedActivity.session_id || "");
-        const numericSessionId = rawSessionId.replace(/^individual-/, "").replace(/^quiz-/, "").replace(/^table-/, "");
+        const rawSessionId = String(selectedActivity.session_id || selectedActivity.activity_key || "");
+        const numericSessionId = historySessionId(selectedActivity);
         const endpoint = selectedActivity.activity_type === "individual"
             ? `/individual/sessions/${numericSessionId}/retry-feedback`
             : selectedActivity.activity_type === "quiz"
@@ -363,8 +370,13 @@ const NoVirtualSpacePage = ({user, setLoggedIn, setUser}) => {
 
         setRetryingHistoryFeedback(true);
         try {
-            await apiPost(endpoint, {});
+            const data = await apiPost(endpoint, {});
             await openActivity({activity_key: rawSessionId});
+            if (data.session?.feedback_status === "error") {
+                alert(data.session.feedback_error || data.message || "Feedback AI masih gagal dibuat.");
+            } else if (data.message) {
+                alert(data.message);
+            }
         } catch (error) {
             alert(error.message || "Gagal mencoba ulang AI feedback.");
         } finally {

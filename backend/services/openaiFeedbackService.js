@@ -247,7 +247,7 @@ export async function generateCognitiveFeedback({caseTitle, casePrompt, answers}
                     strict: true,
                 },
             },
-            max_output_tokens: 1200,
+            max_output_tokens: 2500,
         }),
     });
 

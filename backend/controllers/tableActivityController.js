@@ -19,6 +19,7 @@ import {
     getSessionById,
     getSessionFeedbackGroups,
     getSessionMembers,
+    getSessionParticipants,
     getTopicById,
     getTopicsForCourse,
     joinTableMemberWithLimit,
@@ -547,7 +548,7 @@ export async function retryTableFeedback(req, res) {
             return res.status(409).json({message: "Group belum disubmit"});
         }
 
-        const members = await getSessionMembers(session.session_id);
+        const members = await getSessionParticipants(session.session_id);
         const isMember = members.some((member) => String(member.user_id) === String(user.user_id));
         if (!isMember) return res.status(403).json({message: "Join group terlebih dahulu"});
 
