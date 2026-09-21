@@ -95,6 +95,7 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
     const [expandedLeaderboardGroups, setExpandedLeaderboardGroups] = useState({});
     const [showOrientationTutorial, setShowOrientationTutorial] = useState(false);
     const [orientationTutorialStep, setOrientationTutorialStep] = useState(0);
+    const [mapNotice, setMapNotice] = useState(null);
     const navigate = useNavigate();
     const isInstructor = String(currentUser?.role_name || "").toLowerCase() === "instructor"
         || String(currentUser?.role_id || "") === "2";
@@ -114,6 +115,12 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
             setCurrentUser(user);
         }
     }, [user, navigate, setUser]);
+
+    useEffect(() => {
+        if (!mapNotice) return undefined;
+        const timerId = window.setTimeout(() => setMapNotice(null), 7000);
+        return () => window.clearTimeout(timerId);
+    }, [mapNotice]);
 
     useEffect(() => {
         if (!currentUser || isInstructor) return undefined;
@@ -452,7 +459,15 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
         }
     }, [activeMapActivity, currentUser]);
 
-    const closeMapActivity = useCallback(() => {
+    const closeMapActivity = useCallback((options = {}) => {
+        if (options?.notice) {
+            setMapNotice({
+                id: Date.now(),
+                title: options.noticeTitle || "Notice",
+                message: options.notice,
+                type: options.noticeType || "info",
+            });
+        }
         setActiveMapActivity((current) => {
             if (current?.pendingActivityKey && currentUser) {
                 clearActivityStatus({
@@ -809,6 +824,17 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
                     onOpenActivity={openMapActivity}
                     activityPanelOpen={!!activeMapActivity}
                 />
+                {mapNotice && (
+                    <div className={`virtual-map-notice virtual-map-notice--${mapNotice.type}`} role="status" aria-live="polite">
+                        <div>
+                            <strong>{mapNotice.title}</strong>
+                            <span>{mapNotice.message}</span>
+                        </div>
+                        <button type="button" onClick={() => setMapNotice(null)} aria-label="Dismiss notification">
+                            x
+                        </button>
+                    </div>
+                )}
             </main>
 
             <aside className="virtual-sidebar" aria-label="Activity dashboard">

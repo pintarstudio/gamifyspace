@@ -431,6 +431,13 @@ export async function getQuizSession(req, res) {
         if (!session || String(session.course_id) !== String(user.course_id) || !sameCourseGroup(session, user)) {
             return res.status(404).json({message: "Quiz tidak ditemukan"});
         }
+        if (session.status === "cancelled") {
+            return res.json({
+                message: "Quiz lobby dibatalkan oleh host.",
+                session: null,
+                cancelled: true,
+            });
+        }
 
         res.json({session: await hydrateSession(session, user)});
     } catch (error) {
@@ -448,6 +455,13 @@ export async function heartbeatQuizSession(req, res) {
         const session = await getQuizSessionById(req.params.sessionId);
         if (!session || String(session.course_id) !== String(user.course_id) || !sameCourseGroup(session, user)) {
             return res.status(404).json({message: "Quiz tidak ditemukan"});
+        }
+        if (session.status === "cancelled") {
+            return res.json({
+                message: "Quiz lobby dibatalkan oleh host.",
+                session: null,
+                cancelled: true,
+            });
         }
 
         const member = await touchQuizMember(session.quiz_session_id, user);
@@ -503,7 +517,11 @@ export async function exitQuizSession(req, res) {
             req,
             session.quiz_session_id,
             exitResult.cancelled ? "quiz:lobby_cancelled" : "quiz:lobby_updated",
-            {status: exitResult.session?.status || null}
+            {
+                status: exitResult.session?.status || null,
+                cancelled: !!exitResult.cancelled,
+                message: exitResult.cancelled ? "Quiz lobby dibatalkan oleh host." : undefined,
+            }
         );
 
         res.json({

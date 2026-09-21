@@ -7,7 +7,21 @@ console.log("🟦 [objectHandler] Initializing interactable objects...");
 const getObjectProperty = (obj, name) =>
     obj.properties?.find((p) => p.name === name)?.value;
 
+const getNumericObjectProperty = (obj, name, fallback = 0) => {
+    const property = obj.properties?.find((p) => p.name === name || p.type === name);
+    const value = Number(property?.value);
+    return Number.isFinite(value) ? value : fallback;
+};
+
+const getPositiveNumber = (value, fallback) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
 const hasValue = (value) => value !== undefined && value !== null && value !== "";
+
+const isSpaceInteractionKey = (event) =>
+    event.code === "Space" || event.key === " " || event.key === "Spacebar";
 
 const labelRect = (display, padding = 4) => {
     if (!display || display.destroyed) return null;
@@ -45,6 +59,9 @@ const isTableActivityObject = (object) =>
 const isComputerActivityObject = (object) =>
     String(object?.nameProp || "").toLowerCase() === "computer"
     && String(object?.urlProp || "").toLowerCase().includes("/individual");
+
+const isDoorObject = (object) =>
+    String(object?.nameProp || "").toLowerCase() === "door";
 
 const getTableOccupancy = (object, options = {}) => {
     if (!isTableActivityObject(object)) return null;
@@ -175,16 +192,26 @@ export function initObjects(app, worldContainer, roomData, user, localUserRef, z
     );
     if (!objectLayer || !objectLayer.objects) return;
     console.log("🟨 [objectHandler] Object layer found:", objectLayer?.name, "Total objects:", objectLayer?.objects?.length || 0);
+    const layerOffsetX = objectLayer.offsetx || 0;
+    const layerOffsetY = objectLayer.offsety || 0;
 
     const objects = [];
     let activeActivityPopup = null;
     let activeActivityPopupContext = null;
+    let disposed = false;
+    let cleanedUp = false;
+    const promptScale = Number.isFinite(options.promptScale) && options.promptScale > 0
+        ? options.promptScale
+        : 1;
+    const applyPromptScale = (bubble) => {
+        if (bubble) bubble.scale.set(promptScale);
+    };
 
     // Proximity highlight tuning
     const proximityRadius = 40;
     const HIGHLIGHT_TINT = 0xffffcc;
-    const PULSE_AMPL = 0.06;       // 6% scale pulse
-    const PULSE_SPEED = 0.008;     // lower = slower pulse
+    const BLINK_SPEED = 0.008;     // lower = slower blink
+    const BLINK_ALPHA_MIN = 0.58;
 
     objectLayer.objects.forEach((obj) => {
         const idProp = getObjectProperty(obj, "id");
@@ -194,27 +221,41 @@ export function initObjects(app, worldContainer, roomData, user, localUserRef, z
         const urlProp = getObjectProperty(obj, "url");
         const groupProp = getObjectProperty(obj, "group");
         const targetRoomProp = getObjectProperty(obj, "targetRoom");
+        const zOffsetProp = getNumericObjectProperty(obj, "zOffset", 0);
         console.log(nameProp);
-        console.log("🟪 [objectHandler] Loading object:", {idProp, nameProp, imageProp, actionProp, urlProp, groupProp, targetRoomProp});
+        console.log("🟪 [objectHandler] Loading object:", {idProp, nameProp, imageProp, actionProp, urlProp, groupProp, targetRoomProp, zOffsetProp});
         if (!imageProp) return;
 
         PIXI.Assets.load(`/${imageProp}`).then((texture) => {
+            if (disposed || worldContainer.destroyed) return;
+
             // Build sprite
             const source = texture.source;
-            const tileX = getObjectProperty(obj, "tileX") || 0;
-            const tileY = getObjectProperty(obj, "tileY") || 0;
-            const tileFrame = new PIXI.Rectangle(tileX, tileY, obj.width, obj.height);
+            const tileX = Math.min(
+                getPositiveNumber(getObjectProperty(obj, "tileX"), 0),
+                Math.max(0, texture.width - 1)
+            );
+            const tileY = Math.min(
+                getPositiveNumber(getObjectProperty(obj, "tileY"), 0),
+                Math.max(0, texture.height - 1)
+            );
+            const desiredWidth = getPositiveNumber(obj.width, texture.width);
+            const desiredHeight = getPositiveNumber(obj.height, texture.height);
+            const frameWidth = Math.min(desiredWidth, Math.max(1, texture.width - tileX));
+            const frameHeight = Math.min(desiredHeight, Math.max(1, texture.height - tileY));
+            const tileFrame = new PIXI.Rectangle(tileX, tileY, frameWidth, frameHeight);
             const tileTexture = new PIXI.Texture({source, frame: tileFrame});
             const sprite = new PIXI.Sprite({
                 texture: tileTexture,
-                textureStyle: {
-                    scaleMode: 'nearest',
-                },
+                roundPixels: true,
             });
 
-            sprite.x = obj.x;
-            sprite.y = obj.y - obj.height;
-            sprite.scale.set(zoomFactor);
+            sprite.x = obj.x + layerOffsetX;
+            sprite.y = obj.y + layerOffsetY - desiredHeight;
+            sprite.scale.set(
+                (desiredWidth / frameWidth) * zoomFactor,
+                (desiredHeight / frameHeight) * zoomFactor
+            );
 
             // Save base scale so we can pulse/restore cleanly
             const baseScaleX = sprite.scale.x;
@@ -228,7 +269,8 @@ export function initObjects(app, worldContainer, roomData, user, localUserRef, z
 
             // Top-down depth sorting: use the bottom edge of the object
             // (sprite.y is the top; sprite.y + sprite.height is the bottom)
-            sprite.zIndex = sprite.y + sprite.height;
+            sprite.__zOffset = zOffsetProp;
+            sprite.zIndex = sprite.y + sprite.height + sprite.__zOffset;
 
             sprite.interactive = true;
             sprite.buttonMode = true;
@@ -238,17 +280,24 @@ export function initObjects(app, worldContainer, roomData, user, localUserRef, z
 
             const guideMessage = getGuideMessage(nameProp);
             const guideColors = getGuideBubbleColors(nameProp);
-            const hasInteraction = !!guideMessage || !!urlProp || !!actionProp || !!targetRoomProp;
+            const doorObject = isDoorObject({nameProp});
+            const roomTargetObject = hasValue(targetRoomProp);
+            const hasInteraction = !!guideMessage || !!urlProp || !!actionProp || roomTargetObject;
 
             const hintText = hasInteraction ? createPixelBubble({
-                text: guideMessage ? "Press Space to ask" : "Press Space to start activity",
+                text: guideMessage
+                    ? "Press Space to ask"
+                    : roomTargetObject || doorObject
+                        ? "Press Space to enter the room"
+                        : "Press Space to start activity",
                 fontSize: guideMessage ? 11 : 12,
-                maxWidth: guideMessage ? 120 : 190,
+                maxWidth: guideMessage ? 120 : roomTargetObject || doorObject ? 210 : 190,
                 fill: guideMessage ? guideColors.fill : 0x1f2937,
                 border: guideMessage ? guideColors.border : 0xffd45c,
             }) : null;
 
             if (hintText) {
+                applyPromptScale(hintText);
                 hintText.visible = false;
                 hintText.x = sprite.x + sprite.width / 2;
                 hintText.y = sprite.y - 18;
@@ -266,6 +315,7 @@ export function initObjects(app, worldContainer, roomData, user, localUserRef, z
             }) : null;
 
             if (infoText) {
+                applyPromptScale(infoText);
                 infoText.visible = false;
                 infoText.x = sprite.x + sprite.width / 2;
                 infoText.y = sprite.y - 36;
@@ -291,6 +341,7 @@ export function initObjects(app, worldContainer, roomData, user, localUserRef, z
                 : null;
 
             if (occupiedText) {
+                applyPromptScale(occupiedText);
                 occupiedText.visible = false;
                 occupiedText.x = sprite.x + sprite.width / 2;
                 occupiedText.y = sprite.y - 18;
@@ -304,6 +355,8 @@ export function initObjects(app, worldContainer, roomData, user, localUserRef, z
 
     // Global keydown handler
     const keydownHandler = (e) => {
+        if (disposed) return;
+
         const target = e.target;
         const isTyping = target && (
             target.tagName === "INPUT" ||
@@ -313,8 +366,12 @@ export function initObjects(app, worldContainer, roomData, user, localUserRef, z
         );
         if (isTyping) return;
         console.log("🟧 [objectHandler] Keydown detected:", e.key);
-        const isInteractionKey = e.code === "Space" || e.key === " " || e.key === "Spacebar";
+        const isInteractionKey = isSpaceInteractionKey(e);
         if (!isInteractionKey || e.repeat) return;
+        if (window.__gs_spaceInteractionLocked) {
+            e.preventDefault();
+            return;
+        }
 
         if (options.isInteractionDisabled?.()) return;
 
@@ -322,6 +379,7 @@ export function initObjects(app, worldContainer, roomData, user, localUserRef, z
         if (!activeObject) return;
 
         e.preventDefault();
+        window.__gs_spaceInteractionLocked = true;
 
         const userId = user.user_id || user.id || null;
         const objectName = activeObject.nameProp || activeObject.obj.name || "unknown_object";
@@ -365,6 +423,20 @@ export function initObjects(app, worldContainer, roomData, user, localUserRef, z
                 object_name: objectName,
                 object_id: objectId,
                 action: "ask",
+            });
+            return;
+        }
+
+        if (hasValue(activeObject.targetRoomProp)) {
+            socket.emit("interact_obj", {
+                user_id: userId,
+                object_name: objectName,
+                object_id: objectId,
+                action: "enter_room",
+                targetRoom: activeObject.targetRoomProp,
+            });
+            Promise.resolve(handleRoomChange?.(activeObject.targetRoomProp)).catch((error) => {
+                console.error("Failed to enter target room:", error);
             });
             return;
         }
@@ -468,10 +540,18 @@ export function initObjects(app, worldContainer, roomData, user, localUserRef, z
             url: finalUrl,
         });
     };
+    const keyupHandler = (e) => {
+        if (isSpaceInteractionKey(e)) {
+            window.__gs_spaceInteractionLocked = false;
+        }
+    };
     window.addEventListener("keydown", keydownHandler);
+    window.addEventListener("keyup", keyupHandler);
 
     // Proximity detection loop (highlight ONLY the nearest object to avoid confusion)
-    app.ticker.add(() => {
+    const proximityTicker = () => {
+        if (disposed || worldContainer.destroyed) return;
+
         const localUser = localUserRef.current;
         if (!localUser) return;
         const hasActiveActivity = isActivityStatusActive(localUser.activity_status);
@@ -499,9 +579,9 @@ export function initObjects(app, worldContainer, roomData, user, localUserRef, z
             }
         }
 
-        // Apply highlight / pulse
-        const t = (app.ticker.lastTime || performance.now()) * PULSE_SPEED;
-        const pulse = 1 + Math.sin(t) * PULSE_AMPL;
+        // Apply highlight blink without resizing objects.
+        const t = (app.ticker.lastTime || performance.now()) * BLINK_SPEED;
+        const blink = (Math.sin(t) + 1) / 2;
         let activePromptRect = null;
 
         for (let i = 0; i < objects.length; i++) {
@@ -566,15 +646,15 @@ export function initObjects(app, worldContainer, roomData, user, localUserRef, z
             }
 
             if (isActive) {
-                // Glow-ish highlight via tint + gentle scale pulse
-                o.sprite.tint = isOccupied ? 0xffc4d6 : HIGHLIGHT_TINT;
-                o.sprite.alpha = 1;
                 const bx = o.sprite.__baseScaleX ?? o.sprite.scale.x;
                 const by = o.sprite.__baseScaleY ?? o.sprite.scale.y;
-                o.sprite.scale.set(bx * pulse, by * pulse);
+                const baseAlpha = o.sprite.__baseAlpha ?? 1;
+                o.sprite.tint = isOccupied ? 0xffc4d6 : HIGHLIGHT_TINT;
+                o.sprite.alpha = baseAlpha * (BLINK_ALPHA_MIN + blink * (1 - BLINK_ALPHA_MIN));
+                o.sprite.scale.set(bx, by);
 
                 // Keep sorting stable (object remains correctly in front/behind)
-                o.sprite.zIndex = o.sprite.y + o.sprite.height;
+                o.sprite.zIndex = o.sprite.y + o.sprite.height + (o.sprite.__zOffset || 0);
                 if (o.hintText) o.hintText.zIndex = o.sprite.zIndex + 1;
                 if (o.occupiedText) o.occupiedText.zIndex = o.sprite.zIndex + 1;
                 if (o.infoText) o.infoText.zIndex = o.sprite.zIndex + 2;
@@ -585,16 +665,29 @@ export function initObjects(app, worldContainer, roomData, user, localUserRef, z
                 const bx = o.sprite.__baseScaleX ?? o.sprite.scale.x;
                 const by = o.sprite.__baseScaleY ?? o.sprite.scale.y;
                 o.sprite.scale.set(bx, by);
+                o.sprite.zIndex = o.sprite.y + o.sprite.height + (o.sprite.__zOffset || 0);
             }
         }
 
         worldContainer.__objectPromptCollisionRect = activePromptRect
             ? {rect: activePromptRect, priority: 95, type: "object-prompt"}
             : null;
-    });
+    };
+    app.ticker.add(proximityTicker);
 
-    // Cleanup global keydown handler when PIXI app is destroyed
-    app.renderer.on("destroy", () => {
+    const cleanup = () => {
+        if (cleanedUp) return;
+        cleanedUp = true;
+        disposed = true;
         window.removeEventListener("keydown", keydownHandler);
-    });
+        window.removeEventListener("keyup", keyupHandler);
+        app.ticker.remove(proximityTicker);
+        if (worldContainer && !worldContainer.destroyed) {
+            worldContainer.__objectPromptCollisionRect = null;
+        }
+    };
+
+    // Cleanup global handlers when PIXI app is destroyed or when React replaces the room.
+    app.renderer.on("destroy", cleanup);
+    return cleanup;
 }

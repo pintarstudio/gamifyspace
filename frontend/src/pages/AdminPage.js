@@ -4,6 +4,7 @@ import {apiDelete, apiGet, apiPatch, apiPost} from "../api/apiClient";
 import "./AdminPage.css";
 
 const DASHBOARD_COURSE_SESSION_KEY = "gamifyit:selectedInstructorDashboardCourseId";
+const TOPIC_ADMIN_COURSE_SESSION_KEY = "gamifyit:topicAdminCourseId";
 const QUESTION_BANK_TOPIC_SESSION_KEY = "gamifyit:questionBankTopicId";
 const BANK_FILTER_SESSION_PREFIX = "gamifyit:bankFilters:";
 
@@ -1048,6 +1049,7 @@ const AdminPage = () => {
     const [busy, setBusy] = useState(false);
     const [message, setMessage] = useState("");
     const [rows, setRows] = useState([]);
+    const [rowsResource, setRowsResource] = useState("");
     const [references, setReferences] = useState({instructors: [], courses: [], course_groups: [], roles: [], useradmin_users: [], students: []});
     const [editingRow, setEditingRow] = useState(null);
     const [formData, setFormData] = useState({});
@@ -1093,6 +1095,7 @@ const AdminPage = () => {
     const [showScrollTop, setShowScrollTop] = useState(false);
     const [selectedStudentIds, setSelectedStudentIds] = useState([]);
     const [selectedBankIds, setSelectedBankIds] = useState([]);
+    const [topicCourseFilter, setTopicCourseFilter] = useState(() => readSessionValue(TOPIC_ADMIN_COURSE_SESSION_KEY));
     const [topicReset, setTopicReset] = useState({
         topic_id: "",
         course_id: "",
@@ -1112,6 +1115,12 @@ const AdminPage = () => {
     const [selectedDashboardTopicId, setSelectedDashboardTopicId] = useState("");
 
     const displayedRows = useMemo(() => {
+        if (activeConfig?.resource && rowsResource !== activeConfig.resource) return [];
+        if (activeConfig?.resource === "topics") {
+            return rows.filter((row) => (
+                !topicCourseFilter || String(row.course_id) === String(topicCourseFilter)
+            ));
+        }
         if (activeConfig?.resource !== "students") return rows;
         const search = studentBulk.search.trim().toLowerCase();
         return rows.filter((row) => {
@@ -1121,7 +1130,7 @@ const AdminPage = () => {
             return [row.name, row.email, row.course_name, row.course_group_name, row.role_name]
                 .some((value) => String(value || "").toLowerCase().includes(search));
         });
-    }, [activeConfig, rows, studentBulk]);
+    }, [activeConfig, rows, rowsResource, studentBulk, topicCourseFilter]);
     const topicResetStudents = useMemo(() => {
         const search = topicReset.search.trim().toLowerCase();
         return (references.students || []).filter((student) => {
@@ -1187,6 +1196,18 @@ const AdminPage = () => {
     }, [admin]);
 
     useEffect(() => {
+        if (activeConfig?.resource !== "topics") return;
+        const courses = references.courses || [];
+        if (!courses.length) return;
+        const selectedExists = courses.some((course) => String(course.course_id) === String(topicCourseFilter));
+        if (!selectedExists) {
+            const firstCourseId = String(courses[0].course_id || "");
+            setTopicCourseFilter(firstCourseId);
+            writeSessionValue(TOPIC_ADMIN_COURSE_SESSION_KEY, firstCourseId);
+        }
+    }, [activeConfig, references.courses, topicCourseFilter]);
+
+    useEffect(() => {
         if (!admin || activeConfig) return undefined;
         let active = true;
         setBusy(true);
@@ -1229,6 +1250,11 @@ const AdminPage = () => {
     }, []);
 
     useEffect(() => {
+        let active = true;
+        const resource = activeConfig?.resource;
+        const custom = activeConfig?.custom;
+        const bankType = activeConfig?.bankType;
+
         setEditingRow(null);
         setFormData({});
         setEditingBankRow(null);
@@ -1240,30 +1266,48 @@ const AdminPage = () => {
         setSelectedStudentIds([]);
         setSelectedBankIds([]);
         setStudentBulk({course_id: "", course_group_id: "", search: "", target_course_group_id: ""});
+        if (activeConfig?.resource !== "topics") {
+            setTopicCourseFilter(readSessionValue(TOPIC_ADMIN_COURSE_SESSION_KEY));
+        }
         setTopicReset({topic_id: "", course_id: "", course_group_id: "", search: "", activity_types: ["pre_test"], user_ids: []});
         setMessage("");
-        if (admin && activeConfig?.resource) {
+        setRows([]);
+        setRowsResource(resource || "");
+        if (custom !== "bankManager") {
+            setBankRows([]);
+        }
+        if (admin && resource) {
             setBusy(true);
-            apiGet(`/admin/resources/${activeConfig.resource}`)
+            apiGet(`/admin/resources/${resource}`)
                 .then((data) => {
+                    if (!active) return;
                     setRows(data.rows || []);
+                    setRowsResource(resource);
                     if (data.message) setMessage(data.message);
                 })
-                .finally(() => setBusy(false));
+                .finally(() => {
+                    if (active) setBusy(false);
+                });
         }
-        if (admin && activeConfig?.custom === "questionBank") {
+        if (admin && custom === "questionBank") {
             loadMaterials();
         }
-        if (admin && activeConfig?.custom === "bankManager") {
+        if (admin && custom === "bankManager") {
             setBusy(true);
-            apiGet(`/admin/question-bank/${activeConfig.bankType}`)
+            apiGet(`/admin/question-bank/${bankType}`)
                 .then((data) => {
+                    if (!active) return;
                     setBankRows(data.rows || []);
                     setBankPage(1);
                     if (data.message) setMessage(data.message);
                 })
-                .finally(() => setBusy(false));
+                .finally(() => {
+                    if (active) setBusy(false);
+                });
         }
+        return () => {
+            active = false;
+        };
     }, [admin, activeConfig]);
 
     const loadRows = async (config = activeConfig) => {
@@ -1271,6 +1315,7 @@ const AdminPage = () => {
         setBusy(true);
         const data = await apiGet(`/admin/resources/${config.resource}`);
         setRows(data.rows || []);
+        setRowsResource(config.resource);
         if (data.message) setMessage(data.message);
         setBusy(false);
     };
@@ -1319,6 +1364,7 @@ const AdminPage = () => {
         await apiPost("/admin/logout", {});
         setAdmin(null);
         setRows([]);
+        setRowsResource("");
         setEditingRow(null);
         setBusy(false);
         navigate(DEFAULT_PATH);
@@ -1344,6 +1390,7 @@ const AdminPage = () => {
         if (data.loggedOut) {
             setAdmin(null);
             setRows([]);
+            setRowsResource("");
             setPasswordForm({current_password: "", new_password: "", confirm_password: ""});
             navigate(DEFAULT_PATH);
         }
@@ -1360,7 +1407,11 @@ const AdminPage = () => {
 
     const openAddForm = () => {
         setEditingRow(null);
-        setFormData(emptyForm(activeConfig));
+        const nextForm = emptyForm(activeConfig);
+        if (activeConfig?.resource === "topics" && topicCourseFilter) {
+            nextForm.course_id = topicCourseFilter;
+        }
+        setFormData(nextForm);
         setMessage("");
     };
 
@@ -1427,6 +1478,13 @@ const AdminPage = () => {
         (references.course_groups || [])
             .filter((group) => !courseId || String(group.course_id) === String(courseId))
     );
+
+    const updateTopicCourseFilter = (value) => {
+        setTopicCourseFilter(value);
+        writeSessionValue(TOPIC_ADMIN_COURSE_SESSION_KEY, value);
+        setEditingRow(null);
+        setFormData({});
+    };
 
     const updateStudentBulk = (key, value) => {
         setStudentBulk((current) => {
@@ -2504,6 +2562,34 @@ const AdminPage = () => {
         );
     };
 
+    const renderTopicCourseFilter = () => {
+        if (activeConfig?.resource !== "topics") return null;
+        const courses = references.courses || [];
+        const selectedCourse = courses.find((course) => String(course.course_id) === String(topicCourseFilter));
+
+        return (
+            <section className="admin-filter-panel">
+                <label>
+                    Course Filter
+                    <select
+                        value={topicCourseFilter}
+                        onChange={(event) => updateTopicCourseFilter(event.target.value)}
+                    >
+                        {courses.map((course) => (
+                            <option key={course.course_id} value={course.course_id}>
+                                {course.course_name}
+                            </option>
+                        ))}
+                    </select>
+                </label>
+                <span>
+                    Showing {displayedRows.length} topic{displayedRows.length === 1 ? "" : "s"}
+                    {selectedCourse ? ` for ${selectedCourse.course_name}` : ""}
+                </span>
+            </section>
+        );
+    };
+
     const renderTopicResetPanel = () => {
         if (activeConfig?.resource !== "topics" || !topicReset.topic_id) return null;
         const topic = rows.find((row) => String(row.topic_id) === String(topicReset.topic_id));
@@ -3421,6 +3507,7 @@ const AdminPage = () => {
                             {message && <div className="admin-inline-message">{message}</div>}
 
                             {renderStudentBulkPanel()}
+                            {renderTopicCourseFilter()}
                             {renderTopicResetPanel()}
 
                             {(Object.keys(formData).length > 0 || editingRow) && (

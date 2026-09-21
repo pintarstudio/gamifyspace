@@ -100,6 +100,73 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
     const quizQuestionCount = activeSession?.question_count || context?.question_count || 5;
     const quizQuestionTimeSeconds = activeSession?.question_time_seconds || context?.question_time_seconds || 15;
 
+    const clearLocalQuizSession = useCallback(({
+        sessionId = activeSession?.quiz_session_id,
+        message: nextMessage = "Quiz lobby dibatalkan oleh host.",
+        closeEmbedded = false,
+    } = {}) => {
+        const activityKey = sessionId ? `${ACTIVITY_STATUS.quiz.type}:${sessionId}` : activityStatusKeyRef.current;
+        setActiveSession(null);
+        setSavingResult(false);
+        setBusy(false);
+        setMessage(nextMessage);
+
+        if (currentUser && sessionId) {
+            clearActivityStatus({user: currentUser, activityKey});
+            clearActivityRecovery(currentUser, {
+                type: "quiz",
+                session_id: sessionId,
+            });
+        }
+        if (!activityKey || activityStatusKeyRef.current === activityKey) {
+            activityStatusKeyRef.current = null;
+        }
+        if (closeEmbedded && embedded) {
+            window.setTimeout(() => onBack?.({
+                notice: nextMessage,
+                noticeTitle: "Quiz cancelled",
+                noticeType: "warning",
+            }), 0);
+        }
+    }, [activeSession?.quiz_session_id, currentUser, embedded, onBack]);
+
+    const applyQuizSessionResponse = useCallback((data, {
+        sessionId = activeSession?.quiz_session_id,
+        closeEmbeddedOnClosed = false,
+        closedMessage = "Quiz lobby dibatalkan oleh host.",
+    } = {}) => {
+        const nextSession = data?.session || null;
+        if (data?.cancelled || nextSession?.status === "cancelled") {
+            clearLocalQuizSession({
+                sessionId: sessionId || nextSession?.quiz_session_id,
+                message: data?.message || closedMessage,
+                closeEmbedded: closeEmbeddedOnClosed,
+            });
+            return false;
+        }
+        if (nextSession && !nextSession.is_member) {
+            clearLocalQuizSession({
+                sessionId: sessionId || nextSession.quiz_session_id,
+                message: data?.message || closedMessage,
+                closeEmbedded: closeEmbeddedOnClosed,
+            });
+            return false;
+        }
+        if (nextSession) {
+            setActiveSession(stampSession(nextSession));
+            return true;
+        }
+        if (data?.message) {
+            clearLocalQuizSession({
+                sessionId,
+                message: data.message,
+                closeEmbedded: closeEmbeddedOnClosed,
+            });
+            return false;
+        }
+        return false;
+    }, [activeSession?.quiz_session_id, clearLocalQuizSession]);
+
     useCopyProtection(
         !!activeSession?.is_member,
         setMessage,
@@ -114,7 +181,16 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
         if (restoreSessionId && String(nextActiveSession?.quiz_session_id || "") !== String(restoreSessionId)) {
             try {
                 const restored = await apiGet(`/quiz/sessions/${restoreSessionId}`);
-                if (restored.session) {
+                if (restored.cancelled || restored.session?.status === "cancelled" || restored.session?.is_member === false) {
+                    nextActiveSession = null;
+                    setMessage(restored.message || "Quiz sebelumnya sudah ditutup.");
+                    if (currentUser) {
+                        clearActivityRecovery(currentUser, {
+                            type: "quiz",
+                            session_id: restoreSessionId,
+                        });
+                    }
+                } else if (restored.session) {
                     nextActiveSession = restored.session;
                     if (restored.session.is_saving_result) {
                         setMessage("Hasil quiz sedang disimpan dan AI feedback sedang dibuat. Mohon tunggu.");
@@ -190,17 +266,15 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
         if (!activeSession?.quiz_session_id || !activeSession?.is_member || activeSession.status === "saved") return undefined;
 
         const sessionId = activeSession.quiz_session_id;
-        const activityKey = `${ACTIVITY_STATUS.quiz.type}:${sessionId}`;
         let disposed = false;
 
         const refreshQuizSession = async () => {
             const data = await apiGet(`/quiz/sessions/${sessionId}`);
             if (disposed) return;
-            if (data.session) {
-                setActiveSession(stampSession(data.session));
-            } else if (data.message) {
-                setMessage(data.message);
-            }
+            applyQuizSessionResponse(data, {
+                sessionId,
+                closeEmbeddedOnClosed: true,
+            });
         };
 
         const handleSessionEvent = (event = {}) => {
@@ -210,10 +284,11 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
 
         const handleLobbyCancelled = (event = {}) => {
             if (String(event.quiz_session_id) !== String(sessionId)) return;
-            setActiveSession(null);
-            setMessage("Quiz lobby dibatalkan oleh host.");
-            if (currentUser) clearActivityStatus({user: currentUser, activityKey});
-            if (activityStatusKeyRef.current === activityKey) activityStatusKeyRef.current = null;
+            clearLocalQuizSession({
+                sessionId,
+                message: event.message || "Quiz lobby dibatalkan oleh host.",
+                closeEmbedded: true,
+            });
         };
 
         socket.emit("quiz:join", {quiz_session_id: sessionId});
@@ -234,7 +309,7 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
             socket.off("quiz:result_saved", handleSessionEvent);
             socket.off("quiz:lobby_cancelled", handleLobbyCancelled);
         };
-    }, [activeSession?.quiz_session_id, activeSession?.is_member, activeSession?.status, currentUser]);
+    }, [activeSession?.quiz_session_id, activeSession?.is_member, activeSession?.status, applyQuizSessionResponse, clearLocalQuizSession]);
 
     useEffect(() => {
         if (!savingResult && !activeSession?.is_saving_result) return undefined;
@@ -256,8 +331,12 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
         const refreshSavingSession = async () => {
             try {
                 const data = await apiGet(`/quiz/sessions/${activeSession.quiz_session_id}`);
-                if (!disposed && data.session) {
-                    setActiveSession(stampSession(data.session));
+                if (!disposed) {
+                    applyQuizSessionResponse(data, {
+                        sessionId: activeSession.quiz_session_id,
+                        closeEmbeddedOnClosed: true,
+                        closedMessage: "Quiz sudah ditutup.",
+                    });
                 }
             } catch (error) {
                 if (!disposed) {
@@ -271,29 +350,22 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
             disposed = true;
             window.clearInterval(intervalId);
         };
-    }, [activeSession?.quiz_session_id, activeSession?.is_member, activeSession?.is_saving_result]);
+    }, [activeSession?.quiz_session_id, activeSession?.is_member, activeSession?.is_saving_result, applyQuizSessionResponse]);
 
     useEffect(() => {
         if (!activeSession?.quiz_session_id || !activeSession?.is_member || activeSession.status === "saved") return undefined;
 
         const intervalId = window.setInterval(() => {
             apiPost(`/quiz/sessions/${activeSession.quiz_session_id}/heartbeat`, {}).then((data) => {
-                if (data.session) setActiveSession(stampSession(data.session));
-                if (data.message && !data.session) {
-                    setMessage(data.message);
-                    setActiveSession(null);
-                    if (currentUser) {
-                        clearActivityStatus({
-                            user: currentUser,
-                            activityKey: `${ACTIVITY_STATUS.quiz.type}:${activeSession.quiz_session_id}`,
-                        });
-                    }
-                }
+                applyQuizSessionResponse(data, {
+                    sessionId: activeSession.quiz_session_id,
+                    closeEmbeddedOnClosed: true,
+                });
             });
         }, activeSession.status === "in_progress" ? 1500 : 4000);
 
         return () => window.clearInterval(intervalId);
-    }, [activeSession?.quiz_session_id, activeSession?.is_member, activeSession?.status, currentUser]);
+    }, [activeSession?.quiz_session_id, activeSession?.is_member, activeSession?.status, applyQuizSessionResponse]);
 
     useEffect(() => {
         if (
@@ -397,9 +469,12 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
         timeoutPulseRef.current = timeoutKey;
 
         apiPost(`/quiz/sessions/${activeSession.quiz_session_id}/heartbeat`, {}).then((data) => {
-            if (data.session) setActiveSession(stampSession(data.session));
+            applyQuizSessionResponse(data, {
+                sessionId: activeSession.quiz_session_id,
+                closeEmbeddedOnClosed: true,
+            });
         });
-    }, [activeSession, localTimeLeft, quizCountdownSeconds]);
+    }, [activeSession, localTimeLeft, quizCountdownSeconds, applyQuizSessionResponse]);
 
     useEffect(() => {
         if (!embedded) return undefined;
@@ -516,7 +591,10 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
         const data = await apiPost(`/quiz/sessions/${session.quiz_session_id}/join`, {});
         if (data.session) {
             if (noVirtual) setSelectedEntryGroupId(nextGroupId);
-            setActiveSession(stampSession(data.session));
+            applyQuizSessionResponse(data, {
+                sessionId: session.quiz_session_id,
+                closeEmbeddedOnClosed: true,
+            });
         } else {
             setMessage(getMessage(data, "Gagal join quiz."));
             if (currentUser) clearActivityStatus({user: currentUser, activityKey});
@@ -1018,7 +1096,7 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
         );
     }
 
-    const hasActiveSession = !!activeSession;
+    const hasActiveSession = !!activeSession && ["lobby", "in_progress", "completed"].includes(activeSession.status);
     const canStart = !hasActiveSession && !!selectedTopicId && isTopicSelectable(selectedTopic);
     const canJoin = hasActiveSession && !activeSession.is_full && ["lobby", "in_progress"].includes(activeSession.status);
 

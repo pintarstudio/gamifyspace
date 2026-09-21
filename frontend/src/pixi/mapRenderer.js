@@ -1,5 +1,37 @@
 import * as PIXI from "pixi.js";
 
+const getObjectProperty = (obj, name) =>
+    obj.properties?.find((property) => property.name === name)?.value;
+
+const PIXEL_TEXTURE_OPTIONS = {
+    scaleMode: "nearest",
+    autoGenerateMipmaps: false,
+    antialias: false,
+    addressMode: "clamp-to-edge",
+};
+
+const applyPixelTextureSettings = (texture) => {
+    const source = texture?.source;
+    if (!source) return;
+
+    source.autoGenerateMipmaps = false;
+    source.antialias = false;
+    source.addressMode = "clamp-to-edge";
+    source.magFilter = "nearest";
+    source.minFilter = "nearest";
+    source.mipmapFilter = "nearest";
+    source.style?.update?.();
+};
+
+const loadPixelTexture = async (imagePath) => {
+    const texture = await PIXI.Assets.load({
+        src: imagePath,
+        data: PIXEL_TEXTURE_OPTIONS,
+    });
+    applyPixelTextureSettings(texture);
+    return texture;
+};
+
 export async function initMap(app, roomData) {
     const TILE_SIZE = roomData.tilewidth;
     const mapWidth = roomData.width * TILE_SIZE;
@@ -45,7 +77,7 @@ export async function initMap(app, roomData) {
         const imageheight = parseInt(imageEl.getAttribute("height") || "0", 10);
 
         const imagePath = joinTilesPath(imageSource);
-        const tex = await PIXI.Assets.load(imagePath);
+        const tex = await loadPixelTexture(imagePath);
         const source = tex.source;
 
         const tilesPerRow = columnsAttr > 0
@@ -77,7 +109,7 @@ export async function initMap(app, roomData) {
         const margin = ts.margin || 0;
 
         const imagePath = joinTilesPath(ts.image);
-        const tex = await PIXI.Assets.load(imagePath);
+        const tex = await loadPixelTexture(imagePath);
         const source = tex.source;
 
         // Infer columns/rows from the actual texture size.
@@ -180,9 +212,7 @@ export async function initMap(app, roomData) {
 
                 const sprite = new PIXI.Sprite({
                     texture: tileTexture,
-                    textureStyle: {
-                        scaleMode: "nearest",
-                    },
+                    roundPixels: true,
                 });
 
                 // Position in world uses the MAP tile size
@@ -225,20 +255,24 @@ export async function initMap(app, roomData) {
     // (Tiled: tile objects have y at the bottom; shapes typically use y as top.)
     const collisionRects = [];
     collisionObjectLayers.forEach((layer) => {
+        const offsetX = layer.offsetx || 0;
+        const offsetY = layer.offsety || 0;
+
         (layer.objects || []).forEach((obj) => {
             if (obj.visible === false) return;
 
-            const ox = obj.x ?? 0;
-            const oy = obj.y ?? 0;
+            const ox = (obj.x ?? 0) + offsetX;
+            const oy = (obj.y ?? 0) + offsetY;
             const w = obj.width ?? TILE_SIZE;
             const h = obj.height ?? TILE_SIZE;
+            const isDoorObject = String(getObjectProperty(obj, "name") || "").toLowerCase() === "door";
 
             // If this is a tile object (has gid), Tiled uses y as the bottom.
             // Otherwise (rect/poly), y is typically the top.
             const topY = obj.gid ? oy - h : oy;
 
             // Full object collider (at least as big as the object). Add a small padding to feel less "clip-y".
-            const pad = 2;
+            const pad = isDoorObject ? 10 : 2;
 
             collisionRects.push({
                 x: ox - pad,

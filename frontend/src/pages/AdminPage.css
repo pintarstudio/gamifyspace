@@ -373,6 +373,46 @@
     margin: 4px 0 0;
 }
 
+.admin-filter-panel {
+    align-items: end;
+    border: 1px solid #dbe4ee;
+    border-radius: 8px;
+    display: grid;
+    gap: 14px;
+    grid-template-columns: minmax(220px, 360px) minmax(180px, 1fr);
+    margin: 16px 0;
+    padding: 14px 16px;
+}
+
+.admin-filter-panel label {
+    color: #4b5563;
+    display: grid;
+    font-size: 12px;
+    font-weight: 900;
+    gap: 7px;
+    text-transform: uppercase;
+}
+
+.admin-filter-panel select {
+    background: #f8fafc;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    box-sizing: border-box;
+    color: #172033;
+    font-size: 15px;
+    font-weight: 750;
+    min-height: 44px;
+    padding: 10px 12px;
+    width: 100%;
+}
+
+.admin-filter-panel span {
+    color: #667085;
+    font-size: 13px;
+    font-weight: 850;
+    padding-bottom: 12px;
+}
+
 .admin-bulk-grid {
     display: grid;
     gap: 14px;
@@ -2110,6 +2150,15 @@
 
     .admin-bank-filters {
         grid-template-columns: 1fr;
+    }
+
+    .admin-filter-panel {
+        align-items: stretch;
+        grid-template-columns: 1fr;
+    }
+
+    .admin-filter-panel span {
+        padding-bottom: 0;
     }
 
     .admin-material-list-header {

@@ -15,6 +15,69 @@
     border-radius: 8px;
     min-width: 0;
     overflow: hidden;
+    position: relative;
+}
+
+.virtual-map-notice {
+    align-items: flex-start;
+    background: #fffaf0;
+    border: 2px solid #111827;
+    border-left: 6px solid #d97706;
+    border-radius: 8px;
+    box-shadow: 0 8px 0 rgba(17, 24, 39, 0.18), 0 18px 36px rgba(17, 24, 39, 0.18);
+    box-sizing: border-box;
+    color: #20242a;
+    display: flex;
+    gap: 12px;
+    justify-content: space-between;
+    left: 18px;
+    max-width: min(420px, calc(100% - 36px));
+    padding: 12px 12px 12px 14px;
+    position: absolute;
+    top: 18px;
+    z-index: 8;
+}
+
+.virtual-map-notice div {
+    display: grid;
+    gap: 3px;
+    min-width: 0;
+}
+
+.virtual-map-notice strong {
+    color: #111827;
+    font-size: 13px;
+    font-weight: 900;
+    line-height: 1.25;
+}
+
+.virtual-map-notice span {
+    color: #4b5563;
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1.35;
+}
+
+.virtual-map-notice button {
+    align-items: center;
+    background: #111827;
+    border: 0;
+    border-radius: 6px;
+    color: #ffffff;
+    cursor: pointer;
+    display: inline-flex;
+    flex: 0 0 auto;
+    font-size: 12px;
+    font-weight: 900;
+    height: 24px;
+    justify-content: center;
+    line-height: 1;
+    text-transform: uppercase;
+    width: 24px;
+}
+
+.virtual-map-notice button:hover {
+    background: #374151;
 }
 
 .virtual-sidebar {

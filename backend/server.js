@@ -164,6 +164,8 @@ let users = {};
 let userRooms = {}; // Track which room each socket belongs to
 const activityLocks = {};
 const ACTIVITY_STATUS_TIMEOUT_MS = 5 * 60 * 1000;
+const DEFAULT_ROOM_NAME = "room1.1_lobby";
+const LEGACY_DEFAULT_ROOM_NAME = "room1";
 const VALID_ACTIVITY_STATUS_TYPES = new Set([
     "individual_exercise",
     "individual_pre_test",
@@ -173,9 +175,10 @@ const VALID_ACTIVITY_STATUS_TYPES = new Set([
 ]);
 
 function normalizeRoomName(room) {
-    const cleaned = String(room || "room1").trim().replace(/^\/+/, "");
-    const fileName = cleaned.split("/").pop() || "room1";
-    return fileName.replace(/\.json$/i, "") || "room1";
+    const cleaned = String(room || DEFAULT_ROOM_NAME).trim().replace(/^\/+/, "");
+    const fileName = cleaned.split("/").pop() || DEFAULT_ROOM_NAME;
+    const normalized = fileName.replace(/\.json$/i, "") || DEFAULT_ROOM_NAME;
+    return normalized === LEGACY_DEFAULT_ROOM_NAME ? DEFAULT_ROOM_NAME : normalized;
 }
 
 function normalizeCourseId(courseId) {
@@ -598,14 +601,6 @@ io.on("connection", (socket) => {
         // Join new room
         socket.join(scopedRoom);
 
-        // Update room lama
-        if (prevScopedRoom && prevScopedRoom !== scopedRoom) {
-            io.to(prevScopedRoom).emit("update_users", getUsersInRoom(prevScopedRoom));
-        }
-
-        // Broadcast ke room baru setelah update
-        io.to(scopedRoom).emit("update_users", getUsersInRoom(scopedRoom));
-
         userRooms[socket.id] = scopedRoom;
 
         const spawnX = Number.isFinite(Number(user.x)) ? Number(user.x) : 400;
@@ -628,6 +623,12 @@ io.on("connection", (socket) => {
         }
 
         console.log(`${user.name || user.email} joined ${visibleRoom} in course ${courseId}`);
+
+        // Update the old room after this user has been reassigned, so they disappear there.
+        if (prevScopedRoom && prevScopedRoom !== scopedRoom) {
+            io.to(prevScopedRoom).emit("update_users", getUsersInRoom(prevScopedRoom));
+        }
+
         io.to(scopedRoom).emit("update_users", getUsersInRoom(scopedRoom));
 
         logUserAction(user.user_id, "enter_room", {course_id: courseId, room: visibleRoom, position: {x: spawnX, y: spawnY}});

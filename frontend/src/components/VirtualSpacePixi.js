@@ -19,10 +19,81 @@ const NAME_OFFSET_MULT = 1.15;   // multiplier of sprite height
 const NAME_OFFSET_PX = 1;        // extra pixels
 // import { initAvatars } from "../pixi/avatarHandler";
 
-const randomSpawnPosition = () => ({
-    x: Math.floor(Math.random() * (900 - 650 + 1)) + 650,
-    y: Math.floor(Math.random() * (850 - 650 + 1)) + 650,
-});
+const DEFAULT_ROOM_NAME = "room1.1_lobby";
+const LEGACY_DEFAULT_ROOM_NAME = "room1";
+const LOBBY_SPAWN_Y_MIN = 320;
+const LOBBY_SPAWN_Y_MAX = 348;
+const LAB_ROOM_NAME = "room1.2_lab";
+const LAB_SPAWN_Y = 768;
+const DISCUSSION_ROOM_NAME = "room1.3_discussion";
+const DISCUSSION_SPAWN_Y = 896;
+const COMPETITION_ROOM_NAME = "room1.4_competition";
+const COMPETITION_SPAWN_Y = 768;
+const MAP_VISUAL_SCALE = 2;
+const LAB_VISUAL_SCALE = 1.6;
+
+const ROOM_SPAWN_AREAS = {
+    [DEFAULT_ROOM_NAME]: {minY: LOBBY_SPAWN_Y_MIN, maxY: LOBBY_SPAWN_Y_MAX},
+    [LAB_ROOM_NAME]: {minY: LAB_SPAWN_Y, maxY: LAB_SPAWN_Y},
+    [DISCUSSION_ROOM_NAME]: {minX: 32, maxX: 800, minY: DISCUSSION_SPAWN_Y, maxY: DISCUSSION_SPAWN_Y},
+    [COMPETITION_ROOM_NAME]: {minX: 32, maxX: 800, minY: COMPETITION_SPAWN_Y, maxY: COMPETITION_SPAWN_Y},
+};
+
+const randomInt = (min, max) => {
+    const safeMin = Math.ceil(Math.min(min, max));
+    const safeMax = Math.floor(Math.max(min, max));
+    return Math.floor(Math.random() * (safeMax - safeMin + 1)) + safeMin;
+};
+
+const normalizedRoomFileBase = (room) => {
+    const cleaned = String(room || "").trim().replace(/^\/+/, "");
+    return (cleaned.split("/").pop() || "").replace(/\.json$/i, "");
+};
+
+const randomSpawnPosition = ({mapWidth = 0, mapHeight = 0, tileSize = 16, room = DEFAULT_ROOM_NAME} = {}) => {
+    const normalizedRoom = normalizeRoomName(room);
+    const margin = tileSize * 2;
+    const safeMapWidth = Math.max(margin * 2, Number(mapWidth) || 0);
+    const safeMapHeight = Math.max(margin * 2, Number(mapHeight) || 0);
+    const minX = margin;
+    const maxX = Math.max(minX, safeMapWidth - margin);
+    const maxObjectX = Math.max(minX, safeMapWidth - tileSize);
+    const maxObjectY = Math.max(margin, safeMapHeight - tileSize);
+    let spawnMinX = minX;
+    let spawnMaxX = maxX;
+    let minY = margin;
+    let maxY = Math.max(minY, safeMapHeight - margin);
+    const spawnArea = ROOM_SPAWN_AREAS[normalizedRoom];
+
+    if (spawnArea) {
+        spawnMinX = Math.max(minX, Math.min(spawnArea.minX ?? minX, maxObjectX));
+        spawnMaxX = Math.max(spawnMinX, Math.min(spawnArea.maxX ?? maxX, maxObjectX));
+        minY = Math.max(margin, Math.min(spawnArea.minY ?? minY, maxObjectY));
+        maxY = Math.max(minY, Math.min(spawnArea.maxY ?? maxY, maxObjectY));
+    }
+
+    return {
+        x: randomInt(spawnMinX, spawnMaxX),
+        y: randomInt(minY, maxY),
+    };
+};
+
+const isPositionInsideMap = (position, mapWidth, mapHeight, tileSize) => {
+    if (!position) return false;
+    const x = Number(position.x);
+    const y = Number(position.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+    const margin = tileSize * 2;
+    return x >= margin && y >= margin && x <= mapWidth - tileSize && y <= mapHeight - tileSize;
+};
+
+const clearGlobalMovementKeys = () => {
+    if (!window.__gs_keys) return;
+    window.__gs_keys.ArrowUp = false;
+    window.__gs_keys.ArrowDown = false;
+    window.__gs_keys.ArrowLeft = false;
+    window.__gs_keys.ArrowRight = false;
+};
 
 const avatarPositionStorageKey = (user, suffix = "position") => {
     const userKey = user?.user_id || user?.id || user?.email || "guest";
@@ -38,11 +109,13 @@ const readStoredAvatarPosition = (user, suffix = "position") => {
         const x = Number(parsed.x);
         const y = Number(parsed.y);
         if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+        const storedRoom = normalizedRoomFileBase(parsed.room || DEFAULT_ROOM_NAME);
         return {
             x,
             y,
-            room: normalizeRoomName(parsed.room || "room1"),
+            room: normalizeRoomName(parsed.room || DEFAULT_ROOM_NAME),
             direction: parsed.direction || "right",
+            isLegacyDefaultRoom: storedRoom === LEGACY_DEFAULT_ROOM_NAME,
         };
     } catch (error) {
         return null;
@@ -55,7 +128,7 @@ const saveStoredAvatarPosition = (user, position, suffix = "position") => {
         localStorage.setItem(avatarPositionStorageKey(user, suffix), JSON.stringify({
             x: Number(position.x),
             y: Number(position.y),
-            room: normalizeRoomName(position.room || "room1"),
+            room: normalizeRoomName(position.room || DEFAULT_ROOM_NAME),
             direction: position.direction || "right",
             saved_at: Date.now(),
         }));
@@ -148,13 +221,30 @@ const setAvatarDirection = (avatar, direction) => {
     sprite.scale.x = sprite.baseScaleX;
 };
 
+const applyAvatarCounterScale = (display, counterScale) => {
+    if (!display || !Number.isFinite(counterScale)) return;
+    display.scale.set(counterScale);
+};
+
 const normalizeRoomName = (room) => {
-    const cleaned = String(room || "room1").trim().replace(/^\/+/, "");
-    const fileName = cleaned.split("/").pop() || "room1";
-    return fileName.replace(/\.json$/i, "") || "room1";
+    const cleaned = String(room || DEFAULT_ROOM_NAME).trim().replace(/^\/+/, "");
+    const fileName = cleaned.split("/").pop() || DEFAULT_ROOM_NAME;
+    const normalized = fileName.replace(/\.json$/i, "") || DEFAULT_ROOM_NAME;
+    return normalized === LEGACY_DEFAULT_ROOM_NAME ? DEFAULT_ROOM_NAME : normalized;
 };
 
 const roomFileName = (room) => `${normalizeRoomName(room)}.json`;
+
+const visualScaleForRoom = (room) =>
+    normalizeRoomName(room) === LAB_ROOM_NAME ? LAB_VISUAL_SCALE : MAP_VISUAL_SCALE;
+
+const fetchRoomData = async (room) => {
+    const response = await fetch(`/maps/${roomFileName(room)}`);
+    if (!response.ok) {
+        throw new Error(`Failed to load room data: ${roomFileName(room)} (HTTP ${response.status})`);
+    }
+    return response.json();
+};
 
 const getObjectProperty = (obj, name) =>
     obj.properties?.find((property) => property.name === name)?.value;
@@ -503,6 +593,7 @@ const updateAvatarStatusBubble = (worldContainer, avatar, status) => {
             avatar.statusText.destroy({children: true});
         }
         avatar.statusText = createAvatarStatusBubble(nextText);
+        applyAvatarCounterScale(avatar.statusText, avatar.counterScale);
         worldContainer.addChild(avatar.statusText);
     }
     positionAvatarLabels(avatar);
@@ -527,7 +618,7 @@ const VirtualSpacePixi = ({user, onOpenActivity, activityPanelOpen = false}) => 
     const [currentRoom, setCurrentRoom] = useState(() =>
         roomFileName(readStoredAvatarPosition(user, "activity-start")?.room
             || readStoredAvatarPosition(user, "position")?.room
-            || "room1")
+            || DEFAULT_ROOM_NAME)
     );
     const [roomData, setRoomData] = useState(null);
     const localUserRef = useRef(null);
@@ -630,13 +721,34 @@ const VirtualSpacePixi = ({user, onOpenActivity, activityPanelOpen = false}) => 
     }, [roomData, user?.course_id, user?.course_group_id, user?.user_id, user?.id]);
 
     // Handle room switching
-    const handleRoomChange = useCallback((newRoom) => {
+    const handleRoomChange = useCallback(async (newRoom) => {
         //console.log("🏠 Switching to:", newRoom);
         const nextRoom = normalizeRoomName(newRoom);
+        const activeRoom = normalizeRoomName(localUserRef.current?.room || currentRoomRef.current || DEFAULT_ROOM_NAME);
+        if (activeRoom === nextRoom) return;
+
+        const nextRoomFile = roomFileName(nextRoom);
+        let nextRoomData = null;
+
+        window.__gs_roomTransitioning = true;
+        clearGlobalMovementKeys();
+
+        try {
+            nextRoomData = await fetchRoomData(nextRoom);
+        } catch (error) {
+            window.__gs_roomTransitioning = false;
+            console.error("Failed to switch room:", error);
+            return;
+        }
 
         // Update local user room info
         if (localUserRef.current) {
-            const spawnPosition = randomSpawnPosition();
+            const spawnPosition = randomSpawnPosition({
+                mapWidth: nextRoomData?.width * nextRoomData?.tilewidth,
+                mapHeight: nextRoomData?.height * nextRoomData?.tileheight,
+                tileSize: nextRoomData?.tilewidth,
+                room: nextRoom,
+            });
             localUserRef.current.room = nextRoom;
             localUserRef.current.course_id = user.course_id;
             localUserRef.current.course_group_id = user.course_group_id || null;
@@ -647,8 +759,9 @@ const VirtualSpacePixi = ({user, onOpenActivity, activityPanelOpen = false}) => 
         }
 
         // Update displayed room and notify server
-        currentRoomRef.current = roomFileName(nextRoom);
+        currentRoomRef.current = nextRoomFile;
         setCurrentRoom(currentRoomRef.current);
+        setRoomData(nextRoomData);
         socket.emit("join_room", {
             user: localUserRef.current,
             room: nextRoom,
@@ -661,9 +774,21 @@ const VirtualSpacePixi = ({user, onOpenActivity, activityPanelOpen = false}) => 
         window.__avatars = avatars;
 
         // Inisialisasi localUser dengan user_id agar server mengenali dengan benar
-        const restoredPosition = readStoredAvatarPosition(user, "activity-start")
+        const storedPosition = readStoredAvatarPosition(user, "activity-start")
             || readStoredAvatarPosition(user, "position");
-        const spawnPosition = restoredPosition || randomSpawnPosition();
+        const activeRoom = normalizeRoomName(currentRoomRef.current || DEFAULT_ROOM_NAME);
+        const storedRoom = normalizeRoomName(storedPosition?.room || DEFAULT_ROOM_NAME);
+        const restoredPosition = storedRoom === activeRoom
+            && !storedPosition?.isLegacyDefaultRoom
+            && isPositionInsideMap(storedPosition, mapWidth, mapHeight, TILE_SIZE)
+            ? storedPosition
+            : null;
+        const spawnPosition = restoredPosition || randomSpawnPosition({
+            mapWidth,
+            mapHeight,
+            tileSize: TILE_SIZE,
+            room: activeRoom,
+        });
         const localUser = {
             user_id: user.user_id || user.id,
             avatar: avatarPublicPath(user),
@@ -673,13 +798,13 @@ const VirtualSpacePixi = ({user, onOpenActivity, activityPanelOpen = false}) => 
             course_id: user.course_id,
             course_group_id: user.course_group_id || null,
             direction: restoredPosition?.direction || localStorage.getItem("lastDirection") || "right",
-            room: normalizeRoomName(restoredPosition?.room || localUserRef.current?.room || user.room || currentRoomRef.current || "room1"),
+            room: activeRoom,
         };
         localUserRef.current = localUser;
 
         // Setelah localUserRef.current = localUser;
-        setTimeout(() => {
-            const activeRoom = normalizeRoomName(localUserRef.current.room || "room1");
+        const delayedJoinTimer = window.setTimeout(() => {
+            const activeRoom = normalizeRoomName(localUserRef.current.room || DEFAULT_ROOM_NAME);
             localUserRef.current.room = activeRoom;
             socket.emit("join_room", {user: localUserRef.current, room: activeRoom});
             //console.log("➡️ Joining room (delayed):", activeRoom);
@@ -689,9 +814,9 @@ const VirtualSpacePixi = ({user, onOpenActivity, activityPanelOpen = false}) => 
         socket.on("update_users", async (usersData) => {
             //console.log("🔁 Received update_users for all rooms:", usersData);
             let myKey = null;
-            const currentRoom = normalizeRoomName(localUserRef.current?.room || "room1");
+            const currentRoom = normalizeRoomName(localUserRef.current?.room || DEFAULT_ROOM_NAME);
             const filteredUsers = Object.fromEntries(
-                Object.entries(usersData).filter(([_, u]) => u.room === currentRoom)
+                Object.entries(usersData).filter(([_, u]) => normalizeRoomName(u.room) === currentRoom)
             );
             liveTableOccupancyRef.current = buildLiveTableOccupancy(filteredUsers, user);
             liveComputerOccupancyRef.current = buildLiveComputerOccupancy(filteredUsers, user);
@@ -732,7 +857,7 @@ const VirtualSpacePixi = ({user, onOpenActivity, activityPanelOpen = false}) => 
                 }
             }
 
-            await renderUsers(worldContainer, avatars, filteredUsers, localKeyRef, TILE_SIZE);
+            await renderUsers(worldContainer, avatars, filteredUsers, localKeyRef, TILE_SIZE, 1 / zoomFactor);
         });
 
         // Tangani user yang keluar (logout/disconnect)
@@ -747,19 +872,31 @@ const VirtualSpacePixi = ({user, onOpenActivity, activityPanelOpen = false}) => 
         // Pindahkan logika movement dan camera follow ke modul terpisah
         const cleanupMovement = initAvatarMovement(app, worldContainer, avatars, localUserRef, localKeyRef, checkCollision, TILE_SIZE, mapWidth, mapHeight, zoomFactor, user);
 
-        return {localUserRef, localKeyRef, cleanupMovement};
+        return {
+            localUserRef,
+            localKeyRef,
+            cleanup: () => {
+                window.clearTimeout(delayedJoinTimer);
+                cleanupMovement?.();
+            },
+        };
     }, []);
     // Fetch current room data
     useEffect(() => {
         // Fetch room JSON from public folder
-        fetch(`/maps/${roomFileName(currentRoom)}`)
-            .then((response) => response.json())
+        let active = true;
+
+        fetchRoomData(currentRoom)
             .then((data) => {
-                setRoomData(data);
+                if (active) setRoomData(data);
             })
             .catch((error) => {
-                console.error("Failed to load room data:", error);
+                if (active) console.error("Failed to load room data:", error);
             });
+
+        return () => {
+            active = false;
+        };
     }, [currentRoom]);
 
     useEffect(() => {
@@ -779,6 +916,7 @@ const VirtualSpacePixi = ({user, onOpenActivity, activityPanelOpen = false}) => 
                 height: 720,
                 backgroundColor: 0xf0f0f0,
                 antialias: false,
+                roundPixels: true,
             });
             // Round rendering to whole pixels to prevent grey seams between tiles at non-integer zoom
             const container = pixiContainer.current;
@@ -794,17 +932,21 @@ const VirtualSpacePixi = ({user, onOpenActivity, activityPanelOpen = false}) => 
 
             // Init Map
             const {worldContainer, checkCollision, TILE_SIZE, mapWidth, mapHeight} = await initMap(app, roomData);
+            if (cancelled) {
+                destroyPixiApp(app);
+                return;
+            }
             app.stage.addChild(worldContainer);
 
             // Zoom factor
-            const zoomFactor = 1;
+            const zoomFactor = visualScaleForRoom(currentRoom);
             worldContainer.scale.set(zoomFactor);
 
             const resizeToContainer = () => {
                 const width = Math.max(320, container.clientWidth || window.innerWidth);
                 const height = Math.max(320, container.clientHeight || window.innerHeight);
                 app.renderer.resize(width, height);
-                // IMPORTANT: keep container aligned to whole pixels to avoid tile seams at zoom 1.5
+                // IMPORTANT: keep container aligned to whole pixels to avoid tile seams while zoomed
                 worldContainer.x = Math.round((app.renderer.width - mapWidth * zoomFactor) / 2);
                 worldContainer.y = Math.round((app.renderer.height - mapHeight * zoomFactor) / 2);
             };
@@ -814,6 +956,11 @@ const VirtualSpacePixi = ({user, onOpenActivity, activityPanelOpen = false}) => 
 
             // Avatars
             const avatarRuntime = initAvatars(app, worldContainer, checkCollision, TILE_SIZE, mapWidth, mapHeight, user, zoomFactor, localUserRef);
+            if (cancelled) {
+                avatarRuntime?.cleanup?.();
+                destroyPixiApp(app);
+                return;
+            }
 
             //============================================================================================================
             // Smooth ticker updates for avatar movement
@@ -848,7 +995,8 @@ const VirtualSpacePixi = ({user, onOpenActivity, activityPanelOpen = false}) => 
 
             // Objects
             //console.log("🧭 Calling initObjects...");
-            initObjects(app, worldContainer, roomData, user, localUserRef, zoomFactor, handleRoomChange, {
+            const cleanupObjects = initObjects(app, worldContainer, roomData, user, localUserRef, 1, handleRoomChange, {
+                promptScale: 1 / zoomFactor,
                 onOpenActivity: (launch) => {
                     const localUser = localUserRef.current;
                     if (localUser) {
@@ -899,14 +1047,23 @@ const VirtualSpacePixi = ({user, onOpenActivity, activityPanelOpen = false}) => 
                     return live || database || null;
                 },
             });
+            if (cancelled) {
+                app.ticker.remove(smoothAvatarTicker);
+                avatarRuntime?.cleanup?.();
+                cleanupObjects?.();
+                destroyPixiApp(app);
+                return;
+            }
             socket.emit("request_update_users", {
                 course_id: user.course_id,
-                room: normalizeRoomName(localUserRef.current?.room || currentRoomRef.current || "room1"),
+                room: normalizeRoomName(localUserRef.current?.room || currentRoomRef.current || DEFAULT_ROOM_NAME),
             });
+            window.__gs_roomTransitioning = false;
 
             cleanupPixi = () => {
                 app.ticker.remove(smoothAvatarTicker);
-                avatarRuntime?.cleanupMovement?.();
+                avatarRuntime?.cleanup?.();
+                cleanupObjects?.();
                 window.removeEventListener("resize", resizeToContainer);
                 socket.off("update_users");
                 socket.off("user_moved");
@@ -918,9 +1075,10 @@ const VirtualSpacePixi = ({user, onOpenActivity, activityPanelOpen = false}) => 
 
         return () => {
             cancelled = true;
+            clearGlobalMovementKeys();
             if (cleanupPixi) cleanupPixi();
         };
-    }, [handleRoomChange, initAvatars, roomData, user]);
+    }, [currentRoom, handleRoomChange, initAvatars, roomData, user]);
 
     if (!roomData) {
         return null; // or loading indicator if desired
@@ -941,7 +1099,7 @@ const VirtualSpacePixi = ({user, onOpenActivity, activityPanelOpen = false}) => 
 
 export default VirtualSpacePixi;
 
-export async function renderUsers(worldContainer, avatars, usersData, localKeyRef, TILE_SIZE) {
+export async function renderUsers(worldContainer, avatars, usersData, localKeyRef, TILE_SIZE, avatarCounterScale = 1) {
     // Hapus avatar yang sudah tidak ada di usersData
     Object.keys(avatars).forEach((id) => {
         if (!usersData[id]) {
@@ -979,7 +1137,7 @@ export async function renderUsers(worldContainer, avatars, usersData, localKeyRe
                     ? TILE_SIZE * AVATAR_SHEET_RENDER_TILE_WIDTH
                     : TILE_SIZE * 3;
                 const scaleFactor = targetAvatarWidth / sprite.texture.width;
-                sprite.scale.set(scaleFactor);
+                sprite.scale.set(scaleFactor * avatarCounterScale);
 
 // Top-down: x/y represents FEET so the head can go behind walls
                 sprite.anchor.set(0.5, 1);
@@ -999,6 +1157,7 @@ export async function renderUsers(worldContainer, avatars, usersData, localKeyRe
                 worldContainer.addChild(sprite);
 
                 const nameText = createAvatarNameTag(u.name || "User");
+                applyAvatarCounterScale(nameText, avatarCounterScale);
 
                 nameText.zIndex = sprite.zIndex + 1;
                 nameText.x = sprite.x;
@@ -1011,6 +1170,7 @@ export async function renderUsers(worldContainer, avatars, usersData, localKeyRe
                     sprite,
                     nameText,
                     statusText: null,
+                    counterScale: avatarCounterScale,
                     framesByDirection: animation.frames,
                     animationMode: animation.mode,
                     // Only remote avatars get targetX/targetY for smoothing
@@ -1109,6 +1269,10 @@ export function initAvatarMovement(app, worldContainer, avatars, localUserRef, l
     const movementTicker = () => {
         // >>> Perbaikan utama: ambil localUser sebelum dipakai
         if (!app.renderer || worldContainer.destroyed) return;
+        if (window.__gs_roomTransitioning) {
+            clearMovementKeys();
+            return;
+        }
         if (window.__virtualActivityModalOpen) {
             clearMovementKeys();
             const myKey = localKeyRef.current;
@@ -1229,7 +1393,7 @@ export function initAvatarMovement(app, worldContainer, avatars, localUserRef, l
             saveStoredAvatarPosition(user, {
                 x: localUser.x,
                 y: localUser.y,
-                room: localUser.room || "room1",
+                room: localUser.room || DEFAULT_ROOM_NAME,
                 direction,
             });
             clearStoredActivityStartPosition(user);
@@ -1256,15 +1420,20 @@ export function initAvatarMovement(app, worldContainer, avatars, localUserRef, l
         const targetX = -localUser.x * zoomFactor + viewWidth / 2;
         const targetY = -localUser.y * zoomFactor + viewHeight / 2;
 
-        // Batasi kamera agar tidak keluar batas map
-        const maxX = 0;
-        const maxY = 0;
-        const minX = -mapWidth * zoomFactor + viewWidth;
-        const minY = -mapHeight * zoomFactor + viewHeight;
+        const scaledMapWidth = mapWidth * zoomFactor;
+        const scaledMapHeight = mapHeight * zoomFactor;
 
-        // Keep camera aligned to whole pixels to avoid grey seams between tiles
-        worldContainer.x = Math.round(Math.min(maxX, Math.max(minX, targetX)));
-        worldContainer.y = Math.round(Math.min(maxY, Math.max(minY, targetY)));
+        // Keep smaller maps centered; otherwise clamp camera so it never shows past map bounds.
+        worldContainer.x = Math.round(
+            scaledMapWidth <= viewWidth
+                ? (viewWidth - scaledMapWidth) / 2
+                : Math.min(0, Math.max(-scaledMapWidth + viewWidth, targetX))
+        );
+        worldContainer.y = Math.round(
+            scaledMapHeight <= viewHeight
+                ? (viewHeight - scaledMapHeight) / 2
+                : Math.min(0, Math.max(-scaledMapHeight + viewHeight, targetY))
+        );
     };
     app.ticker.add(movementTicker);
     return () => app.ticker.remove(movementTicker);
