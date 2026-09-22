@@ -162,6 +162,7 @@ const STUDENT_INSTRUCTOR_ITEM = {
             trueLabel: "Enabled",
             falseLabel: "Disabled",
         },
+        {key: "created_at", label: "Created At", type: "datetime"},
     ],
     fields: [
         {key: "course_id", label: "Course", type: "select", reference: "courses", required: true},

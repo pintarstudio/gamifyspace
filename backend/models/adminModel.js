@@ -569,7 +569,8 @@ export async function listAdminResource(resource) {
                  r.role_name,
                  COALESCE(cg.gamification_enabled, FALSE) AS gamification_enabled,
                  NOT COALESCE(cg.virtual_space_enabled, FALSE) AS use_no_virtual_space,
-                 COALESCE(cg.virtual_space_enabled, FALSE) AS virtual_space_enabled
+                 COALESCE(cg.virtual_space_enabled, FALSE) AS virtual_space_enabled,
+                 u.created_at
              FROM users u
              JOIN courses c ON c.course_id = u.course_id
              LEFT JOIN course_groups cg
@@ -579,7 +580,7 @@ export async function listAdminResource(resource) {
                ON r.role_id = u.role_id
              WHERE u.deleted_at IS NULL
                AND c.deleted_at IS NULL
-             ORDER BY c.course_name ASC, u.name ASC`
+             ORDER BY u.created_at DESC NULLS LAST, u.user_id DESC`
         );
         return result.rows;
     }
