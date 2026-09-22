@@ -1997,6 +1997,16 @@
     margin: 0;
 }
 
+.virtual-tutorial__step--lobby {
+    background: #f4f7ff;
+    border-color: #c5d4f5;
+    border-left-color: #4267b2;
+}
+
+.virtual-tutorial__step--lobby .virtual-tutorial__image {
+    border-color: #4267b2;
+}
+
 .virtual-tutorial__step--individual {
     background: #fffaf0;
     border-color: #edd394;

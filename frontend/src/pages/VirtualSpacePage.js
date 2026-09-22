@@ -1326,17 +1326,26 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
                                     <span>↑↓←→</span>
                                     <div>
                                         <strong>Gerakkan avatar dengan tombol panah</strong>
-                                        <p>Dekati objek aktivitas di ruang virtual, lalu tekan Space saat instruksi interaksi muncul.</p>
+                                        <p>Mulai dari lobby, lalu masuk ke ruang aktivitas yang sesuai. Dekati objek di dalam ruangan dan tekan Space saat instruksi muncul.</p>
                                     </div>
                                 </div>
                                 <div className="virtual-tutorial__steps">
+                                    <article className="virtual-tutorial__step virtual-tutorial__step--lobby">
+                                        <div className="virtual-tutorial__image">
+                                            <img src="/objects/guide.png" alt="Lobby guide object" />
+                                        </div>
+                                        <div>
+                                            <strong>Lobby</strong>
+                                            <p>Gunakan lobby sebagai titik awal. Dari sini, ikuti arah ruangan untuk menuju aktivitas yang ingin kamu kerjakan.</p>
+                                        </div>
+                                    </article>
                                     <article className="virtual-tutorial__step virtual-tutorial__step--individual">
                                         <div className="virtual-tutorial__image">
                                             <img src="/objects/computer.png" alt="Computer object" />
                                         </div>
                                         <div>
-                                            <strong>Latihan Mandiri</strong>
-                                            <p>Gunakan komputer untuk latihan mandiri, pre-test, dan post-test. Satu komputer untuk 1 orang.</p>
+                                            <strong>Computer Room</strong>
+                                            <p>Masuk ke ruang komputer untuk latihan mandiri, pre-test, dan post-test. Satu komputer hanya bisa digunakan oleh 1 orang.</p>
                                         </div>
                                     </article>
                                     <article className="virtual-tutorial__step virtual-tutorial__step--group">
@@ -1344,8 +1353,8 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
                                             <img src="/objects/tablebook_r.png" alt="Group table object" />
                                         </div>
                                         <div>
-                                            <strong>Diskusi Kelompok</strong>
-                                            <p>Gunakan meja ini untuk mengerjakan studi kasus bersama teman dalam kelompok. Maksimal 4 orang dalam 1 kelompok. 1 meja untuk 1 orang.</p>
+                                            <strong>Discussion Room</strong>
+                                            <p>Masuk ke ruang diskusi untuk mengerjakan studi kasus bersama teman satu kelompok. Maksimal 4 orang dalam 1 sesi, dan 1 meja digunakan oleh 1 orang.</p>
                                         </div>
                                     </article>
                                     <article className="virtual-tutorial__step virtual-tutorial__step--quiz">
@@ -1353,14 +1362,14 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
                                             <img src="/objects/bigtable.png" alt="Big table quiz object" />
                                         </div>
                                         <div>
-                                            <strong>Fun Quiz 1 vs 1</strong>
-                                            <p>Gunakan meja ini untuk mulai duel quiz 1 lawan 1 dengan satu teman. 1 meja untuk 2 orang.</p>
+                                            <strong>Competition Room</strong>
+                                            <p>Masuk ke ruang kompetisi untuk mulai Fun Quiz 1 vs 1 dengan satu teman. Satu meja kompetisi hanya untuk 2 orang.</p>
                                         </div>
                                     </article>
                                 </div>
                                 <div className="virtual-tutorial__hint">
                                     <span>!</span>
-                                    <p>Ikuti papan pixel di map. Saat instruksi muncul di dekat objek, tekan Space untuk berinteraksi.</p>
+                                    <p>Ikuti papan pixel dan nama ruangan di map. Jika ruangan atau objek sedang digunakan, pilih ruangan/objek lain yang masih tersedia.</p>
                                 </div>
                             </>
                         ) : orientationTutorialStep === 1 ? (

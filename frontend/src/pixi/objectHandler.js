@@ -63,6 +63,23 @@ const isComputerActivityObject = (object) =>
 const isDoorObject = (object) =>
     String(object?.nameProp || "").toLowerCase() === "door";
 
+const normalizeRoomTarget = (targetRoom) =>
+    String(targetRoom || "")
+        .trim()
+        .replace(/^\/+/, "")
+        .split("/")
+        .pop()
+        ?.replace(/\.json$/i, "") || "";
+
+const DOOR_PROMPT_MESSAGES = {
+    "room1.2_lab": "Tekan spasi untuk masuk ke ruang komputer.",
+    "room1.3_discussion": "Tekan spasi untuk masuk ke ruang diskusi.",
+    "room1.4_competition": "Tekan spasi untuk masuk ke ruang kompetisi.",
+};
+
+const getRoomTargetPrompt = (targetRoom) =>
+    DOOR_PROMPT_MESSAGES[normalizeRoomTarget(targetRoom)] || "Tekan spasi untuk masuk ke ruangan.";
+
 const getTableOccupancy = (object, options = {}) => {
     if (!isTableActivityObject(object)) return null;
     const objectId = hasValue(object.idProp) ? object.idProp : object.obj?.id || null;
@@ -288,10 +305,10 @@ export function initObjects(app, worldContainer, roomData, user, localUserRef, z
                 text: guideMessage
                     ? "Press Space to ask"
                     : roomTargetObject || doorObject
-                        ? "Press Space to enter the room"
+                        ? getRoomTargetPrompt(targetRoomProp)
                         : "Press Space to start activity",
-                fontSize: guideMessage ? 11 : 12,
-                maxWidth: guideMessage ? 120 : roomTargetObject || doorObject ? 210 : 190,
+                fontSize: guideMessage || roomTargetObject || doorObject ? 11 : 12,
+                maxWidth: guideMessage ? 120 : roomTargetObject || doorObject ? 230 : 190,
                 fill: guideMessage ? guideColors.fill : 0x1f2937,
                 border: guideMessage ? guideColors.border : 0xffd45c,
             }) : null;
