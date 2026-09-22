@@ -8,7 +8,16 @@ import {ensureRoleSchema, INSTRUCTOR_ROLE_ID, STUDENT_ROLE_ID} from "./roleModel
 
 export async function ensureUserAccessModeColumn() {
     await ensureCourseGroupSchema();
-    return ensureRoleSchema();
+    await ensureRoleSchema();
+    await pool.query(`
+        ALTER TABLE users
+        DROP CONSTRAINT IF EXISTS users_email_key
+    `);
+    await pool.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS users_course_email_unique_idx
+        ON users (course_id, LOWER(TRIM(email)))
+        WHERE deleted_at IS NULL
+    `);
 }
 
 export async function findUserById(id) {
@@ -160,7 +169,7 @@ export async function findUserByCourseNameEmail({course_id, name, email}) {
     return result.rows[0] || null;
 }
 
-export async function findUserByEmail(email) {
+export async function findUserByCourseEmail({course_id, email}) {
     await ensureUserAccessModeColumn();
     const result = await pool.query(
         `SELECT
@@ -191,10 +200,11 @@ export async function findUserByEmail(email) {
                AND cg.deleted_at IS NULL
          JOIN roles r
            ON r.role_id = u.role_id
-         WHERE LOWER(TRIM(u.email)) = LOWER(TRIM($1))
+         WHERE u.course_id = $1
+           AND LOWER(TRIM(u.email)) = LOWER(TRIM($2))
            AND u.deleted_at IS NULL
          LIMIT 1`,
-        [email]
+        [course_id, email]
     );
     return result.rows[0] || null;
 }

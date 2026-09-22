@@ -1,6 +1,6 @@
 // backend/controllers/authController.js
 import {findActiveCourseById, findCourseByName, getManagedCoursesForInstructor} from "../models/courseModel.js";
-import {createDemoUser, findUserByCourseNameEmail, findUserByEmail, findUserById} from "../models/userModel.js";
+import {createDemoUser, findUserByCourseEmail, findUserByCourseNameEmail, findUserById} from "../models/userModel.js";
 import {createSession, deactivateSession} from "../models/sessionModel.js";
 import {findAvatarById, getDefaultAvatar} from "../models/avatarModel.js";
 import {INSTRUCTOR_ROLE_ID, STUDENT_ROLE_ID} from "../models/roleModel.js";
@@ -186,14 +186,11 @@ export async function resolveDemoLogin(req, res) {
         let created = false;
 
         if (!user) {
-            const existingEmailUser = await findUserByEmail(studentEmail);
+            const existingEmailUser = await findUserByCourseEmail({
+                course_id: course.course_id,
+                email: studentEmail,
+            });
             if (existingEmailUser) {
-                if (String(existingEmailUser.course_id) !== String(course.course_id)) {
-                    return res.status(409).json({
-                        message: "Email sudah terdaftar pada course lain. Silakan gunakan email student yang berbeda atau hubungi administrator.",
-                    });
-                }
-
                 if (!isSameLookupText(existingEmailUser.name, studentName)) {
                     return res.status(409).json({
                         message: "Email sudah terdaftar untuk profil lain pada course ini. Silakan gunakan email student yang berbeda atau hubungi administrator.",
@@ -250,7 +247,7 @@ export async function resolveDemoLogin(req, res) {
         console.error("Resolve demo login error:", error);
         if (error?.code === "23505") {
             return res.status(409).json({
-                message: "Email sudah terdaftar. Silakan gunakan email student yang berbeda atau hubungi administrator.",
+                message: "Email sudah terdaftar pada course ini. Silakan gunakan email student yang berbeda atau hubungi administrator.",
             });
         }
         res.status(500).json({message: "Gagal memuat data demo login"});
