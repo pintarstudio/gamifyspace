@@ -651,49 +651,76 @@ export async function listQuestionBankCoverage(courseId = null) {
     }
 
     const result = await pool.query(
-        `SELECT
-             t.topic_id,
-             t.topic_name,
-             t.week,
-             c.course_id,
-             c.course_name,
-             COUNT(DISTINCT pre.question_id)::int AS pre_test_count,
-             COUNT(DISTINCT post.question_id)::int AS post_test_count,
-             COUNT(DISTINCT individual_mc.question_id)::int AS individual_question_count,
-             COUNT(DISTINCT individual_case.question_id)::int AS individual_case_count,
-             COUNT(DISTINCT group_case.case_id)::int AS group_case_count,
-             COUNT(DISTINCT quiz.question_id)::int AS quiz_count
-         FROM topics t
-         JOIN courses c ON c.course_id = t.course_id
-         LEFT JOIN individual_questions pre
-                ON pre.topic_id = t.topic_id
-               AND pre.activity_type = 'pre_test'
-               AND pre.question_kind = 'multiple_choice'
-               AND pre.is_active = TRUE
-         LEFT JOIN individual_questions post
-                ON post.topic_id = t.topic_id
-               AND post.activity_type = 'post_test'
-               AND post.question_kind = 'multiple_choice'
-               AND post.is_active = TRUE
-         LEFT JOIN individual_questions individual_mc
-                ON individual_mc.topic_id = t.topic_id
-               AND individual_mc.activity_type = 'exercise'
-               AND individual_mc.question_kind = 'multiple_choice'
-               AND individual_mc.is_active = TRUE
-         LEFT JOIN individual_questions individual_case
-                ON individual_case.topic_id = t.topic_id
-               AND individual_case.activity_type = 'exercise'
-               AND individual_case.question_kind = 'case_study'
-               AND individual_case.is_active = TRUE
-         LEFT JOIN topic_cases group_case
-                ON group_case.topic_id = t.topic_id
-               AND group_case.is_active = TRUE
-         LEFT JOIN quiz_question_bank quiz
-                ON quiz.topic_id = t.topic_id
-               AND quiz.is_active = TRUE
-         WHERE ${where.join(" AND ")}
-         GROUP BY t.topic_id, t.topic_name, t.week, c.course_id, c.course_name
-         ORDER BY c.course_name ASC, t.week ASC NULLS LAST, t.topic_name ASC`,
+        `WITH topic_scope AS (
+             SELECT
+                 t.topic_id,
+                 t.topic_name,
+                 t.week,
+                 c.course_id,
+                 c.course_name
+             FROM topics t
+             JOIN courses c ON c.course_id = t.course_id
+             WHERE ${where.join(" AND ")}
+         ),
+         individual_counts AS (
+             SELECT
+                 iq.topic_id,
+                 COUNT(*) FILTER (
+                     WHERE iq.activity_type = 'pre_test'
+                       AND iq.question_kind = 'multiple_choice'
+                 )::int AS pre_test_count,
+                 COUNT(*) FILTER (
+                     WHERE iq.activity_type = 'post_test'
+                       AND iq.question_kind = 'multiple_choice'
+                 )::int AS post_test_count,
+                 COUNT(*) FILTER (
+                     WHERE iq.activity_type = 'exercise'
+                       AND iq.question_kind = 'multiple_choice'
+                 )::int AS individual_question_count,
+                 COUNT(*) FILTER (
+                     WHERE iq.activity_type = 'exercise'
+                       AND iq.question_kind = 'case_study'
+                 )::int AS individual_case_count
+             FROM individual_questions iq
+             JOIN topic_scope ts ON ts.topic_id = iq.topic_id
+             WHERE iq.is_active = TRUE
+             GROUP BY iq.topic_id
+         ),
+         group_case_counts AS (
+             SELECT
+                 tc.topic_id,
+                 COUNT(*)::int AS group_case_count
+             FROM topic_cases tc
+             JOIN topic_scope ts ON ts.topic_id = tc.topic_id
+             WHERE tc.is_active = TRUE
+             GROUP BY tc.topic_id
+         ),
+         quiz_counts AS (
+             SELECT
+                 qqb.topic_id,
+                 COUNT(*)::int AS quiz_count
+             FROM quiz_question_bank qqb
+             JOIN topic_scope ts ON ts.topic_id = qqb.topic_id
+             WHERE qqb.is_active = TRUE
+             GROUP BY qqb.topic_id
+         )
+         SELECT
+             ts.topic_id,
+             ts.topic_name,
+             ts.week,
+             ts.course_id,
+             ts.course_name,
+             COALESCE(ic.pre_test_count, 0)::int AS pre_test_count,
+             COALESCE(ic.post_test_count, 0)::int AS post_test_count,
+             COALESCE(ic.individual_question_count, 0)::int AS individual_question_count,
+             COALESCE(ic.individual_case_count, 0)::int AS individual_case_count,
+             COALESCE(gcc.group_case_count, 0)::int AS group_case_count,
+             COALESCE(qc.quiz_count, 0)::int AS quiz_count
+         FROM topic_scope ts
+         LEFT JOIN individual_counts ic ON ic.topic_id = ts.topic_id
+         LEFT JOIN group_case_counts gcc ON gcc.topic_id = ts.topic_id
+         LEFT JOIN quiz_counts qc ON qc.topic_id = ts.topic_id
+         ORDER BY ts.course_name ASC, ts.week ASC NULLS LAST, ts.topic_name ASC`,
         params
     );
     return result.rows;
