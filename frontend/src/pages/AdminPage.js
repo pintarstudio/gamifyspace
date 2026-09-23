@@ -1331,18 +1331,25 @@ const AdminPage = () => {
                     if (active) setBusy(false);
                 });
         }
-        if (admin && custom === "questionBankCoverage" && questionBankCoverageCourseId) {
-            setBusy(true);
-            apiGet(`/admin/question-bank-coverage?course_id=${encodeURIComponent(questionBankCoverageCourseId)}`)
-                .then((data) => {
-                    if (!active) return;
-                    setQuestionBankCoverageRows(data.rows || []);
-                    if (data.message) setMessage(data.message);
-                })
-                .finally(() => {
-                    if (active) setBusy(false);
-                });
-        }
+        return () => {
+            active = false;
+        };
+    }, [admin, activeConfig]);
+
+    useEffect(() => {
+        if (!admin || activeConfig?.custom !== "questionBankCoverage" || !questionBankCoverageCourseId) return;
+        let active = true;
+        setBusy(true);
+        setQuestionBankCoverageRows([]);
+        apiGet(`/admin/question-bank-coverage?course_id=${encodeURIComponent(questionBankCoverageCourseId)}`)
+            .then((data) => {
+                if (!active) return;
+                setQuestionBankCoverageRows(data.rows || []);
+                if (data.message) setMessage(data.message);
+            })
+            .finally(() => {
+                if (active) setBusy(false);
+            });
         return () => {
             active = false;
         };
@@ -1379,9 +1386,23 @@ const AdminPage = () => {
         setBusy(false);
     };
 
-    const updateQuestionBankCoverageCourse = (courseId) => {
+    const loadQuestionBankCoverage = async (courseId = questionBankCoverageCourseId) => {
+        if (!courseId) {
+            setQuestionBankCoverageRows([]);
+            return;
+        }
+        setBusy(true);
+        setQuestionBankCoverageRows([]);
+        const data = await apiGet(`/admin/question-bank-coverage?course_id=${encodeURIComponent(courseId)}`);
+        setQuestionBankCoverageRows(data.rows || []);
+        if (data.message) setMessage(data.message);
+        setBusy(false);
+    };
+
+    const updateQuestionBankCoverageCourse = async (courseId) => {
         setQuestionBankCoverageCourseId(courseId);
         writeSessionValue(QUESTION_BANK_COVERAGE_COURSE_SESSION_KEY, courseId);
+        await loadQuestionBankCoverage(courseId);
     };
 
     const handleLoginChange = (event) => {
