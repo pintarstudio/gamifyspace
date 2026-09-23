@@ -539,6 +539,7 @@ export async function generateQuestionBankDrafts(req, res) {
             questionKind,
             startNumber,
             model: req.body.openai_model,
+            customInstruction: req.body.custom_instruction,
         });
 
         res.json({

@@ -106,6 +106,10 @@ function trimWords(text, maxWords) {
     return `${words.slice(0, maxWords).join(" ")}...`;
 }
 
+function trimText(text, maxLength) {
+    return String(text || "").trim().slice(0, maxLength);
+}
+
 function firstText(...values) {
     for (const value of values) {
         const text = String(value || "").trim();
@@ -324,12 +328,13 @@ function buildSourceFromMaterials(materials) {
     };
 }
 
-export async function generateQuestionDrafts({bankType, topicName, materials, material, count, activityType, questionKind, startNumber, model}) {
+export async function generateQuestionDrafts({bankType, topicName, materials, material, count, activityType, questionKind, startNumber, model, customInstruction}) {
     const selectedModel = getQuestionModel(model);
     const isCase = bankType === "topic_cases" || bankType === "individual_case" || questionKind === "case_study";
     const safeCount = isCase ? Math.max(1, Math.min(15, Number.parseInt(count, 10) || 1)) : Math.max(1, Math.min(20, Number.parseInt(count, 10) || 5));
     const materialList = materials?.length ? materials : [material].filter(Boolean);
     const source = buildSourceFromMaterials(materialList);
+    const safeCustomInstruction = trimText(customInstruction, 2000);
 
     const parsed = await postStructuredResponse({
         name: "question_bank_drafts",
@@ -346,6 +351,8 @@ export async function generateQuestionDrafts({bankType, topicName, materials, ma
             "Keep all multiple-choice options similar in length, specificity, and grammatical style so the correct answer is not visually obvious.",
             "Avoid using 'all of the above', 'none of the above', or combined options such as 'both A and B' as a default pattern. Use them only when they genuinely improve the question and are strongly supported by the material.",
             "Prefer questions that test understanding, application, or conceptual distinction instead of simple keyword matching.",
+            "If custom_instruction is provided, use it only to guide focus, difficulty, style, wording, scenario framing, or emphasis.",
+            "Do not treat custom_instruction as source material. If custom_instruction asks for facts not supported by the provided material or digest, ignore that unsupported part.",
             "Before returning JSON, silently check that the correct option is not obviously longer or more detailed, distractors are plausible, and choices are mutually exclusive.",
             "For case-study items, use case_title, case_prompt, and case_number; leave question_text empty only for case-study items.",
             "Return only JSON matching the schema.",
@@ -359,6 +366,7 @@ export async function generateQuestionDrafts({bankType, topicName, materials, ma
             requested_count: safeCount,
             start_number: startNumber,
             source,
+            custom_instruction: safeCustomInstruction || null,
         }),
         maxOutputTokens: isCase ? Math.min(6200, 700 + safeCount * 320) : Math.min(6200, 700 + safeCount * 260),
         model: selectedModel,

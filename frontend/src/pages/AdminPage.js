@@ -1084,6 +1084,7 @@ const AdminPage = () => {
         question_kind: "multiple_choice",
         individual_question_type: "exercise_multiple_choice",
         openai_model: "gpt-5.4-mini",
+        custom_instruction: "",
         count: 5,
     });
     const [drafts, setDrafts] = useState([]);
@@ -3070,7 +3071,7 @@ const AdminPage = () => {
         const materialTopicOptions = topicOptionsForCourse("");
         const visibleMaterials = materialTopicFilter
             ? materials.filter((material) => String(material.topic_id) === String(materialTopicFilter))
-            : materials;
+            : [];
         const selectedTopicMaterials = questionSettings.topic_id
             ? materials.filter((material) => String(material.topic_id) === String(questionSettings.topic_id))
             : [];
@@ -3141,7 +3142,7 @@ const AdminPage = () => {
                                     value={materialTopicFilter}
                                     onChange={(event) => updateMaterialTopicFilter(event.target.value)}
                                 >
-                                    <option value="">All Topics</option>
+                                    <option value="">Choose Topic</option>
                                     {materialTopicOptions.map((topic) => (
                                         <option key={topic.topic_id} value={topic.topic_id}>
                                             {topic.course_name} - {topic.topic_name}
@@ -3150,7 +3151,8 @@ const AdminPage = () => {
                                 </select>
                             </label>
                         </div>
-                        {visibleMaterials.length === 0 && <p>No material found yet.</p>}
+                        {!materialTopicFilter && <p>Choose a topic to display saved materials.</p>}
+                        {materialTopicFilter && visibleMaterials.length === 0 && <p>No material found for this topic.</p>}
                         {visibleMaterials.map((material) => (
                             <article key={material.material_id}>
                                 <div>
@@ -3251,6 +3253,16 @@ const AdminPage = () => {
                                 max={isCaseBank ? 15 : 20}
                                 value={questionSettings.count}
                                 onChange={(event) => updateQuestionSettings("count", event.target.value)}
+                            />
+                        </label>
+                        <label className="admin-form-wide">
+                            Specific Instruction / Prompt
+                            <textarea
+                                value={questionSettings.custom_instruction}
+                                onChange={(event) => updateQuestionSettings("custom_instruction", event.target.value)}
+                                maxLength={2000}
+                                placeholder="Optional. Example: Fokus pada perbandingan konsep, buat distraktor lebih mirip, dan hindari pertanyaan definisi langsung."
+                                rows={4}
                             />
                         </label>
                     </div>
