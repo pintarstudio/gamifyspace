@@ -20,6 +20,7 @@ import {
     getNextQuestionNumber,
     getTopicMaterialById,
     getTopicMaterialsByIds,
+    listQuestionBankCoverage,
     listQuestionBankItems,
     listTopicMaterials,
     markMaterialDigestError,
@@ -593,6 +594,19 @@ export async function getQuestionBankItems(req, res) {
     } catch (error) {
         console.error("Admin question bank list error:", error);
         res.status(500).json({message: "Gagal mengambil question bank"});
+    }
+}
+
+export async function getQuestionBankCoverage(req, res) {
+    try {
+        const admin = await getCurrentAdmin(req);
+        if (!admin) return res.status(401).json({message: "Admin belum login"});
+
+        const rows = await listQuestionBankCoverage(req.query.course_id || null);
+        res.json({rows});
+    } catch (error) {
+        console.error("Admin question bank coverage error:", error);
+        res.status(500).json({message: "Gagal mengambil coverage question bank"});
     }
 }
 

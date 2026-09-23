@@ -13,6 +13,7 @@ import {
     getAdminReferenceData,
     getAdminResource,
     getAdminSession,
+    getQuestionBankCoverage,
     getQuestionBankItems,
     getTopicMaterials,
     loginAdmin,
@@ -42,6 +43,7 @@ router.post("/materials", createTopicMaterialData);
 router.patch("/materials/:materialId", updateTopicMaterialData);
 router.delete("/materials/:materialId", deleteTopicMaterialData);
 router.post("/materials/:materialId/digest", generateTopicMaterialDigest);
+router.get("/question-bank-coverage", getQuestionBankCoverage);
 router.post("/question-bank/generate", generateQuestionBankDrafts);
 router.post("/question-bank/save", saveQuestionBankDrafts);
 router.get("/question-bank/:bankType", getQuestionBankItems);

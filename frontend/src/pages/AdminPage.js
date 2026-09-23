@@ -6,6 +6,7 @@ import "./AdminPage.css";
 const DASHBOARD_COURSE_SESSION_KEY = "gamifyit:selectedInstructorDashboardCourseId";
 const TOPIC_ADMIN_COURSE_SESSION_KEY = "gamifyit:topicAdminCourseId";
 const QUESTION_BANK_TOPIC_SESSION_KEY = "gamifyit:questionBankTopicId";
+const QUESTION_BANK_COVERAGE_COURSE_SESSION_KEY = "gamifyit:questionBankCoverageCourseId";
 const BANK_FILTER_SESSION_PREFIX = "gamifyit:bankFilters:";
 
 function readDashboardCourseSession() {
@@ -344,6 +345,12 @@ const MENU_GROUPS = [
         label: "Question Bank",
         key: "question-bank",
         items: [
+            {
+                label: "Question Bank Monitor",
+                path: "/questionbankmonitor",
+                custom: "questionBankCoverage",
+                description: "Monitor whether each topic has enough pre-test, post-test, individual, group case, and quiz questions.",
+            },
             {
                 label: "Quiz Question Bank",
                 path: "/quizbankadmin",
@@ -1094,6 +1101,8 @@ const AdminPage = () => {
     const [bankForm, setBankForm] = useState({});
     const [editingBankRow, setEditingBankRow] = useState(null);
     const [bankFilters, setBankFilters] = useState({course_id: "", topic_id: "", activity_type: "", question_kind: ""});
+    const [questionBankCoverageRows, setQuestionBankCoverageRows] = useState([]);
+    const [questionBankCoverageCourseId, setQuestionBankCoverageCourseId] = useState(() => readSessionValue(QUESTION_BANK_COVERAGE_COURSE_SESSION_KEY));
     const [showScrollTop, setShowScrollTop] = useState(false);
     const [selectedStudentIds, setSelectedStudentIds] = useState([]);
     const [selectedBankIds, setSelectedBankIds] = useState([]);
@@ -1210,6 +1219,18 @@ const AdminPage = () => {
     }, [activeConfig, references.courses, topicCourseFilter]);
 
     useEffect(() => {
+        if (activeConfig?.custom !== "questionBankCoverage") return;
+        const courses = references.courses || [];
+        if (!courses.length) return;
+        const selectedExists = courses.some((course) => String(course.course_id) === String(questionBankCoverageCourseId));
+        if (!selectedExists) {
+            const firstCourseId = String(courses[0].course_id || "");
+            setQuestionBankCoverageCourseId(firstCourseId);
+            writeSessionValue(QUESTION_BANK_COVERAGE_COURSE_SESSION_KEY, firstCourseId);
+        }
+    }, [activeConfig, references.courses, questionBankCoverageCourseId]);
+
+    useEffect(() => {
         if (!admin || activeConfig) return undefined;
         let active = true;
         setBusy(true);
@@ -1278,6 +1299,9 @@ const AdminPage = () => {
         if (custom !== "bankManager") {
             setBankRows([]);
         }
+        if (custom !== "questionBankCoverage") {
+            setQuestionBankCoverageRows([]);
+        }
         if (admin && resource) {
             setBusy(true);
             apiGet(`/admin/resources/${resource}`)
@@ -1307,10 +1331,22 @@ const AdminPage = () => {
                     if (active) setBusy(false);
                 });
         }
+        if (admin && custom === "questionBankCoverage" && questionBankCoverageCourseId) {
+            setBusy(true);
+            apiGet(`/admin/question-bank-coverage?course_id=${encodeURIComponent(questionBankCoverageCourseId)}`)
+                .then((data) => {
+                    if (!active) return;
+                    setQuestionBankCoverageRows(data.rows || []);
+                    if (data.message) setMessage(data.message);
+                })
+                .finally(() => {
+                    if (active) setBusy(false);
+                });
+        }
         return () => {
             active = false;
         };
-    }, [admin, activeConfig]);
+    }, [admin, activeConfig, questionBankCoverageCourseId]);
 
     const loadRows = async (config = activeConfig) => {
         if (!config) return;
@@ -1341,6 +1377,11 @@ const AdminPage = () => {
         setSelectedBankIds([]);
         if (data.message) setMessage(data.message);
         setBusy(false);
+    };
+
+    const updateQuestionBankCoverageCourse = (courseId) => {
+        setQuestionBankCoverageCourseId(courseId);
+        writeSessionValue(QUESTION_BANK_COVERAGE_COURSE_SESSION_KEY, courseId);
     };
 
     const handleLoginChange = (event) => {
@@ -3067,6 +3108,119 @@ const AdminPage = () => {
         );
     };
 
+    const renderCoverageCount = (value) => {
+        const count = Number(value || 0);
+        return (
+            <span className={`coverage-count ${count > 0 ? "is-ready" : "is-empty"}`}>
+                {formatAdminNumber(count)}
+            </span>
+        );
+    };
+
+    const renderQuestionBankCoverage = () => {
+        const selectedCourse = (references.courses || []).find((course) => (
+            String(course.course_id) === String(questionBankCoverageCourseId)
+        ));
+        const totalTopics = questionBankCoverageRows.length;
+        const completeTopics = questionBankCoverageRows.filter((row) => (
+            Number(row.pre_test_count || 0) > 0
+            && Number(row.post_test_count || 0) > 0
+            && Number(row.individual_question_count || 0) > 0
+            && Number(row.individual_case_count || 0) > 0
+            && Number(row.group_case_count || 0) > 0
+            && Number(row.quiz_count || 0) > 0
+        )).length;
+
+        return (
+            <>
+                <div className="admin-page-header">
+                    <div>
+                        <h1>Question Bank Monitor</h1>
+                        <p>Check question and case availability per topic for the selected course.</p>
+                    </div>
+                </div>
+                {message && <div className="admin-inline-message">{message}</div>}
+
+                <section className="admin-bank-filters coverage-filters">
+                    <label>
+                        Course
+                        <select
+                            value={questionBankCoverageCourseId}
+                            onChange={(event) => updateQuestionBankCoverageCourse(event.target.value)}
+                        >
+                            <option value="">Choose Course</option>
+                            {(references.courses || []).map((course) => (
+                                <option key={course.course_id} value={course.course_id}>
+                                    {course.course_name}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+                </section>
+
+                {questionBankCoverageCourseId && (
+                    <div className="coverage-summary">
+                        <article>
+                            <span>Course</span>
+                            <strong>{selectedCourse?.course_name || "-"}</strong>
+                        </article>
+                        <article>
+                            <span>Topics</span>
+                            <strong>{formatAdminNumber(totalTopics)}</strong>
+                        </article>
+                        <article>
+                            <span>Complete Topics</span>
+                            <strong>{formatAdminNumber(completeTopics)}</strong>
+                        </article>
+                    </div>
+                )}
+
+                <div className="admin-table-wrap">
+                    <table className="admin-data-table coverage-table">
+                        <thead>
+                        <tr>
+                            <th>Week</th>
+                            <th>Topic</th>
+                            <th>Pre-test</th>
+                            <th>Post-test</th>
+                            <th>Individual MC</th>
+                            <th>Individual Case</th>
+                            <th>Group Case</th>
+                            <th>Quiz</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        {!questionBankCoverageCourseId && (
+                            <tr>
+                                <td colSpan={8}>Choose a course to display topic coverage.</td>
+                            </tr>
+                        )}
+                        {questionBankCoverageCourseId && questionBankCoverageRows.map((row) => (
+                            <tr key={row.topic_id}>
+                                <td>{row.week || "-"}</td>
+                                <td>
+                                    <strong>{row.topic_name}</strong>
+                                </td>
+                                <td>{renderCoverageCount(row.pre_test_count)}</td>
+                                <td>{renderCoverageCount(row.post_test_count)}</td>
+                                <td>{renderCoverageCount(row.individual_question_count)}</td>
+                                <td>{renderCoverageCount(row.individual_case_count)}</td>
+                                <td>{renderCoverageCount(row.group_case_count)}</td>
+                                <td>{renderCoverageCount(row.quiz_count)}</td>
+                            </tr>
+                        ))}
+                        {questionBankCoverageCourseId && questionBankCoverageRows.length === 0 && (
+                            <tr>
+                                <td colSpan={8}>{busy ? "Loading data..." : "No topics found for this course."}</td>
+                            </tr>
+                        )}
+                        </tbody>
+                    </table>
+                </div>
+            </>
+        );
+    };
+
     const renderQuestionBank = () => {
         const materialTopicOptions = topicOptionsForCourse("");
         const visibleMaterials = materialTopicFilter
@@ -3499,6 +3653,8 @@ const AdminPage = () => {
                         renderInstructorDashboard()
                     ) : activeConfig.custom === "questionBank" ? (
                         renderQuestionBank()
+                    ) : activeConfig.custom === "questionBankCoverage" ? (
+                        renderQuestionBankCoverage()
                     ) : activeConfig.custom === "bankManager" ? (
                         renderBankManager()
                     ) : activeConfig.custom === "changePassword" ? (
