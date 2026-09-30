@@ -2454,18 +2454,22 @@ const AdminPage = () => {
                     </div>
                 </section>
 
-                <section className="instructor-topic-tabs" aria-label="Topic filter">
-                    {(selectedDashboardCourse?.topics || []).map((topic) => (
-                        <button
-                            key={topic.topic_id}
-                            type="button"
-                            className={String(selectedDashboardTopic?.topic_id) === String(topic.topic_id) ? "is-active" : ""}
-                            onClick={() => setSelectedDashboardTopicId(topic.topic_id)}
+                <section className="instructor-topic-picker" aria-label="Topic filter">
+                    <label>
+                        Topic
+                        <select
+                            value={selectedDashboardTopic?.topic_id || ""}
+                            onChange={(event) => setSelectedDashboardTopicId(event.target.value)}
+                            disabled={!selectedDashboardCourse?.topics?.length}
                         >
-                            <span>{topic.week ? `Week ${topic.week}` : "Topic"}</span>
-                            <strong>{topic.topic_name}</strong>
-                        </button>
-                    ))}
+                            {(selectedDashboardCourse?.topics || []).map((topic) => (
+                                <option key={topic.topic_id} value={topic.topic_id}>
+                                    {topic.week ? `Week ${topic.week} - ` : ""}{topic.topic_name}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+                    <span>{formatAdminNumber(selectedDashboardCourse?.topics?.length || 0)} topics available</span>
                 </section>
 
                 <section className="instructor-topic-panel">
