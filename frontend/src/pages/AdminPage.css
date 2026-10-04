@@ -1342,6 +1342,19 @@
     background: #115e59;
 }
 
+.instructor-topic-actions--activity {
+    border-color: #bfdbfe;
+    box-shadow: 0 12px 28px rgba(37, 99, 235, 0.08);
+}
+
+.instructor-topic-actions--activity button {
+    background: #1d4ed8;
+}
+
+.instructor-topic-actions--activity button:hover {
+    background: #1e40af;
+}
+
 .instructor-comparison {
     background: #ffffff;
     border: 1px solid #d9e3ea;
@@ -1888,6 +1901,10 @@
     grid-template-columns: repeat(2, minmax(240px, 1fr));
 }
 
+.weekly-student-grid--summary {
+    align-items: stretch;
+}
+
 .weekly-student-list {
     align-content: start;
     align-self: start;
@@ -1927,6 +1944,12 @@
     font-weight: 950;
     padding: 5px 8px;
     white-space: nowrap;
+}
+
+.weekly-student-total {
+    color: #172033;
+    font-size: 38px;
+    line-height: 1;
 }
 
 .weekly-student-list > div {

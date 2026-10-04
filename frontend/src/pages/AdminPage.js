@@ -940,15 +940,29 @@ function createStoredZip(entries) {
     return concatBytes([...localParts, centralDirectory, new Uint8Array(end)]);
 }
 
-function worksheetCell(rowIndex, colIndex, value) {
-    const ref = `${columnName(colIndex)}${rowIndex + 1}`;
-    if (typeof value === "number" && Number.isFinite(value)) {
-        return `<c r="${ref}"><v>${value}</v></c>`;
-    }
-    return `<c r="${ref}" t="inlineStr"><is><t>${escapeXml(value)}</t></is></c>`;
+function workbookCellValue(cell) {
+    if (cell && typeof cell === "object" && !Array.isArray(cell)) return cell.value ?? "";
+    return cell;
 }
 
-function createXlsxBlob(rows) {
+function workbookCellStyle(cell) {
+    if (!cell || typeof cell !== "object" || Array.isArray(cell)) return "";
+    if (cell.style === "danger") return " s=\"1\"";
+    if (cell.style === "header") return " s=\"2\"";
+    return "";
+}
+
+function worksheetCell(rowIndex, colIndex, cell) {
+    const ref = `${columnName(colIndex)}${rowIndex + 1}`;
+    const value = workbookCellValue(cell);
+    const style = workbookCellStyle(cell);
+    if (typeof value === "number" && Number.isFinite(value)) {
+        return `<c r="${ref}"${style}><v>${value}</v></c>`;
+    }
+    return `<c r="${ref}"${style} t="inlineStr"><is><t>${escapeXml(value)}</t></is></c>`;
+}
+
+function createXlsxBlob(rows, sheetName = "Export") {
     const sheetRows = rows.map((row, rowIndex) => (
         `<row r="${rowIndex + 1}">${row.map((cell, colIndex) => worksheetCell(rowIndex, colIndex, cell)).join("")}</row>`
     )).join("");
@@ -960,6 +974,7 @@ function createXlsxBlob(rows) {
 <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
 <Default Extension="xml" ContentType="application/xml"/>
 <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
 <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
 </Types>`,
         },
@@ -974,7 +989,7 @@ function createXlsxBlob(rows) {
             name: "xl/workbook.xml",
             content: `<?xml version="1.0" encoding="UTF-8"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-<sheets><sheet name="Pre Post Scores" sheetId="1" r:id="rId1"/></sheets>
+<sheets><sheet name="${escapeXml(sheetName).slice(0, 31)}" sheetId="1" r:id="rId1"/></sheets>
 </workbook>`,
         },
         {
@@ -982,7 +997,33 @@ function createXlsxBlob(rows) {
             content: `<?xml version="1.0" encoding="UTF-8"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
 <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
 </Relationships>`,
+        },
+        {
+            name: "xl/styles.xml",
+            content: `<?xml version="1.0" encoding="UTF-8"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<fonts count="3">
+<font><sz val="11"/><color theme="1"/><name val="Calibri"/><family val="2"/></font>
+<font><b/><sz val="11"/><color rgb="FF991B1B"/><name val="Calibri"/><family val="2"/></font>
+<font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/><family val="2"/></font>
+</fonts>
+<fills count="4">
+<fill><patternFill patternType="none"/></fill>
+<fill><patternFill patternType="gray125"/></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FFFEE2E2"/><bgColor indexed="64"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FF0F766E"/><bgColor indexed="64"/></patternFill></fill>
+</fills>
+<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>
+<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+<cellXfs count="3">
+<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/>
+<xf numFmtId="0" fontId="2" fillId="3" borderId="0" xfId="0" applyFont="1" applyFill="1"/>
+</cellXfs>
+<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
+</styleSheet>`,
         },
         {
             name: "xl/worksheets/sheet1.xml",
@@ -2150,7 +2191,7 @@ const AdminPage = () => {
                 row.improvement === "" ? "" : Number(row.improvement),
             ]),
         ];
-        const blob = createXlsxBlob(workbookRows);
+        const blob = createXlsxBlob(workbookRows, "Pre Post Scores");
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
         link.href = url;
@@ -2161,85 +2202,95 @@ const AdminPage = () => {
         URL.revokeObjectURL(url);
     };
 
-    const renderBaselineStudent = (student) => (
-        <article key={student.user_id}>
-            <div className="student-identity">
-                <b>{student.name}</b>
-                <small>{student.email || "No email"}</small>
-            </div>
-            <div className="weekly-baseline-counts">
-                {Object.entries(WEEKLY_BASELINE).map(([kind, required]) => {
-                    const value = student.counts[kind] || 0;
-                    return (
-                        <span className={value >= required ? "is-met" : "is-pending"} key={kind}>
-                            {weeklyKindLabel(kind)} {value}/{required}
-                        </span>
-                    );
-                })}
-            </div>
-        </article>
-    );
+    const exportSelectedTopicActivityProgress = () => {
+        const rows = (selectedDashboardTopic?.groups || []).flatMap((group) => {
+            const topic = topicProgressForGroup(selectedDashboardCourse, group)
+                .find((item) => String(item.key) === `topic:${selectedDashboardTopic?.topic_id}`);
+            if (!topic) return [];
+            return [
+                ...topic.students_met.map((student) => ({student, group, status: "sudah memenuhi", isPending: false})),
+                ...topic.students_pending.map((student) => ({student, group, status: "belum memenuhi", isPending: true})),
+            ];
+        });
+
+        if (!rows.length) {
+            setMessage("No activity progress data available for this topic.");
+            return;
+        }
+
+        const workbookRows = [
+            ["Student Name", "Email", "Group", "Status", "Activities", "Individual MC", "Individual Case", "Group Activity", "Fun Quiz"]
+                .map((value) => ({value, style: "header"})),
+            ...rows.map(({student, group, status, isPending}) => {
+                const activitySummary = Object.entries(WEEKLY_BASELINE)
+                    .map(([kind, required]) => `${weeklyKindLabel(kind)}: ${student.counts[kind] || 0}/${required}`)
+                    .join("; ");
+                return [
+                    student.name || "",
+                    student.email || "",
+                    group.group_name || "Ungrouped",
+                    {value: status, style: isPending ? "danger" : ""},
+                    activitySummary,
+                    Number(student.counts.individual_mc || 0),
+                    Number(student.counts.individual_case || 0),
+                    Number(student.counts.group || 0),
+                    Number(student.counts.quiz || 0),
+                ];
+            }),
+        ];
+
+        const blob = createXlsxBlob(workbookRows, "Activity Progress");
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `${slugifyFilePart(selectedDashboardCourse?.course_name)}-${slugifyFilePart(selectedDashboardTopic?.topic_name)}-activity-progress.xlsx`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    };
 
     const renderTopicActivityProgress = (group) => {
-        const topicProgress = topicProgressForGroup(selectedDashboardCourse, group)
-            .filter((topic) => String(topic.key) === `topic:${selectedDashboardTopic?.topic_id}`);
+        const topic = topicProgressForGroup(selectedDashboardCourse, group)
+            .find((item) => String(item.key) === `topic:${selectedDashboardTopic?.topic_id}`);
+        if (!topic) {
+            return <p>No topic activity data available for this group yet.</p>;
+        }
+        const totalSessions = Object.values(topic.totals).reduce((total, value) => total + value, 0);
         return (
-            <div className="weekly-progress">
+            <div className="weekly-progress weekly-progress--summary">
                 <div className="weekly-progress-note">
                     Activity totals are counted by completed/saved sessions. Student baseline status is counted by each student's participation.
                 </div>
-                <div className="topic-progress-list">
-                    {topicProgress.map((topic) => {
-                        const totalSessions = Object.values(topic.totals).reduce((total, value) => total + value, 0);
-                        return (
-                            <details className="topic-progress-collapse" key={topic.key}>
-                                <summary>
-                                    <span>{topic.sub_label || "Topic"}</span>
-                                    <strong>{topic.label}</strong>
-                                    <small>{formatAdminNumber(totalSessions)} total sessions</small>
-                                </summary>
-                                <section className="weekly-progress-card">
-                                    <div className="weekly-session-totals">
-                                        <article className="weekly-session-total-card">
-                                            <span>Total Sessions</span>
-                                            <strong>{formatAdminNumber(totalSessions)}</strong>
-                                            <small>completed/saved</small>
-                                        </article>
-                                        {Object.entries(WEEKLY_BASELINE).map(([kind]) => (
-                                            <article className={`weekly-session-total-card weekly-session-total-card--${kind}`} key={kind}>
-                                                <span>{weeklyKindLabel(kind)}</span>
-                                                <strong>{formatAdminNumber(topic.totals[kind])}</strong>
-                                                <small>sessions</small>
-                                            </article>
-                                        ))}
-                                    </div>
-                                    <div className="weekly-student-grid">
-                                        <section className="weekly-student-list weekly-student-list--met">
-                                            <header>
-                                                <strong>Baseline met</strong>
-                                                <span>{formatAdminNumber(topic.students_met.length)} students</span>
-                                            </header>
-                                            <div>
-                                                {topic.students_met.map(renderBaselineStudent)}
-                                                {topic.students_met.length === 0 && <p>No students have met all baseline criteria yet.</p>}
-                                            </div>
-                                        </section>
-                                        <section className="weekly-student-list weekly-student-list--pending">
-                                            <header>
-                                                <strong>Needs progress</strong>
-                                                <span>{formatAdminNumber(topic.students_pending.length)} students</span>
-                                            </header>
-                                            <div>
-                                                {topic.students_pending.map(renderBaselineStudent)}
-                                                {topic.students_pending.length === 0 && <p>Every student has met the baseline.</p>}
-                                            </div>
-                                        </section>
-                                    </div>
-                                </section>
-                            </details>
-                        );
-                    })}
-                    {topicProgress.length === 0 && <p>No topic activity data available for this group yet.</p>}
+                <div className="weekly-session-totals">
+                    <article className="weekly-session-total-card">
+                        <span>Total Sessions</span>
+                        <strong>{formatAdminNumber(totalSessions)}</strong>
+                        <small>completed/saved</small>
+                    </article>
+                    {Object.entries(WEEKLY_BASELINE).map(([kind]) => (
+                        <article className={`weekly-session-total-card weekly-session-total-card--${kind}`} key={kind}>
+                            <span>{weeklyKindLabel(kind)}</span>
+                            <strong>{formatAdminNumber(topic.totals[kind])}</strong>
+                            <small>sessions</small>
+                        </article>
+                    ))}
+                </div>
+                <div className="weekly-student-grid weekly-student-grid--summary">
+                    <section className="weekly-student-list weekly-student-list--met">
+                        <header>
+                            <strong>Baseline met</strong>
+                            <span>{formatAdminNumber(topic.students_met.length)} students</span>
+                        </header>
+                        <strong className="weekly-student-total">{formatAdminNumber(topic.students_met.length)}</strong>
+                    </section>
+                    <section className="weekly-student-list weekly-student-list--pending">
+                        <header>
+                            <strong>Needs progress</strong>
+                            <span>{formatAdminNumber(topic.students_pending.length)} students</span>
+                        </header>
+                        <strong className="weekly-student-total">{formatAdminNumber(topic.students_pending.length)}</strong>
+                    </section>
                 </div>
             </div>
         );
@@ -2499,6 +2550,16 @@ const AdminPage = () => {
                     {message && <div className="admin-inline-message">{message}</div>}
 
                     {renderGroupComparison(topicGroups)}
+
+                    <div className="instructor-topic-actions instructor-topic-actions--activity">
+                        <div>
+                            <strong>Activity progress export</strong>
+                            <span>Download baseline status and activity counts for all groups in this topic</span>
+                        </div>
+                        <button type="button" onClick={exportSelectedTopicActivityProgress}>
+                            Download Activity Progress
+                        </button>
+                    </div>
 
                     <div className="instructor-group-list">
                         {topicGroups.map((group) => (
