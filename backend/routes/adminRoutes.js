@@ -8,6 +8,7 @@ import {
     createTopicMaterialData,
     deleteAdminResourceData,
     deleteTopicMaterialData,
+    deleteUserActivityData,
     generateQuestionBankDrafts,
     generateTopicMaterialDigest,
     getAdminReferenceData,
@@ -16,6 +17,7 @@ import {
     getQuestionBankCoverage,
     getQuestionBankItems,
     getTopicMaterials,
+    getUserActivityData,
     loginAdmin,
     logoutAdmin,
     resetTopicAssessmentAttempts,
@@ -35,6 +37,8 @@ router.get("/references", getAdminReferenceData);
 router.get("/resources/:resource", getAdminResource);
 router.patch("/course-groups/students", bulkAssignCourseGroupStudents);
 router.post("/topics/:topicId/reset-assessments", resetTopicAssessmentAttempts);
+router.get("/users/:userId/activities", getUserActivityData);
+router.delete("/users/:userId/activities", deleteUserActivityData);
 router.post("/resources/:resource", createAdminResourceData);
 router.patch("/resources/:resource/:id", updateAdminResourceData);
 router.delete("/resources/:resource/:id", deleteAdminResourceData);

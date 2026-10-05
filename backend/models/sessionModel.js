@@ -2,11 +2,19 @@
 import {pool} from "../db/index.js";
 import {INSTRUCTOR_ROLE_ID, STUDENT_ROLE_ID} from "./roleModel.js";
 
-export async function createSession(session_id, user_id, course_id, avatar_id) {
+async function ensureSessionMaintenanceDemoColumn() {
+    await pool.query(`
+        ALTER TABLE sessions
+        ADD COLUMN IF NOT EXISTS maintenance_demo_access BOOLEAN NOT NULL DEFAULT FALSE
+    `);
+}
+
+export async function createSession(session_id, user_id, course_id, avatar_id, options = {}) {
+    await ensureSessionMaintenanceDemoColumn();
     await pool.query(
-        `INSERT INTO sessions (session_id, user_id, course_id, avatar_id)
-         VALUES ($1, $2, $3, $4)`,
-        [session_id, user_id, course_id, avatar_id]
+        `INSERT INTO sessions (session_id, user_id, course_id, avatar_id, maintenance_demo_access)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [session_id, user_id, course_id, avatar_id, !!options.maintenanceDemoAccess]
     );
 }
 
@@ -17,6 +25,7 @@ export async function deactivateSession(session_id) {
 }
 
 export async function deactivateAllStudentSessions() {
+    await ensureSessionMaintenanceDemoColumn();
     const result = await pool.query(
         `UPDATE sessions s
          SET is_active = FALSE
@@ -24,6 +33,7 @@ export async function deactivateAllStudentSessions() {
          WHERE s.user_id = u.user_id
            AND u.role_id = $1
            AND s.is_active = TRUE
+           AND COALESCE(s.maintenance_demo_access, FALSE) = FALSE
          RETURNING s.session_id`,
         [STUDENT_ROLE_ID]
     );
@@ -31,6 +41,7 @@ export async function deactivateAllStudentSessions() {
 }
 
 export async function findSession(session_id) {
+    await ensureSessionMaintenanceDemoColumn();
     const result = await pool.query(
         `SELECT
              s.*,

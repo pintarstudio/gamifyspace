@@ -99,6 +99,7 @@ const LoginForm = ({onLoginSuccess}) => {
         e.preventDefault();
         const noAvatarStudentAccess = studentUrlMode
             && demoLogin?.user?.use_no_virtual_space;
+        const maintenanceDemoAccess = window.location.pathname === "/demo" && !studentUrlMode;
         const error = validateLogin(form, {requireAvatar: !noAvatarStudentAccess});
         if (error) return alert(error);
         // console.log(form);
@@ -109,6 +110,7 @@ const LoginForm = ({onLoginSuccess}) => {
             role_id: STUDENT_ROLE_ID,
             avatar_id: noAvatarStudentAccess ? null : form.avatar_id,
             password: form.password,
+            maintenance_demo_access: maintenanceDemoAccess,
             avatar_public_path: noAvatarStudentAccess ? null : selectedAvatar ? selectedAvatar.avatar_public_path : null
         });
         if (res.user) {

@@ -18,6 +18,8 @@ import {
     updateRole,
 } from "./roleModel.js";
 import {ensureIndividualActivityTables} from "./individualActivityModel.js";
+import {ensureTableActivityTables} from "./tableActivityModel.js";
+import {ensureQuizActivityTables} from "./quizActivityModel.js";
 import {
     ensureSettingsTable,
     listSettings,
@@ -259,6 +261,26 @@ function booleanValue(value, fallback = true) {
     if (value === undefined || value === null || value === "") return fallback;
     if (typeof value === "boolean") return value;
     return ["true", "1", "yes", "on"].includes(String(value).toLowerCase());
+}
+
+async function tableExists(client, tableName) {
+    const result = await client.query(
+        `SELECT to_regclass($1) IS NOT NULL AS exists`,
+        [`public.${tableName}`]
+    );
+    return !!result.rows[0]?.exists;
+}
+
+async function countRowsIfTableExists(tableName, query, params = []) {
+    if (!(await tableExists(pool, tableName))) return 0;
+    const result = await pool.query(query, params);
+    return Number(result.rows[0]?.count || 0);
+}
+
+async function getRowsIfTableExists(tableName, query, params = []) {
+    if (!(await tableExists(pool, tableName))) return [];
+    const result = await pool.query(query, params);
+    return result.rows;
 }
 
 function nullableTimestamp(value) {
@@ -1209,4 +1231,299 @@ export async function resetIndividualAssessmentAttempts(payload) {
         deleted_count: result.rowCount,
         session_ids: result.rows.map((row) => row.session_id),
     };
+}
+
+export async function getUserActivitySummary(userId) {
+    await ensureAdminTables();
+    await Promise.all([
+        ensureIndividualActivityTables(),
+        ensureTableActivityTables(),
+        ensureQuizActivityTables(),
+        ensureGamificationTables(),
+    ]);
+
+    const parsedUserId = Number.parseInt(userId, 10);
+    if (!Number.isFinite(parsedUserId)) return null;
+
+    const userResult = await pool.query(
+        `SELECT
+             u.user_id,
+             u.name,
+             u.email,
+             c.course_name,
+             cg.group_name AS course_group_name,
+             r.role_name
+         FROM users u
+         JOIN courses c ON c.course_id = u.course_id
+         LEFT JOIN course_groups cg ON cg.course_group_id = u.course_group_id
+         JOIN roles r ON r.role_id = u.role_id
+         WHERE u.user_id = $1
+           AND u.deleted_at IS NULL
+         LIMIT 1`,
+        [parsedUserId]
+    );
+    const user = userResult.rows[0] || null;
+    if (!user) return null;
+
+    const [
+        appSessions,
+        activeAppSessions,
+        userLogs,
+        individualSessions,
+        individualAnswers,
+        tableSessions,
+        tableMemberships,
+        tableAnswers,
+        quizSessions,
+        quizMemberships,
+        quizAnswers,
+        gamificationScores,
+    ] = await Promise.all([
+        countRowsIfTableExists("sessions", `SELECT COUNT(*)::int AS count FROM sessions WHERE user_id = $1`, [parsedUserId]),
+        countRowsIfTableExists("sessions", `SELECT COUNT(*)::int AS count FROM sessions WHERE user_id = $1 AND is_active = TRUE`, [parsedUserId]),
+        countRowsIfTableExists("user_logs", `SELECT COUNT(*)::int AS count FROM user_logs WHERE user_id = $1`, [parsedUserId]),
+        countRowsIfTableExists("individual_activity_sessions", `SELECT COUNT(*)::int AS count FROM individual_activity_sessions WHERE user_id = $1`, [parsedUserId]),
+        countRowsIfTableExists("individual_activity_answers", `SELECT COUNT(*)::int AS count FROM individual_activity_answers WHERE user_id = $1`, [parsedUserId]),
+        countRowsIfTableExists(
+            "table_group_sessions",
+            `SELECT COUNT(DISTINCT s.session_id)::int AS count
+             FROM table_group_sessions s
+             LEFT JOIN table_group_members m ON m.session_id = s.session_id AND m.user_id = $1
+             LEFT JOIN table_group_answers a ON a.session_id = s.session_id AND a.user_id = $1
+             WHERE s.created_by = $1
+                OR s.submitted_by = $1
+                OR m.user_id IS NOT NULL
+                OR a.user_id IS NOT NULL`,
+            [parsedUserId]
+        ),
+        countRowsIfTableExists("table_group_members", `SELECT COUNT(*)::int AS count FROM table_group_members WHERE user_id = $1`, [parsedUserId]),
+        countRowsIfTableExists("table_group_answers", `SELECT COUNT(*)::int AS count FROM table_group_answers WHERE user_id = $1`, [parsedUserId]),
+        countRowsIfTableExists(
+            "quiz_sessions",
+            `SELECT COUNT(DISTINCT qs.quiz_session_id)::int AS count
+             FROM quiz_sessions qs
+             LEFT JOIN quiz_members qm ON qm.quiz_session_id = qs.quiz_session_id AND qm.user_id = $1
+             LEFT JOIN quiz_answers qa ON qa.quiz_session_id = qs.quiz_session_id AND qa.user_id = $1
+             WHERE qs.hosted_by = $1
+                OR qs.saved_by = $1
+                OR qm.user_id IS NOT NULL
+                OR qa.user_id IS NOT NULL`,
+            [parsedUserId]
+        ),
+        countRowsIfTableExists("quiz_members", `SELECT COUNT(*)::int AS count FROM quiz_members WHERE user_id = $1`, [parsedUserId]),
+        countRowsIfTableExists("quiz_answers", `SELECT COUNT(*)::int AS count FROM quiz_answers WHERE user_id = $1`, [parsedUserId]),
+        countRowsIfTableExists("gamification_user_scores", `SELECT COUNT(*)::int AS count FROM gamification_user_scores WHERE user_id = $1`, [parsedUserId]),
+    ]);
+
+    const recentRows = [
+        ...(await getRowsIfTableExists(
+            "individual_activity_sessions",
+            `SELECT
+                 'Individual' AS source,
+                 CONCAT(
+                     CASE
+                         WHEN activity_type = 'pre_test' THEN 'Pre-test'
+                         WHEN activity_type = 'post_test' THEN 'Post-test'
+                         ELSE 'Individual exercise'
+                     END,
+                     ' - ',
+                     CASE WHEN question_kind = 'case_study' THEN 'Case study' ELSE 'Multiple choice' END
+                 ) AS title,
+                 status,
+                 started_at AS activity_at
+             FROM individual_activity_sessions
+             WHERE user_id = $1
+             ORDER BY started_at DESC
+             LIMIT 8`,
+            [parsedUserId]
+        )),
+        ...(await getRowsIfTableExists(
+            "table_group_sessions",
+            `SELECT DISTINCT
+                 'Group Activity' AS source,
+                 COALESCE(s.case_title, tc.case_title, 'Group case study') AS title,
+                 CASE WHEN s.submitted_at IS NOT NULL THEN 'submitted' ELSE 'in_progress' END AS status,
+                 COALESCE(s.submitted_at, s.created_at) AS activity_at
+             FROM table_group_sessions s
+             LEFT JOIN topic_cases tc ON tc.case_id = s.case_id
+             LEFT JOIN table_group_members m ON m.session_id = s.session_id AND m.user_id = $1
+             LEFT JOIN table_group_answers a ON a.session_id = s.session_id AND a.user_id = $1
+             WHERE s.created_by = $1
+                OR s.submitted_by = $1
+                OR m.user_id IS NOT NULL
+                OR a.user_id IS NOT NULL
+             ORDER BY activity_at DESC
+             LIMIT 8`,
+            [parsedUserId]
+        )),
+        ...(await getRowsIfTableExists(
+            "quiz_sessions",
+            `SELECT DISTINCT
+                 'Fun Quiz' AS source,
+                 CONCAT('Quiz table ', qs.table_id) AS title,
+                 qs.status,
+                 COALESCE(qs.saved_at, qs.ended_at, qs.updated_at, qs.created_at) AS activity_at
+             FROM quiz_sessions qs
+             LEFT JOIN quiz_members qm ON qm.quiz_session_id = qs.quiz_session_id AND qm.user_id = $1
+             LEFT JOIN quiz_answers qa ON qa.quiz_session_id = qs.quiz_session_id AND qa.user_id = $1
+             WHERE qs.hosted_by = $1
+                OR qs.saved_by = $1
+                OR qm.user_id IS NOT NULL
+                OR qa.user_id IS NOT NULL
+             ORDER BY activity_at DESC
+             LIMIT 8`,
+            [parsedUserId]
+        )),
+        ...(await getRowsIfTableExists(
+            "user_logs",
+            `SELECT
+                 'Virtual Space Log' AS source,
+                 action_type AS title,
+                 'logged' AS status,
+                 created_at AS activity_at
+             FROM user_logs
+             WHERE user_id = $1
+             ORDER BY created_at DESC
+             LIMIT 8`,
+            [parsedUserId]
+        )),
+    ].sort((a, b) => new Date(b.activity_at || 0) - new Date(a.activity_at || 0)).slice(0, 12);
+
+    return {
+        user,
+        counts: {
+            app_sessions: appSessions,
+            active_app_sessions: activeAppSessions,
+            user_logs: userLogs,
+            individual_sessions: individualSessions,
+            individual_answers: individualAnswers,
+            group_sessions: tableSessions,
+            group_memberships: tableMemberships,
+            group_answers: tableAnswers,
+            quiz_sessions: quizSessions,
+            quiz_memberships: quizMemberships,
+            quiz_answers: quizAnswers,
+            gamification_scores: gamificationScores,
+        },
+        recent: recentRows,
+    };
+}
+
+export async function deleteUserActivity(userId) {
+    await ensureAdminTables();
+    await Promise.all([
+        ensureIndividualActivityTables(),
+        ensureTableActivityTables(),
+        ensureQuizActivityTables(),
+        ensureGamificationTables(),
+    ]);
+
+    const parsedUserId = Number.parseInt(userId, 10);
+    if (!Number.isFinite(parsedUserId)) return null;
+
+    const client = await pool.connect();
+    try {
+        await client.query("BEGIN");
+
+        const userResult = await client.query(
+            `SELECT user_id, name, email
+             FROM users
+             WHERE user_id = $1
+               AND deleted_at IS NULL
+             LIMIT 1
+             FOR UPDATE`,
+            [parsedUserId]
+        );
+        if (!userResult.rows[0]) {
+            await client.query("ROLLBACK");
+            return null;
+        }
+
+        const individualSessionIds = (await client.query(
+            `SELECT session_id
+             FROM individual_activity_sessions
+             WHERE user_id = $1`,
+            [parsedUserId]
+        )).rows.map((row) => row.session_id);
+
+        const tableSessionIds = (await client.query(
+            `SELECT DISTINCT s.session_id
+             FROM table_group_sessions s
+             LEFT JOIN table_group_members m ON m.session_id = s.session_id AND m.user_id = $1
+             LEFT JOIN table_group_answers a ON a.session_id = s.session_id AND a.user_id = $1
+             WHERE s.created_by = $1
+                OR s.submitted_by = $1
+                OR m.user_id IS NOT NULL
+                OR a.user_id IS NOT NULL`,
+            [parsedUserId]
+        )).rows.map((row) => row.session_id);
+
+        const quizSessionIds = (await client.query(
+            `SELECT DISTINCT qs.quiz_session_id
+             FROM quiz_sessions qs
+             LEFT JOIN quiz_members qm ON qm.quiz_session_id = qs.quiz_session_id AND qm.user_id = $1
+             LEFT JOIN quiz_answers qa ON qa.quiz_session_id = qs.quiz_session_id AND qa.user_id = $1
+             WHERE qs.hosted_by = $1
+                OR qs.saved_by = $1
+                OR qm.user_id IS NOT NULL
+                OR qa.user_id IS NOT NULL`,
+            [parsedUserId]
+        )).rows.map((row) => row.quiz_session_id);
+
+        const deleted = {};
+        const runDelete = async (key, query, params = []) => {
+            const result = await client.query(query, params);
+            deleted[key] = result.rowCount || 0;
+        };
+
+        if (await tableExists(client, "user_logs")) {
+            await runDelete("user_logs", `DELETE FROM user_logs WHERE user_id = $1`, [parsedUserId]);
+        }
+
+        if (await tableExists(client, "sessions")) {
+            await runDelete("app_sessions", `DELETE FROM sessions WHERE user_id = $1`, [parsedUserId]);
+        }
+
+        await runDelete(
+            "gamification_user_scores",
+            `DELETE FROM gamification_user_scores
+             WHERE user_id = $1
+                OR (activity_type = 'individual_exercise' AND activity_id = ANY($2::int[]))
+                OR (activity_type = 'table_case_study' AND activity_id = ANY($3::int[]))
+                OR (activity_type = 'quiz' AND activity_id = ANY($4::int[]))`,
+            [parsedUserId, individualSessionIds, tableSessionIds, quizSessionIds]
+        );
+        await runDelete(
+            "gamification_group_scores",
+            `DELETE FROM gamification_group_scores
+             WHERE (activity_type = 'table_case_study' AND activity_id = ANY($1::int[]))
+                OR (activity_type = 'quiz' AND activity_id = ANY($2::int[]))`,
+            [tableSessionIds, quizSessionIds]
+        );
+
+        await runDelete("individual_activity_answers", `DELETE FROM individual_activity_answers WHERE user_id = $1`, [parsedUserId]);
+        await runDelete("individual_activity_sessions", `DELETE FROM individual_activity_sessions WHERE session_id = ANY($1::int[])`, [individualSessionIds]);
+        await runDelete("table_group_sessions", `DELETE FROM table_group_sessions WHERE session_id = ANY($1::int[])`, [tableSessionIds]);
+        await runDelete("table_group_answers", `DELETE FROM table_group_answers WHERE user_id = $1`, [parsedUserId]);
+        await runDelete("table_group_members", `DELETE FROM table_group_members WHERE user_id = $1`, [parsedUserId]);
+        await runDelete("quiz_sessions", `DELETE FROM quiz_sessions WHERE quiz_session_id = ANY($1::int[])`, [quizSessionIds]);
+        await runDelete("quiz_answers", `DELETE FROM quiz_answers WHERE user_id = $1`, [parsedUserId]);
+        await runDelete("quiz_members", `DELETE FROM quiz_members WHERE user_id = $1`, [parsedUserId]);
+
+        await client.query("COMMIT");
+        return {
+            user: userResult.rows[0],
+            deleted,
+            affected_session_ids: {
+                individual: individualSessionIds,
+                group: tableSessionIds,
+                quiz: quizSessionIds,
+            },
+        };
+    } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+    } finally {
+        client.release();
+    }
 }

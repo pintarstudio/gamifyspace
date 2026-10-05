@@ -13,7 +13,8 @@ export async function checkSession(req, res) {
         const sessionData = await findSession(session_id);
         if (!sessionData) return res.json({loggedIn: false});
         const maintenanceMode = await getBooleanSetting(SETTING_KEYS.MAINTENANCE_MODE, false);
-        if (maintenanceMode && String(sessionData.role_id) === String(STUDENT_ROLE_ID)) {
+        const hasMaintenanceDemoAccess = !!sessionData.maintenance_demo_access || !!req.session.maintenance_demo_access;
+        if (maintenanceMode && String(sessionData.role_id) === String(STUDENT_ROLE_ID) && !hasMaintenanceDemoAccess) {
             await deactivateSession(session_id);
             req.session.destroy(() => {});
             return res.json({
@@ -39,6 +40,7 @@ export async function checkSession(req, res) {
                 gamification_enabled: !!sessionData.gamification_enabled,
                 use_no_virtual_space: !!sessionData.use_no_virtual_space,
                 virtual_space_enabled: !!sessionData.virtual_space_enabled,
+                maintenance_demo_access: hasMaintenanceDemoAccess,
             },
         });
     } catch (error) {

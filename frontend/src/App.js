@@ -37,6 +37,7 @@ function MaintenanceListener({loggedIn, user, setLoggedIn, setUser}) {
     useEffect(() => {
         const handleMaintenance = async () => {
             if (!loggedIn || !isStudent) return;
+            if (user?.maintenance_demo_access) return;
             if (window.socket) window.socket.emit("logout");
             await apiPost("/logout", {}).catch(() => null);
             setLoggedIn(false);
@@ -47,7 +48,7 @@ function MaintenanceListener({loggedIn, user, setLoggedIn, setUser}) {
 
         socket.on("maintenance:active", handleMaintenance);
         return () => socket.off("maintenance:active", handleMaintenance);
-    }, [loggedIn, isStudent, navigate, setLoggedIn, setUser]);
+    }, [loggedIn, isStudent, navigate, setLoggedIn, setUser, user?.maintenance_demo_access]);
 
     return null;
 }
@@ -165,6 +166,7 @@ function App() {
                 <Route path="/topicadmin" element={<AdminPage/>}/>
                 <Route path="/coursegroupadmin" element={<AdminPage/>}/>
                 <Route path="/studentadmin" element={<AdminPage/>}/>
+                <Route path="/studentactivityadmin" element={<AdminPage/>}/>
                 <Route path="/useradmin" element={<AdminPage/>}/>
                 <Route path="/adminpassword" element={<AdminPage/>}/>
                 <Route path="/questionbankadmin" element={<AdminPage/>}/>

@@ -2,10 +2,12 @@ import {
     bulkAssignStudentsToCourseGroup,
     createAdminResource,
     deleteAdminResource,
+    deleteUserActivity,
     ensureAdminTables,
     findAdminById,
     findAdminByUsername,
     getAdminReferences,
+    getUserActivitySummary,
     listAdminResource,
     resetIndividualAssessmentAttempts,
     updateAdminLastLogin,
@@ -425,6 +427,40 @@ export async function resetTopicAssessmentAttempts(req, res) {
             return res.status(400).json({message: error.message});
         }
         res.status(500).json({message: "Gagal reset assessment student"});
+    }
+}
+
+export async function getUserActivityData(req, res) {
+    try {
+        const admin = await getCurrentAdmin(req);
+        if (!admin) return res.status(401).json({message: "Admin belum login"});
+
+        const data = await getUserActivitySummary(req.params.userId);
+        if (!data) return res.status(404).json({message: "User tidak ditemukan"});
+        res.json(data);
+    } catch (error) {
+        console.error("Admin user activity summary error:", error);
+        res.status(500).json({message: "Gagal mengambil aktivitas user"});
+    }
+}
+
+export async function deleteUserActivityData(req, res) {
+    try {
+        const admin = await getCurrentAdmin(req);
+        if (!admin) return res.status(401).json({message: "Admin belum login"});
+        if (String(admin.role || "").toLowerCase() !== "admin") {
+            return res.status(403).json({message: "Hanya admin yang dapat menghapus aktivitas user"});
+        }
+
+        const data = await deleteUserActivity(req.params.userId);
+        if (!data) return res.status(404).json({message: "User tidak ditemukan"});
+        res.json({
+            message: `Aktivitas ${data.user.name || data.user.email} berhasil dihapus.`,
+            data,
+        });
+    } catch (error) {
+        console.error("Admin user activity delete error:", error);
+        res.status(500).json({message: "Gagal menghapus aktivitas user"});
     }
 }
 

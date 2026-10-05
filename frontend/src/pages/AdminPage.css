@@ -336,6 +336,15 @@
     margin: 6px 0 0;
 }
 
+.admin-page-header--compact {
+    margin-bottom: 12px;
+}
+
+.admin-page-header--compact h2 {
+    font-size: 20px;
+    margin: 0;
+}
+
 .admin-page-header button,
 .admin-data-form > button {
     background: #2d6a4f;
@@ -411,6 +420,103 @@
     font-size: 13px;
     font-weight: 850;
     padding-bottom: 12px;
+}
+
+.admin-user-activity-filter {
+    grid-template-columns: minmax(260px, 520px) minmax(180px, 1fr);
+}
+
+.admin-user-activity-summary {
+    display: grid;
+    gap: 16px;
+    grid-template-columns: minmax(220px, 280px) 1fr;
+    margin: 16px 0;
+}
+
+.admin-user-activity-profile {
+    background: #f8fafc;
+    border: 1px solid #dbe4ee;
+    border-radius: 8px;
+    display: grid;
+    gap: 8px;
+    padding: 16px;
+}
+
+.admin-user-activity-profile span {
+    color: #0f766e;
+    font-size: 12px;
+    font-weight: 950;
+    text-transform: uppercase;
+}
+
+.admin-user-activity-profile h2 {
+    color: #172033;
+    font-size: 20px;
+    margin: 0;
+}
+
+.admin-user-activity-profile p {
+    color: #667085;
+    font-size: 13px;
+    font-weight: 750;
+    margin: 0;
+    overflow-wrap: anywhere;
+}
+
+.admin-user-activity-profile strong {
+    color: #263241;
+    font-size: 14px;
+}
+
+.admin-user-activity-profile button {
+    border: 0;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 900;
+    margin-top: 6px;
+    min-height: 40px;
+    padding: 10px 12px;
+}
+
+.admin-user-activity-profile button.is-danger {
+    background: #b23a48;
+    color: #ffffff;
+}
+
+.admin-user-activity-profile button:disabled {
+    background: #9aa5b1;
+    cursor: not-allowed;
+}
+
+.admin-user-activity-cards {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.admin-user-activity-cards article {
+    border: 1px solid #dbe4ee;
+    border-radius: 8px;
+    padding: 12px;
+}
+
+.admin-user-activity-cards span {
+    color: #667085;
+    display: block;
+    font-size: 12px;
+    font-weight: 850;
+    min-height: 32px;
+}
+
+.admin-user-activity-cards strong {
+    color: #172033;
+    display: block;
+    font-size: 24px;
+    margin-top: 8px;
+}
+
+.admin-data-section {
+    margin-top: 18px;
 }
 
 .admin-bulk-grid {
@@ -2247,6 +2353,10 @@
 
     .admin-filter-panel {
         align-items: stretch;
+        grid-template-columns: 1fr;
+    }
+
+    .admin-user-activity-summary {
         grid-template-columns: 1fr;
     }
 

@@ -132,6 +132,7 @@ app.use(async (req, res, next) => {
 
         const sessionUser = await findSession(sessionId);
         if (!sessionUser || String(sessionUser.role_id) !== String(STUDENT_ROLE_ID)) return next();
+        if (sessionUser.maintenance_demo_access || req.session?.maintenance_demo_access) return next();
 
         await deactivateSession(sessionId);
         req.session.destroy(() => {});

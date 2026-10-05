@@ -7,6 +7,7 @@ const DASHBOARD_COURSE_SESSION_KEY = "gamifyit:selectedInstructorDashboardCourse
 const TOPIC_ADMIN_COURSE_SESSION_KEY = "gamifyit:topicAdminCourseId";
 const QUESTION_BANK_TOPIC_SESSION_KEY = "gamifyit:questionBankTopicId";
 const QUESTION_BANK_COVERAGE_COURSE_SESSION_KEY = "gamifyit:questionBankCoverageCourseId";
+const USER_ACTIVITY_USER_SESSION_KEY = "gamifyit:userActivityUserId";
 const BANK_FILTER_SESSION_PREFIX = "gamifyit:bankFilters:";
 
 function readDashboardCourseSession() {
@@ -221,6 +222,13 @@ const USER_ADMIN_ITEM = {
     ],
 };
 
+const USER_ACTIVITY_ITEM = {
+    label: "User Activities",
+    path: "/studentactivityadmin",
+    custom: "userActivities",
+    description: "View and clear tester activity records without deleting the user account.",
+};
+
 const MENU_GROUPS = [
     {
         label: "Admin Config",
@@ -302,6 +310,7 @@ const MENU_GROUPS = [
             COURSE_ITEM,
             TOPIC_ITEM,
             STUDENT_INSTRUCTOR_ITEM,
+            USER_ACTIVITY_ITEM,
             USER_ADMIN_ITEM,
         ],
     },
@@ -1168,6 +1177,8 @@ const AdminPage = () => {
         activity_types: ["pre_test"],
         user_ids: [],
     });
+    const [userActivityUserId, setUserActivityUserId] = useState(() => readSessionValue(USER_ACTIVITY_USER_SESSION_KEY));
+    const [userActivityData, setUserActivityData] = useState(null);
     const [studentBulk, setStudentBulk] = useState({
         course_id: "",
         course_group_id: "",
@@ -1355,6 +1366,9 @@ const AdminPage = () => {
         if (custom !== "questionBankCoverage") {
             setQuestionBankCoverageRows([]);
         }
+        if (custom !== "userActivities") {
+            setUserActivityData(null);
+        }
         if (admin && resource) {
             setBusy(true);
             apiGet(`/admin/resources/${resource}`)
@@ -1451,6 +1465,72 @@ const AdminPage = () => {
         if (data.message) setMessage(data.message);
         setBusy(false);
     };
+
+    const loadUserActivity = async (userId = userActivityUserId, options = {}) => {
+        if (!userId) {
+            setUserActivityData(null);
+            return;
+        }
+        setBusy(true);
+        if (!options.quiet) setMessage("");
+        const data = await apiGet(`/admin/users/${encodeURIComponent(userId)}/activities`);
+        if (data.user) {
+            setUserActivityData(data);
+        } else {
+            setUserActivityData(null);
+            if (data.message) setMessage(data.message);
+        }
+        setBusy(false);
+    };
+
+    const updateUserActivityUser = async (userId) => {
+        setUserActivityUserId(userId);
+        writeSessionValue(USER_ACTIVITY_USER_SESSION_KEY, userId);
+    };
+
+    const deleteSelectedUserActivity = async () => {
+        if (!userActivityUserId || !userActivityData?.user) {
+            setMessage("Pilih user terlebih dahulu.");
+            return;
+        }
+        const label = userActivityData.user.name || userActivityData.user.email || "user ini";
+        if (!window.confirm(`Hapus semua aktivitas ${label}? User account tetap ada, tetapi session, log, progress, quiz, individual, group activity, dan XP history akan dihapus.`)) return;
+
+        setBusy(true);
+        setMessage("");
+        const data = await apiDelete(`/admin/users/${encodeURIComponent(userActivityUserId)}/activities`);
+        if (data.message) setMessage(data.message);
+        await loadUserActivity(userActivityUserId, {quiet: true});
+        setBusy(false);
+    };
+
+    useEffect(() => {
+        if (!admin || activeConfig?.custom !== "userActivities") return undefined;
+        if (!userActivityUserId) {
+            setUserActivityData(null);
+            return undefined;
+        }
+
+        let active = true;
+        setBusy(true);
+        apiGet(`/admin/users/${encodeURIComponent(userActivityUserId)}/activities`)
+            .then((data) => {
+                if (!active) return;
+                if (data.user) {
+                    setUserActivityData(data);
+                } else {
+                    setUserActivityData(null);
+                    if (data.message) setMessage(data.message);
+                }
+            })
+            .finally(() => {
+                if (active) setBusy(false);
+            });
+
+        return () => {
+            active = false;
+        };
+    }, [admin, activeConfig, userActivityUserId]);
 
     const updateQuestionBankCoverageCourse = async (courseId) => {
         setQuestionBankCoverageCourseId(courseId);
@@ -2845,6 +2925,126 @@ const AdminPage = () => {
         );
     };
 
+    const renderUserActivities = () => {
+        const userOptions = [...(references.useradmin_users || [])]
+            .sort((a, b) => `${a.role_name || ""}${a.name || ""}`.localeCompare(`${b.role_name || ""}${b.name || ""}`));
+        const counts = userActivityData?.counts || {};
+        const totalRecords = Object.values(counts).reduce((total, value) => total + Number(value || 0), 0);
+        const countCards = [
+            {key: "app_sessions", label: "Login Sessions"},
+            {key: "active_app_sessions", label: "Active Sessions"},
+            {key: "user_logs", label: "Virtual Logs"},
+            {key: "individual_sessions", label: "Individual Sessions"},
+            {key: "individual_answers", label: "Individual Answers"},
+            {key: "group_sessions", label: "Group Sessions"},
+            {key: "group_memberships", label: "Group Memberships"},
+            {key: "group_answers", label: "Group Answers"},
+            {key: "quiz_sessions", label: "Quiz Sessions"},
+            {key: "quiz_memberships", label: "Quiz Memberships"},
+            {key: "quiz_answers", label: "Quiz Answers"},
+            {key: "gamification_scores", label: "XP Scores"},
+        ];
+
+        return (
+            <div className="admin-custom-page">
+                <div className="admin-page-header">
+                    <div>
+                        <h1>User Activities</h1>
+                        <p>Use this for tester accounts: review activity records and clear their testing history without deleting the user.</p>
+                    </div>
+                    <button type="button" onClick={() => loadUserActivity()} disabled={busy || !userActivityUserId}>
+                        Refresh
+                    </button>
+                </div>
+
+                {message && <div className="admin-inline-message">{message}</div>}
+
+                <section className="admin-filter-panel admin-user-activity-filter">
+                    <label>
+                        User
+                        <select
+                            value={userActivityUserId}
+                            onChange={(event) => updateUserActivityUser(event.target.value)}
+                        >
+                            <option value="">Choose user</option>
+                            {userOptions.map((user) => (
+                                <option key={user.user_id} value={user.user_id}>
+                                    {user.name} ({user.email}) - {user.role_name}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+                    <span>{userActivityData?.user ? `${userActivityData.user.course_name || "-"} / ${userActivityData.user.course_group_name || "No group"}` : "Select a tester account to inspect."}</span>
+                </section>
+
+                {userActivityData?.user && (
+                    <>
+                        <section className="admin-user-activity-summary">
+                            <article className="admin-user-activity-profile">
+                                <span>{userActivityData.user.role_name}</span>
+                                <h2>{userActivityData.user.name}</h2>
+                                <p>{userActivityData.user.email}</p>
+                                <strong>{formatAdminNumber(totalRecords)} total records</strong>
+                                <button
+                                    className="is-danger"
+                                    type="button"
+                                    disabled={busy || totalRecords === 0}
+                                    onClick={deleteSelectedUserActivity}
+                                >
+                                    Delete All Activity
+                                </button>
+                            </article>
+                            <div className="admin-user-activity-cards">
+                                {countCards.map((card) => (
+                                    <article key={card.key}>
+                                        <span>{card.label}</span>
+                                        <strong>{formatAdminNumber(counts[card.key] || 0)}</strong>
+                                    </article>
+                                ))}
+                            </div>
+                        </section>
+
+                        <section className="admin-data-section">
+                            <div className="admin-page-header admin-page-header--compact">
+                                <div>
+                                    <h2>Recent Activity</h2>
+                                    <p>Showing the latest records across virtual logs, individual activities, group activities, and quiz sessions.</p>
+                                </div>
+                            </div>
+                            <div className="admin-table-wrap">
+                                <table className="admin-data-table">
+                                    <thead>
+                                    <tr>
+                                        <th>Source</th>
+                                        <th>Activity</th>
+                                        <th>Status</th>
+                                        <th>Date Time</th>
+                                    </tr>
+                                    </thead>
+                                    <tbody>
+                                    {(userActivityData.recent || []).map((activity, index) => (
+                                        <tr key={`${activity.source}-${activity.activity_at}-${index}`}>
+                                            <td>{activity.source}</td>
+                                            <td>{activity.title}</td>
+                                            <td>{activity.status || "-"}</td>
+                                            <td>{formatValue({type: "datetime"}, activity.activity_at)}</td>
+                                        </tr>
+                                    ))}
+                                    {(!userActivityData.recent || userActivityData.recent.length === 0) && (
+                                        <tr>
+                                            <td colSpan={4}>No recent activity found.</td>
+                                        </tr>
+                                    )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </section>
+                    </>
+                )}
+            </div>
+        );
+    };
+
     const renderChangePassword = () => (
         <>
             <div className="admin-page-header">
@@ -3764,6 +3964,8 @@ const AdminPage = () => {
                         renderQuestionBankCoverage()
                     ) : activeConfig.custom === "bankManager" ? (
                         renderBankManager()
+                    ) : activeConfig.custom === "userActivities" ? (
+                        renderUserActivities()
                     ) : activeConfig.custom === "changePassword" ? (
                         renderChangePassword()
                     ) : (

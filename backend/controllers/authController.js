@@ -88,12 +88,8 @@ function emitChatLogoutLeaves(req, user, leftRooms) {
 
 export async function login(req, res) {
     try {
-        const { user_id, course_id, avatar_id, avatar_public_path, password } = req.body;
-
-        const maintenanceMode = await getBooleanSetting(SETTING_KEYS.MAINTENANCE_MODE, false);
-        if (maintenanceMode) {
-            return res.status(503).json({message: STUDENT_MAINTENANCE_MESSAGE, maintenance: true});
-        }
+        const { user_id, course_id, avatar_id, avatar_public_path, password, maintenance_demo_access } = req.body;
+        const maintenanceDemoAccess = maintenance_demo_access === true;
 
         if (!user_id) {
             return res.status(400).json({ message: "User wajib dipilih" });
@@ -108,6 +104,10 @@ export async function login(req, res) {
         }
         if (String(user.role_id) !== String(STUDENT_ROLE_ID)) {
             return res.status(403).json({message: "Demo login hanya tersedia untuk student. Gunakan halaman instructor untuk login instructor."});
+        }
+        const maintenanceMode = await getBooleanSetting(SETTING_KEYS.MAINTENANCE_MODE, false);
+        if (maintenanceMode && !maintenanceDemoAccess) {
+            return res.status(503).json({message: STUDENT_MAINTENANCE_MESSAGE, maintenance: true});
         }
         const course = await findActiveCourseById(course_id || user.course_id);
         if (!course || String(user.course_id) !== String(course.course_id)) {
@@ -126,10 +126,13 @@ export async function login(req, res) {
         }
 
         const session_id = uuidv4();
-        await createSession(session_id, user.user_id, course.course_id, sessionAvatarId);
+        await createSession(session_id, user.user_id, course.course_id, sessionAvatarId, {
+            maintenanceDemoAccess,
+        });
 
         req.session.session_id = session_id;
-        req.session.user = { ...user, avatar_public_path: sessionAvatarPath };
+        req.session.maintenance_demo_access = maintenanceDemoAccess;
+        req.session.user = { ...user, avatar_public_path: sessionAvatarPath, maintenance_demo_access: maintenanceDemoAccess };
 
         notifyStudentLogin({user, course}).catch((error) => {
             console.error("Telegram login notification error:", error);
@@ -148,6 +151,7 @@ export async function login(req, res) {
                 gamification_enabled: !!user.gamification_enabled,
                 use_no_virtual_space: !!user.use_no_virtual_space,
                 virtual_space_enabled: !!user.virtual_space_enabled,
+                maintenance_demo_access: maintenanceDemoAccess,
                 avatar_id: sessionAvatarId,
                 avatar_public_path: sessionAvatarPath
             }
