@@ -631,6 +631,63 @@ const VirtualSpacePixi = ({user, onOpenActivity, activityPanelOpen = false}) => 
     const liveComputerOccupancyRef = useRef({});
     // console.log("User", user);
 
+    const setVirtualMovementKey = useCallback((key, pressed) => {
+        if (!window.__gs_keys) window.__gs_keys = {};
+        if (window.__virtualActivityModalOpen && pressed) {
+            clearGlobalMovementKeys();
+            return;
+        }
+        window.__gs_keys[key] = pressed;
+    }, []);
+
+    const movementButtonProps = useCallback((key) => ({
+        onPointerDown: (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            event.currentTarget.setPointerCapture?.(event.pointerId);
+            setVirtualMovementKey(key, true);
+        },
+        onPointerUp: (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            event.currentTarget.releasePointerCapture?.(event.pointerId);
+            setVirtualMovementKey(key, false);
+        },
+        onPointerCancel: (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            setVirtualMovementKey(key, false);
+        },
+        onPointerLeave: (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            setVirtualMovementKey(key, false);
+        },
+        onContextMenu: (event) => event.preventDefault(),
+    }), [setVirtualMovementKey]);
+
+    const triggerVirtualSpaceKey = useCallback((event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (window.__virtualActivityModalOpen) return;
+
+        const keydownEvent = new KeyboardEvent("keydown", {
+            key: " ",
+            code: "Space",
+            bubbles: true,
+            cancelable: true,
+        });
+        const keyupEvent = new KeyboardEvent("keyup", {
+            key: " ",
+            code: "Space",
+            bubbles: true,
+            cancelable: true,
+        });
+
+        window.dispatchEvent(keydownEvent);
+        window.setTimeout(() => window.dispatchEvent(keyupEvent), 80);
+    }, []);
+
     useEffect(() => {
         currentRoomRef.current = currentRoom;
     }, [currentRoom]);
@@ -1086,14 +1143,61 @@ const VirtualSpacePixi = ({user, onOpenActivity, activityPanelOpen = false}) => 
 
     return (
         <div
-            ref={pixiContainer}
+            className="virtual-pixi-frame"
             style={{
                 width: "100%",
                 height: "100%",
                 background: "#dcdcdc",
                 overflow: "hidden",
             }}
-        />
+        >
+            <div ref={pixiContainer} className="virtual-pixi-canvas-host" />
+            <div className="virtual-touch-controls" aria-label="Kontrol ruang virtual">
+                <div className="virtual-touch-dpad" aria-label="Kontrol arah">
+                    <button
+                        type="button"
+                        className="virtual-touch-button virtual-touch-button--up"
+                        aria-label="Jalan ke atas"
+                        {...movementButtonProps("ArrowUp")}
+                    >
+                        ↑
+                    </button>
+                    <button
+                        type="button"
+                        className="virtual-touch-button virtual-touch-button--left"
+                        aria-label="Jalan ke kiri"
+                        {...movementButtonProps("ArrowLeft")}
+                    >
+                        ←
+                    </button>
+                    <button
+                        type="button"
+                        className="virtual-touch-button virtual-touch-button--right"
+                        aria-label="Jalan ke kanan"
+                        {...movementButtonProps("ArrowRight")}
+                    >
+                        →
+                    </button>
+                    <button
+                        type="button"
+                        className="virtual-touch-button virtual-touch-button--down"
+                        aria-label="Jalan ke bawah"
+                        {...movementButtonProps("ArrowDown")}
+                    >
+                        ↓
+                    </button>
+                </div>
+                <button
+                    type="button"
+                    className="virtual-touch-action"
+                    aria-label="Tekan spasi"
+                    onPointerDown={triggerVirtualSpaceKey}
+                    onContextMenu={(event) => event.preventDefault()}
+                >
+                    Spasi
+                </button>
+            </div>
+        </div>
     );
 };
 

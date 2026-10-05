@@ -18,6 +18,98 @@
     position: relative;
 }
 
+.virtual-pixi-frame {
+    position: relative;
+}
+
+.virtual-pixi-canvas-host {
+    bottom: 0;
+    left: 0;
+    position: absolute;
+    right: 0;
+    top: 0;
+}
+
+.virtual-touch-controls {
+    bottom: max(14px, env(safe-area-inset-bottom));
+    display: none;
+    left: 14px;
+    pointer-events: none;
+    position: absolute;
+    right: 14px;
+    z-index: 9;
+}
+
+.virtual-touch-dpad {
+    display: grid;
+    gap: 7px;
+    grid-template-columns: repeat(3, 46px);
+    grid-template-rows: repeat(3, 46px);
+    pointer-events: auto;
+    touch-action: none;
+}
+
+.virtual-touch-button,
+.virtual-touch-action {
+    align-items: center;
+    background: rgba(17, 24, 39, 0.82);
+    border: 2px solid rgba(255, 255, 255, 0.72);
+    border-radius: 8px;
+    box-shadow: 0 5px 0 rgba(17, 24, 39, 0.26), 0 12px 24px rgba(17, 24, 39, 0.18);
+    color: #ffffff;
+    display: inline-flex;
+    font-family: inherit;
+    font-weight: 900;
+    justify-content: center;
+    line-height: 1;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: none;
+    user-select: none;
+}
+
+.virtual-touch-button {
+    font-size: 25px;
+    height: 46px;
+    width: 46px;
+}
+
+.virtual-touch-button:active,
+.virtual-touch-action:active {
+    background: rgba(31, 78, 105, 0.92);
+    box-shadow: 0 2px 0 rgba(17, 24, 39, 0.3), 0 7px 14px rgba(17, 24, 39, 0.16);
+    transform: translateY(3px);
+}
+
+.virtual-touch-button--up {
+    grid-column: 2;
+    grid-row: 1;
+}
+
+.virtual-touch-button--left {
+    grid-column: 1;
+    grid-row: 2;
+}
+
+.virtual-touch-button--right {
+    grid-column: 3;
+    grid-row: 2;
+}
+
+.virtual-touch-button--down {
+    grid-column: 2;
+    grid-row: 3;
+}
+
+.virtual-touch-action {
+    align-self: end;
+    font-size: 13px;
+    height: 58px;
+    letter-spacing: 0;
+    min-width: 76px;
+    padding: 0 14px;
+    pointer-events: auto;
+}
+
 .virtual-map-notice {
     align-items: flex-start;
     background: #fffaf0;
@@ -2547,7 +2639,40 @@
     }
 }
 
+@media (hover: none), (pointer: coarse), (max-width: 760px) {
+    .virtual-touch-controls {
+        align-items: flex-end;
+        display: flex;
+        justify-content: space-between;
+    }
+}
+
 @media (max-width: 560px) {
+    .virtual-touch-controls {
+        bottom: max(10px, env(safe-area-inset-bottom));
+        left: 10px;
+        right: 10px;
+    }
+
+    .virtual-touch-dpad {
+        gap: 6px;
+        grid-template-columns: repeat(3, 40px);
+        grid-template-rows: repeat(3, 40px);
+    }
+
+    .virtual-touch-button {
+        font-size: 22px;
+        height: 40px;
+        width: 40px;
+    }
+
+    .virtual-touch-action {
+        font-size: 12px;
+        height: 50px;
+        min-width: 68px;
+        padding: 0 12px;
+    }
+
     .activity-baseline__grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
