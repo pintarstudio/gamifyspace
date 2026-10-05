@@ -9,6 +9,15 @@ const QUESTION_START_DELAY_SECONDS = 3;
 const MAX_QUIZ_MEMBERS = 2;
 const QUIZ_SAVE_STALE_SECONDS = 2 * 60;
 
+function positiveInt(value, fallback) {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+export function getQuizQuestionTimeSeconds(session) {
+    return positiveInt(session?.question_time_seconds, QUESTION_TIME_SECONDS);
+}
+
 export async function ensureQuizActivityTables() {
     if (quizTablesReady) return;
 
@@ -39,6 +48,7 @@ export async function ensureQuizActivityTables() {
             object_id TEXT,
             status TEXT NOT NULL DEFAULT 'lobby',
             question_ids INTEGER[] NOT NULL DEFAULT '{}',
+            question_time_seconds INTEGER,
             current_question_index INTEGER NOT NULL DEFAULT 0,
             question_started_at TIMESTAMPTZ,
             question_completed_at TIMESTAMPTZ,
@@ -53,6 +63,7 @@ export async function ensureQuizActivityTables() {
 
     await pool.query(`ALTER TABLE quiz_sessions ADD COLUMN IF NOT EXISTS course_group_id INTEGER`);
     await pool.query(`ALTER TABLE quiz_sessions ADD COLUMN IF NOT EXISTS group_id INTEGER`);
+    await pool.query(`ALTER TABLE quiz_sessions ADD COLUMN IF NOT EXISTS question_time_seconds INTEGER`);
     await pool.query(`ALTER TABLE quiz_sessions ADD COLUMN IF NOT EXISTS question_completed_at TIMESTAMPTZ`);
     await pool.query(`ALTER TABLE quiz_sessions ADD COLUMN IF NOT EXISTS save_status TEXT NOT NULL DEFAULT 'idle'`);
     await pool.query(`ALTER TABLE quiz_sessions ADD COLUMN IF NOT EXISTS save_started_at TIMESTAMPTZ`);
@@ -300,11 +311,12 @@ export async function createQuizSession({course, topic, groupId, tableId, object
             error.code = "NOT_ENOUGH_QUESTIONS";
             throw error;
         }
+        const questionTimeSeconds = positiveInt(course?.quiz_question_seconds, QUESTION_TIME_SECONDS);
 
         const created = await client.query(
             `INSERT INTO quiz_sessions
-                 (course_id, course_group_id, topic_id, group_id, table_id, object_id, question_ids, hosted_by)
-             VALUES ($1, $2, $3, $4, $5, $6, $7::int[], $8)
+                 (course_id, course_group_id, topic_id, group_id, table_id, object_id, question_ids, question_time_seconds, hosted_by)
+             VALUES ($1, $2, $3, $4, $5, $6, $7::int[], $8, $9)
              RETURNING *`,
             [
                 course.course_id,
@@ -314,6 +326,7 @@ export async function createQuizSession({course, topic, groupId, tableId, object
                 String(tableId),
                 objectId || null,
                 questionIds,
+                questionTimeSeconds,
                 user.user_id,
             ]
         );
@@ -531,8 +544,9 @@ export async function startQuizSession(sessionId, userId) {
 }
 
 async function insertMissingTimedOutAnswers(client, session, questionId) {
+    const questionTimeSeconds = getQuizQuestionTimeSeconds(session);
     const elapsedSeconds = Math.floor((Date.now() - new Date(session.question_started_at).getTime()) / 1000);
-    if (elapsedSeconds < QUESTION_TIME_SECONDS) return;
+    if (elapsedSeconds < questionTimeSeconds) return;
 
     await client.query(
         `INSERT INTO quiz_answers
@@ -549,7 +563,7 @@ async function insertMissingTimedOutAnswers(client, session, questionId) {
                  AND a.question_id = $2
            )
          ON CONFLICT (quiz_session_id, user_id, question_id) DO NOTHING`,
-        [session.quiz_session_id, questionId, QUESTION_TIME_SECONDS]
+        [session.quiz_session_id, questionId, questionTimeSeconds]
     );
 }
 
@@ -676,10 +690,11 @@ export async function submitQuizAnswer(session, user, answerIndex) {
             0,
             Math.floor((Date.now() - questionStartMs) / 1000)
         );
-        const timeTaken = Math.min(QUESTION_TIME_SECONDS, elapsedSeconds);
-        const timeLeft = Math.max(0, QUESTION_TIME_SECONDS - timeTaken);
+        const questionTimeSeconds = getQuizQuestionTimeSeconds(activeSession);
+        const timeTaken = Math.min(questionTimeSeconds, elapsedSeconds);
+        const timeLeft = Math.max(0, questionTimeSeconds - timeTaken);
         const parsedAnswerIndex = Number.isInteger(answerIndex) ? answerIndex : Number.parseInt(answerIndex, 10);
-        const isCorrect = parsedAnswerIndex === question.rows[0].correct_answer_index && timeTaken <= QUESTION_TIME_SECONDS;
+        const isCorrect = parsedAnswerIndex === question.rows[0].correct_answer_index && timeTaken <= questionTimeSeconds;
         const score = isCorrect ? 10 : 0;
         const bonusScore = 0;
 

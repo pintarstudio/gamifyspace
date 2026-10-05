@@ -12,6 +12,11 @@ const pickColumn = (columns, candidates) =>
 
 const quoteIdent = (name) => `"${String(name).replace(/"/g, '""')}"`;
 
+function positiveInt(value, fallback) {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 const SESSION_SELECT = `
     SELECT
         s.*,
@@ -71,6 +76,33 @@ async function ensureTopicVisibilityColumns() {
         "post_test_start_at",
         "post_test_end_at",
     ]));
+}
+
+async function ensureCourseTimingColumns() {
+    await pool.query(`
+        DO $$
+        BEGIN
+            IF to_regclass('public.courses') IS NOT NULL THEN
+                ALTER TABLE courses
+                ADD COLUMN IF NOT EXISTS individual_mc_question_seconds INTEGER;
+
+                ALTER TABLE courses
+                ADD COLUMN IF NOT EXISTS pre_test_question_seconds INTEGER;
+
+                ALTER TABLE courses
+                ADD COLUMN IF NOT EXISTS post_test_question_seconds INTEGER;
+
+                ALTER TABLE courses
+                ADD COLUMN IF NOT EXISTS individual_case_seconds INTEGER;
+
+                ALTER TABLE courses
+                ADD COLUMN IF NOT EXISTS group_activity_seconds INTEGER;
+
+                ALTER TABLE courses
+                ADD COLUMN IF NOT EXISTS quiz_question_seconds INTEGER;
+            END IF;
+        END $$;
+    `);
 }
 
 export async function ensureTableActivityTables() {
@@ -207,8 +239,17 @@ export async function ensureTableActivityTables() {
 }
 
 export async function getCourseById(courseId) {
+    await ensureCourseTimingColumns();
     const result = await pool.query(
-        `SELECT course_id, course_name
+        `SELECT
+             course_id,
+             course_name,
+             individual_mc_question_seconds,
+             pre_test_question_seconds,
+             post_test_question_seconds,
+             individual_case_seconds,
+             group_activity_seconds,
+             quiz_question_seconds
          FROM courses
          WHERE course_id = $1
            AND deleted_at IS NULL
@@ -712,6 +753,7 @@ export async function startGroupSessionWork(sessionId, userId, minMembers = 2) {
 export async function createGroupSession({course, topic, caseStudy, groupId, objectId, user}) {
     const client = await pool.connect();
     const courseGroupId = user.course_group_id || null;
+    const durationSeconds = positiveInt(course?.group_activity_seconds, GROUP_ACTIVITY_DURATION_SECONDS);
 
     try {
         await client.query("BEGIN");
@@ -747,7 +789,7 @@ export async function createGroupSession({course, topic, caseStudy, groupId, obj
                 groupId,
                 objectId || null,
                 user.user_id,
-                GROUP_ACTIVITY_DURATION_SECONDS,
+                durationSeconds,
             ]
         );
 

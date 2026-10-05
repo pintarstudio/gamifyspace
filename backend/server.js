@@ -32,6 +32,7 @@ import {ensureChatSchema} from "./models/chatModel.js";
 import {applyMaintenanceAutoOff, getBooleanSetting, SETTING_KEYS} from "./models/settingsModel.js";
 import {deactivateSession, findSession} from "./models/sessionModel.js";
 import {STUDENT_ROLE_ID} from "./models/roleModel.js";
+import {startTopicAutoHideScheduler} from "./services/topicAutoHideService.js";
 
 const app = express();
 const server = http.createServer(app);
@@ -75,6 +76,7 @@ setInterval(() => {
         console.error("Failed to apply maintenance auto-off:", error);
     });
 }, 60 * 1000);
+startTopicAutoHideScheduler();
 
 // ====== MIDDLEWARE & ROUTES ======
 app.use(

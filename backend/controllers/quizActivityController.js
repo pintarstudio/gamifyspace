@@ -12,12 +12,12 @@ import {
     getQuizQuestionsForTopic,
     getQuizSavedResult,
     getQuizSessionById,
+    getQuizQuestionTimeSeconds,
     joinQuizMemberWithLimit,
     MAX_QUIZ_MEMBERS,
     QUESTION_COUNT,
     QUESTION_REVEAL_SECONDS,
     QUESTION_START_DELAY_SECONDS,
-    QUESTION_TIME_SECONDS,
     refreshQuizProgress,
     saveQuizResult,
     startQuizSession,
@@ -212,9 +212,10 @@ function normalizeQuizSession(session, members, questions, answers, userId, save
     const includeFinalAnswers = ["completed", "saved"].includes(session.status);
     const questionStartedAt = session.question_started_at ? new Date(session.question_started_at).getTime() : null;
     const elapsedSeconds = questionStartedAt ? Math.max(0, Math.floor((Date.now() - questionStartedAt) / 1000)) : 0;
+    const questionTimeSeconds = getQuizQuestionTimeSeconds(session);
     const timeLeftSeconds = session.status === "in_progress"
-        ? Math.max(0, QUESTION_TIME_SECONDS - elapsedSeconds)
-        : QUESTION_TIME_SECONDS;
+        ? Math.max(0, questionTimeSeconds - elapsedSeconds)
+        : questionTimeSeconds;
 
     return {
         server_time_ms: Date.now(),
@@ -227,7 +228,7 @@ function normalizeQuizSession(session, members, questions, answers, userId, save
         object_id: session.object_id,
         status: session.status,
         question_count: safeQuestions.length,
-        question_time_seconds: QUESTION_TIME_SECONDS,
+        question_time_seconds: questionTimeSeconds,
         question_reveal_seconds: QUESTION_REVEAL_SECONDS,
         current_question_index: session.current_question_index,
         question_started_at: session.question_started_at,
@@ -324,7 +325,7 @@ export async function getQuizContext(req, res) {
             object_id: req.query.object_id || null,
             max_members: MAX_QUIZ_MEMBERS,
             question_count: QUESTION_COUNT,
-            question_time_seconds: QUESTION_TIME_SECONDS,
+            question_time_seconds: getQuizQuestionTimeSeconds({question_time_seconds: course?.quiz_question_seconds}),
             question_reveal_seconds: QUESTION_REVEAL_SECONDS,
             question_start_delay_seconds: QUESTION_START_DELAY_SECONDS,
             gamification_enabled: !!user.gamification_enabled,

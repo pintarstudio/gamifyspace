@@ -363,6 +363,31 @@ async function ensureCourseInstructorSchema() {
         DO $$
         BEGIN
             IF to_regclass('public.courses') IS NOT NULL THEN
+                ALTER TABLE courses
+                ADD COLUMN IF NOT EXISTS individual_mc_question_seconds INTEGER;
+
+                ALTER TABLE courses
+                ADD COLUMN IF NOT EXISTS pre_test_question_seconds INTEGER;
+
+                ALTER TABLE courses
+                ADD COLUMN IF NOT EXISTS post_test_question_seconds INTEGER;
+
+                ALTER TABLE courses
+                ADD COLUMN IF NOT EXISTS individual_case_seconds INTEGER;
+
+                ALTER TABLE courses
+                ADD COLUMN IF NOT EXISTS group_activity_seconds INTEGER;
+
+                ALTER TABLE courses
+                ADD COLUMN IF NOT EXISTS quiz_question_seconds INTEGER;
+            END IF;
+        END $$;
+    `);
+
+    await pool.query(`
+        DO $$
+        BEGIN
+            IF to_regclass('public.courses') IS NOT NULL THEN
                 UPDATE courses c
                 SET instructor2_id = NULL,
                     updated_at = NOW()
@@ -518,6 +543,12 @@ export async function listAdminResource(resource) {
                  CONCAT_WS(', ', u1.name, u2.name) AS instructor_names,
                  c.semester,
                  c.location,
+                 c.individual_mc_question_seconds,
+                 c.pre_test_question_seconds,
+                 c.post_test_question_seconds,
+                 c.individual_case_seconds,
+                 c.group_activity_seconds,
+                 c.quiz_question_seconds,
                  c.updated_at
              FROM courses c
              LEFT JOIN users u1 ON u1.user_id = c.instructor_id
@@ -700,8 +731,21 @@ export async function createAdminResource(resource, payload) {
     if (resource === "courses") {
         await ensureCourseInstructorSchema();
         const result = await pool.query(
-            `INSERT INTO courses (course_code, course_name, instructor_id, instructor2_id, semester, location)
-             SELECT $1, $2, $3, $4, $5, $6
+            `INSERT INTO courses (
+                 course_code,
+                 course_name,
+                 instructor_id,
+                 instructor2_id,
+                 semester,
+                 location,
+                 individual_mc_question_seconds,
+                 pre_test_question_seconds,
+                 post_test_question_seconds,
+                 individual_case_seconds,
+                 group_activity_seconds,
+                 quiz_question_seconds
+             )
+             SELECT $1, $2, $3, $4, $5, $6, $8, $9, $10, $11, $12, $13
              WHERE (
                  $3::int IS NULL
                  OR EXISTS (
@@ -732,6 +776,12 @@ export async function createAdminResource(resource, payload) {
                 nullableInteger(payload.semester),
                 nullableText(payload.location),
                 INSTRUCTOR_ROLE_ID,
+                nullableInteger(payload.individual_mc_question_seconds),
+                nullableInteger(payload.pre_test_question_seconds),
+                nullableInteger(payload.post_test_question_seconds),
+                nullableInteger(payload.individual_case_seconds),
+                nullableInteger(payload.group_activity_seconds),
+                nullableInteger(payload.quiz_question_seconds),
             ]
         );
         if (!result.rows[0]) return null;
@@ -907,6 +957,12 @@ export async function updateAdminResource(resource, id, payload) {
                  instructor2_id = $5,
                  semester = $6,
                  location = $7,
+                 individual_mc_question_seconds = $9,
+                 pre_test_question_seconds = $10,
+                 post_test_question_seconds = $11,
+                 individual_case_seconds = $12,
+                 group_activity_seconds = $13,
+                 quiz_question_seconds = $14,
                  updated_at = NOW()
              WHERE course_id = $1
                AND deleted_at IS NULL
@@ -941,6 +997,12 @@ export async function updateAdminResource(resource, id, payload) {
                 nullableInteger(payload.semester),
                 nullableText(payload.location),
                 INSTRUCTOR_ROLE_ID,
+                nullableInteger(payload.individual_mc_question_seconds),
+                nullableInteger(payload.pre_test_question_seconds),
+                nullableInteger(payload.post_test_question_seconds),
+                nullableInteger(payload.individual_case_seconds),
+                nullableInteger(payload.group_activity_seconds),
+                nullableInteger(payload.quiz_question_seconds),
             ]
         );
         return result.rows[0] || null;

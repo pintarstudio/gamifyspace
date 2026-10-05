@@ -30,6 +30,36 @@ async function createCourseSchema() {
     `);
 
     await pool.query(`
+        ALTER TABLE courses
+        ADD COLUMN IF NOT EXISTS individual_mc_question_seconds INTEGER
+    `);
+
+    await pool.query(`
+        ALTER TABLE courses
+        ADD COLUMN IF NOT EXISTS pre_test_question_seconds INTEGER
+    `);
+
+    await pool.query(`
+        ALTER TABLE courses
+        ADD COLUMN IF NOT EXISTS post_test_question_seconds INTEGER
+    `);
+
+    await pool.query(`
+        ALTER TABLE courses
+        ADD COLUMN IF NOT EXISTS individual_case_seconds INTEGER
+    `);
+
+    await pool.query(`
+        ALTER TABLE courses
+        ADD COLUMN IF NOT EXISTS group_activity_seconds INTEGER
+    `);
+
+    await pool.query(`
+        ALTER TABLE courses
+        ADD COLUMN IF NOT EXISTS quiz_question_seconds INTEGER
+    `);
+
+    await pool.query(`
         DO $$
         BEGIN
             IF EXISTS (

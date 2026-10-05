@@ -100,6 +100,12 @@ const COURSE_ITEM = {
         {key: "instructor2_id", label: "Instructor 2", type: "select", reference: "instructors"},
         {key: "semester", label: "Semester", type: "number"},
         {key: "location", label: "Location"},
+        {key: "individual_mc_question_seconds", label: "Individual MC Seconds / Question", type: "number", placeholder: "15"},
+        {key: "pre_test_question_seconds", label: "Pre-test Seconds / Question", type: "number", placeholder: "15"},
+        {key: "post_test_question_seconds", label: "Post-test Seconds / Question", type: "number", placeholder: "15"},
+        {key: "individual_case_seconds", label: "Individual Case Seconds", type: "number", placeholder: "240"},
+        {key: "group_activity_seconds", label: "Group Activity Seconds", type: "number", placeholder: "600"},
+        {key: "quiz_question_seconds", label: "Quiz Seconds / Question", type: "number", placeholder: "15"},
     ],
 };
 

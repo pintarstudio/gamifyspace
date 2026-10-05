@@ -205,8 +205,10 @@ function getIndividualTimer(session) {
         || getIndividualActivityDuration(session.activity_type, session.question_kind);
     const isRunning = session.status === "in_progress";
     const isMultipleChoice = session.question_kind === "multiple_choice";
+    const questionDurationSeconds = Number(session.question_duration_seconds)
+        || getIndividualQuestionDuration(session.activity_type, session.question_kind);
     const activeDurationSeconds = isRunning && isMultipleChoice
-        ? getIndividualQuestionDuration(session.activity_type, session.question_kind)
+        ? questionDurationSeconds
         : totalDurationSeconds;
     const timerStartedAtValue = isRunning && isMultipleChoice
         ? (session.current_question_started_at || session.started_at)
@@ -223,7 +225,7 @@ function getIndividualTimer(session) {
     return {
         duration_seconds: activeDurationSeconds,
         activity_duration_seconds: totalDurationSeconds,
-        question_duration_seconds: isMultipleChoice ? getIndividualQuestionDuration(session.activity_type, session.question_kind) : null,
+        question_duration_seconds: isMultipleChoice ? questionDurationSeconds : null,
         seconds_spent: secondsSpent,
         seconds_left: secondsLeft,
         timer_expires_at: new Date(startedAt + activeDurationSeconds * 1000).toISOString(),
@@ -233,7 +235,8 @@ function getIndividualTimer(session) {
 
 function getCurrentQuestionTimeSpent(session) {
     if (!session) return 0;
-    const questionDuration = getIndividualQuestionDuration(session.activity_type, session.question_kind);
+    const questionDuration = Number(session.question_duration_seconds)
+        || getIndividualQuestionDuration(session.activity_type, session.question_kind);
     const startedAt = session.current_question_started_at
         ? new Date(session.current_question_started_at).getTime()
         : (session.started_at ? new Date(session.started_at).getTime() : Date.now());
@@ -518,7 +521,7 @@ async function timeoutMultipleChoiceQuestion(session, questions, user) {
             userId: user.user_id,
             answerIndex: null,
             awardXp: !!user.gamification_enabled,
-            timeSpentSeconds: getIndividualQuestionDuration(session.activity_type, session.question_kind),
+            timeSpentSeconds: Number(session.question_duration_seconds) || getIndividualQuestionDuration(session.activity_type, session.question_kind),
         });
     }
 
@@ -880,6 +883,7 @@ export async function startIndividualSession(req, res) {
             activityType,
             questionKind,
             questions,
+            course,
         });
         const activity = await loadIndividualSession(session, user);
 

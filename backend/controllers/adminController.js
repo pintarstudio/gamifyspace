@@ -94,6 +94,20 @@ function validatePayload(resource, payload, mode = "create") {
         if (payload.instructor_id && payload.instructor2_id && String(payload.instructor_id) === String(payload.instructor2_id)) {
             return "Instructor 1 dan Instructor 2 harus berbeda";
         }
+        const timerFields = [
+            "individual_mc_question_seconds",
+            "pre_test_question_seconds",
+            "post_test_question_seconds",
+            "individual_case_seconds",
+            "group_activity_seconds",
+            "quiz_question_seconds",
+        ];
+        for (const field of timerFields) {
+            if (payload[field] !== undefined && payload[field] !== null && payload[field] !== "") {
+                const parsed = Number.parseInt(payload[field], 10);
+                if (!Number.isFinite(parsed) || parsed <= 0) return "Timer harus lebih dari 0 detik";
+            }
+        }
         return null;
     }
 

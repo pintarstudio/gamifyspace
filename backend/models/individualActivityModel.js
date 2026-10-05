@@ -28,6 +28,29 @@ export function getIndividualQuestionDuration(activityType, questionKind) {
     return INDIVIDUAL_MC_QUESTION_DURATION_SECONDS;
 }
 
+function positiveInt(value, fallback) {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+export function getCourseIndividualQuestionDuration(course, activityType, questionKind) {
+    if (questionKind === "case_study") {
+        return positiveInt(course?.individual_case_seconds, INDIVIDUAL_CASE_DURATION_SECONDS);
+    }
+    if (activityType === "pre_test") {
+        return positiveInt(course?.pre_test_question_seconds, INDIVIDUAL_MC_QUESTION_DURATION_SECONDS);
+    }
+    if (activityType === "post_test") {
+        return positiveInt(course?.post_test_question_seconds, INDIVIDUAL_MC_QUESTION_DURATION_SECONDS);
+    }
+    return positiveInt(course?.individual_mc_question_seconds, INDIVIDUAL_MC_QUESTION_DURATION_SECONDS);
+}
+
+export function getCourseIndividualActivityDuration(course, activityType, questionKind) {
+    if (questionKind === "case_study") return getCourseIndividualQuestionDuration(course, activityType, questionKind);
+    return getCourseIndividualQuestionDuration(course, activityType, questionKind) * getIndividualQuestionCount(activityType, questionKind);
+}
+
 let individualReadyPromise = null;
 
 function clampInt(value, min, max, fallback = min) {
@@ -82,6 +105,7 @@ async function createIndividualTables() {
             feedback_error TEXT,
             feedback_started_at TIMESTAMPTZ,
             duration_seconds INTEGER NOT NULL DEFAULT 0,
+            question_duration_seconds INTEGER,
             seconds_spent INTEGER NOT NULL DEFAULT 0,
             seconds_left INTEGER NOT NULL DEFAULT 0,
             started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -92,6 +116,7 @@ async function createIndividualTables() {
     `);
 
     await pool.query(`ALTER TABLE individual_activity_sessions ADD COLUMN IF NOT EXISTS duration_seconds INTEGER NOT NULL DEFAULT 0`);
+    await pool.query(`ALTER TABLE individual_activity_sessions ADD COLUMN IF NOT EXISTS question_duration_seconds INTEGER`);
     await pool.query(`ALTER TABLE individual_activity_sessions ADD COLUMN IF NOT EXISTS seconds_spent INTEGER NOT NULL DEFAULT 0`);
     await pool.query(`ALTER TABLE individual_activity_sessions ADD COLUMN IF NOT EXISTS seconds_left INTEGER NOT NULL DEFAULT 0`);
     await pool.query(`ALTER TABLE individual_activity_sessions ADD COLUMN IF NOT EXISTS current_question_started_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`);
@@ -108,6 +133,10 @@ async function createIndividualTables() {
                 WHEN question_kind = 'case_study' THEN ${INDIVIDUAL_CASE_DURATION_SECONDS}
                 ELSE ${INDIVIDUAL_MC_DURATION_SECONDS}
             END,
+            question_duration_seconds = CASE
+                WHEN question_kind = 'case_study' THEN ${INDIVIDUAL_CASE_DURATION_SECONDS}
+                ELSE ${INDIVIDUAL_MC_QUESTION_DURATION_SECONDS}
+            END,
             seconds_left = CASE
                 WHEN seconds_left > 0 THEN seconds_left
                 WHEN activity_type IN ('pre_test', 'post_test') THEN ${INDIVIDUAL_ASSESSMENT_DURATION_SECONDS}
@@ -115,6 +144,7 @@ async function createIndividualTables() {
                 ELSE ${INDIVIDUAL_MC_DURATION_SECONDS}
             END
         WHERE duration_seconds = 0
+           OR question_duration_seconds IS NULL
     `);
     await pool.query(`
         UPDATE individual_activity_sessions
@@ -131,6 +161,7 @@ async function createIndividualTables() {
             )
         WHERE status = 'in_progress'
           AND question_kind = 'multiple_choice'
+          AND question_duration_seconds IS NULL
           AND duration_seconds <> CASE
                 WHEN activity_type IN ('pre_test', 'post_test') THEN ${INDIVIDUAL_ASSESSMENT_DURATION_SECONDS}
                 ELSE ${INDIVIDUAL_MC_DURATION_SECONDS}
@@ -393,12 +424,17 @@ export async function getIndividualAnswers(sessionId) {
     return result.rows;
 }
 
-export async function createIndividualSession({courseId, topicId, userId, objectId, activityType, questionKind, questions}) {
-    const durationSeconds = getIndividualActivityDuration(activityType, questionKind);
+export async function createIndividualSession({courseId, topicId, userId, objectId, activityType, questionKind, questions, course = null}) {
+    const durationSeconds = course
+        ? getCourseIndividualActivityDuration(course, activityType, questionKind)
+        : getIndividualActivityDuration(activityType, questionKind);
+    const questionDurationSeconds = course
+        ? getCourseIndividualQuestionDuration(course, activityType, questionKind)
+        : getIndividualQuestionDuration(activityType, questionKind);
     const result = await pool.query(
         `INSERT INTO individual_activity_sessions
-             (course_id, topic_id, user_id, object_id, activity_type, question_kind, question_ids, duration_seconds, seconds_left)
-         VALUES ($1, $2, $3, $4, $5, $6, $7::int[], $8, $8)
+             (course_id, topic_id, user_id, object_id, activity_type, question_kind, question_ids, duration_seconds, question_duration_seconds, seconds_left)
+         VALUES ($1, $2, $3, $4, $5, $6, $7::int[], $8, $9, $8)
          RETURNING *`,
         [
             courseId,
@@ -409,6 +445,7 @@ export async function createIndividualSession({courseId, topicId, userId, object
             questionKind,
             questions.map((question) => question.question_id),
             durationSeconds,
+            questionDurationSeconds,
         ]
     );
     return result.rows[0] || null;
@@ -420,7 +457,12 @@ export async function saveIndividualMcAnswer({session, question, userId, answerI
     const isAssessment = ["pre_test", "post_test"].includes(session.activity_type);
     const score = isAssessment && isCorrect ? Math.round(100 / getIndividualQuestionCount(session.activity_type, session.question_kind)) : 0;
     const xp = awardXp && session.activity_type === "exercise" && isCorrect ? 10 : 0;
-    const clampedTimeSpent = clampInt(timeSpentSeconds, 0, getIndividualQuestionDuration(session.activity_type, session.question_kind), 0);
+    const clampedTimeSpent = clampInt(
+        timeSpentSeconds,
+        0,
+        positiveInt(session.question_duration_seconds, getIndividualQuestionDuration(session.activity_type, session.question_kind)),
+        0
+    );
 
     const result = await pool.query(
         `INSERT INTO individual_activity_answers
