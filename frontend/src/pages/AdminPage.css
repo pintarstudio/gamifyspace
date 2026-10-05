@@ -1342,6 +1342,13 @@
     background: #115e59;
 }
 
+.instructor-topic-action-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: flex-end;
+}
+
 .instructor-topic-actions--activity {
     border-color: #bfdbfe;
     box-shadow: 0 12px 28px rgba(37, 99, 235, 0.08);

@@ -92,6 +92,12 @@ const COURSE_ITEM = {
         {key: "instructor_names", label: "Instructors"},
         {key: "semester", label: "Semester"},
         {key: "location", label: "Location"},
+        {key: "individual_mc_question_seconds", label: "MC/Q"},
+        {key: "pre_test_question_seconds", label: "Pre/Q"},
+        {key: "post_test_question_seconds", label: "Post/Q"},
+        {key: "individual_case_seconds", label: "Case"},
+        {key: "group_activity_seconds", label: "Group"},
+        {key: "quiz_question_seconds", label: "Quiz/Q"},
     ],
     fields: [
         {key: "course_code", label: "Course Code", required: true},
@@ -2208,19 +2214,23 @@ const AdminPage = () => {
         URL.revokeObjectURL(url);
     };
 
-    const exportSelectedTopicActivityProgress = () => {
+    const exportSelectedTopicActivityProgress = (pendingOnly = false) => {
         const rows = (selectedDashboardTopic?.groups || []).flatMap((group) => {
             const topic = topicProgressForGroup(selectedDashboardCourse, group)
                 .find((item) => String(item.key) === `topic:${selectedDashboardTopic?.topic_id}`);
             if (!topic) return [];
+            const pendingRows = topic.students_pending.map((student) => ({student, group, status: "belum memenuhi", isPending: true}));
+            if (pendingOnly) return pendingRows;
             return [
                 ...topic.students_met.map((student) => ({student, group, status: "sudah memenuhi", isPending: false})),
-                ...topic.students_pending.map((student) => ({student, group, status: "belum memenuhi", isPending: true})),
+                ...pendingRows,
             ];
         });
 
         if (!rows.length) {
-            setMessage("No activity progress data available for this topic.");
+            setMessage(pendingOnly
+                ? "No students with belum memenuhi status for this topic."
+                : "No activity progress data available for this topic.");
             return;
         }
 
@@ -2249,7 +2259,7 @@ const AdminPage = () => {
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
         link.href = url;
-        link.download = `${slugifyFilePart(selectedDashboardCourse?.course_name)}-${slugifyFilePart(selectedDashboardTopic?.topic_name)}-activity-progress.xlsx`;
+        link.download = `${slugifyFilePart(selectedDashboardCourse?.course_name)}-${slugifyFilePart(selectedDashboardTopic?.topic_name)}-${pendingOnly ? "belum-memenuhi" : "activity-progress"}.xlsx`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -2562,9 +2572,14 @@ const AdminPage = () => {
                             <strong>Activity progress export</strong>
                             <span>Download baseline status and activity counts for all groups in this topic</span>
                         </div>
-                        <button type="button" onClick={exportSelectedTopicActivityProgress}>
-                            Download Activity Progress
-                        </button>
+                        <div className="instructor-topic-action-buttons">
+                            <button type="button" onClick={() => exportSelectedTopicActivityProgress(false)}>
+                                Download Activity Progress
+                            </button>
+                            <button type="button" onClick={() => exportSelectedTopicActivityProgress(true)}>
+                                Download Belum Memenuhi
+                            </button>
+                        </div>
                     </div>
 
                     <div className="instructor-group-list">

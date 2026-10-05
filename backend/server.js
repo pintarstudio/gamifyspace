@@ -29,8 +29,8 @@ import {ensureGamificationTables} from "./models/gamificationModel.js";
 import {ensureCourseGroupSchema} from "./models/courseGroupModel.js";
 import {ensureRoleSchema} from "./models/roleModel.js";
 import {ensureChatSchema} from "./models/chatModel.js";
-import {applyMaintenanceAutoOff, getBooleanSetting, SETTING_KEYS} from "./models/settingsModel.js";
-import {deactivateSession, findSession} from "./models/sessionModel.js";
+import {applyMaintenanceSchedules, getBooleanSetting, SETTING_KEYS} from "./models/settingsModel.js";
+import {deactivateAllStudentSessions, deactivateSession, findSession} from "./models/sessionModel.js";
 import {STUDENT_ROLE_ID} from "./models/roleModel.js";
 import {startTopicAutoHideScheduler} from "./services/topicAutoHideService.js";
 
@@ -49,6 +49,7 @@ const io = new Server(server, {
 app.set("io", io);
 const PORT = process.env.PORT || 4000;
 const PgSession = pgSession(session);
+const STUDENT_MAINTENANCE_MESSAGE = "Sistem sedang dalam mode pemeliharaan. Login student sementara dinonaktifkan.";
 
 ensureGamificationTables().catch((error) => {
     console.error("Failed to initialize gamification tables:", error);
@@ -71,9 +72,24 @@ ensureRoleSchema().catch((error) => {
 ensureChatSchema().catch((error) => {
     console.error("Failed to initialize chat schema:", error);
 });
+
+async function applyMaintenanceScheduleEffects() {
+    const {turnedOn, turnedOff} = await applyMaintenanceSchedules();
+    if (turnedOn && !turnedOff) {
+        const maintenanceLogoutCount = await deactivateAllStudentSessions();
+        io.emit("maintenance:active", {
+            message: STUDENT_MAINTENANCE_MESSAGE,
+        });
+        console.log(`Maintenance auto-on activated. ${maintenanceLogoutCount} student session(s) deactivated.`);
+    }
+}
+
+applyMaintenanceScheduleEffects().catch((error) => {
+    console.error("Failed to apply maintenance schedule:", error);
+});
 setInterval(() => {
-    applyMaintenanceAutoOff().catch((error) => {
-        console.error("Failed to apply maintenance auto-off:", error);
+    applyMaintenanceScheduleEffects().catch((error) => {
+        console.error("Failed to apply maintenance schedule:", error);
     });
 }, 60 * 1000);
 startTopicAutoHideScheduler();
@@ -104,8 +120,6 @@ app.use(
         },
     })
 );
-
-const STUDENT_MAINTENANCE_MESSAGE = "Sistem sedang dalam mode pemeliharaan. Login student sementara dinonaktifkan.";
 
 app.use(async (req, res, next) => {
     try {

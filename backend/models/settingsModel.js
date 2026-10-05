@@ -3,6 +3,7 @@ import {pool} from "../db/index.js";
 export const SETTING_KEYS = {
     ALLOW_URL_LOGIN_USER_CREATION: "allow_url_login_user_creation",
     MAINTENANCE_MODE: "maintenance_mode",
+    MAINTENANCE_AUTO_ON_AT: "maintenance_auto_on_at",
     MAINTENANCE_AUTO_OFF_AT: "maintenance_auto_off_at",
 };
 
@@ -20,6 +21,13 @@ const DEFAULT_SETTINGS = [
         description: "When active, student login is disabled and active student sessions are logged out.",
         type: "boolean",
         booleanValue: false,
+    },
+    {
+        key: SETTING_KEYS.MAINTENANCE_AUTO_ON_AT,
+        name: "Maintenance Auto-On Datetime",
+        description: "Automatically turn maintenance mode on at this date and time.",
+        type: "datetime",
+        datetimeValue: null,
     },
     {
         key: SETTING_KEYS.MAINTENANCE_AUTO_OFF_AT,
@@ -111,7 +119,7 @@ export async function ensureSettingsTable() {
 
 export async function listSettings() {
     await ensureSettingsTable();
-    await applyMaintenanceAutoOff();
+    await applyMaintenanceSchedules();
     const result = await pool.query(`
         SELECT
             setting_id,
@@ -135,6 +143,39 @@ function normalizeDateTime(value) {
     if (!text) return null;
     if (/[zZ]$|[+-]\d{2}:?\d{2}$/.test(text)) return text;
     return `${text.length === 16 ? `${text}:00` : text}+07:00`;
+}
+
+export async function applyMaintenanceAutoOn() {
+    await ensureSettingsTable();
+    const result = await pool.query(
+        `WITH auto_on AS (
+             SELECT datetime_value
+             FROM settings
+             WHERE setting_key = $1
+               AND setting_type = 'datetime'
+               AND datetime_value IS NOT NULL
+               AND datetime_value <= NOW()
+             LIMIT 1
+         ),
+         updated AS (
+             UPDATE settings
+             SET boolean_value = TRUE,
+                 updated_at = NOW()
+             WHERE setting_key = $2
+               AND setting_type = 'boolean'
+               AND boolean_value IS DISTINCT FROM TRUE
+               AND EXISTS (SELECT 1 FROM auto_on)
+             RETURNING setting_id
+         )
+         UPDATE settings
+         SET datetime_value = NULL,
+             updated_at = NOW()
+         WHERE setting_key = $1
+           AND EXISTS (SELECT 1 FROM auto_on)
+         RETURNING (SELECT COUNT(*)::int FROM updated) AS updated_count`,
+        [SETTING_KEYS.MAINTENANCE_AUTO_ON_AT, SETTING_KEYS.MAINTENANCE_MODE]
+    );
+    return Number(result.rows[0]?.updated_count || 0) > 0;
 }
 
 export async function applyMaintenanceAutoOff() {
@@ -171,6 +212,12 @@ export async function applyMaintenanceAutoOff() {
         [SETTING_KEYS.MAINTENANCE_AUTO_OFF_AT, SETTING_KEYS.MAINTENANCE_MODE]
     );
     return Number(result.rows[0]?.updated_count || 0) > 0;
+}
+
+export async function applyMaintenanceSchedules() {
+    const turnedOn = await applyMaintenanceAutoOn();
+    const turnedOff = await applyMaintenanceAutoOff();
+    return {turnedOn, turnedOff};
 }
 
 export async function updateSetting(settingId, payload) {
@@ -227,7 +274,7 @@ export async function updateSetting(settingId, payload) {
 export async function getBooleanSetting(settingKey, fallback = false) {
     await ensureSettingsTable();
     if (settingKey === SETTING_KEYS.MAINTENANCE_MODE) {
-        await applyMaintenanceAutoOff();
+        await applyMaintenanceSchedules();
     }
     const result = await pool.query(
         `SELECT boolean_value

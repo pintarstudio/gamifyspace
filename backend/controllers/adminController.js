@@ -35,7 +35,7 @@ import {
 } from "../services/openaiQuestionBankService.js";
 import {INSTRUCTOR_ROLE_ID} from "../models/roleModel.js";
 import {deactivateAllStudentSessions} from "../models/sessionModel.js";
-import {SETTING_KEYS} from "../models/settingsModel.js";
+import {applyMaintenanceSchedules, SETTING_KEYS} from "../models/settingsModel.js";
 
 const STUDENT_MAINTENANCE_MESSAGE = "Sistem sedang dalam mode pemeliharaan. Login student sementara dinonaktifkan.";
 
@@ -338,6 +338,15 @@ export async function updateAdminResourceData(req, res) {
             req.app.get("io")?.emit("maintenance:active", {
                 message: STUDENT_MAINTENANCE_MESSAGE,
             });
+        }
+        if (req.params.resource === "settings" && updated.setting_key === SETTING_KEYS.MAINTENANCE_AUTO_ON_AT) {
+            const {turnedOn, turnedOff} = await applyMaintenanceSchedules();
+            if (turnedOn && !turnedOff) {
+                maintenanceLogoutCount = await deactivateAllStudentSessions();
+                req.app.get("io")?.emit("maintenance:active", {
+                    message: STUDENT_MAINTENANCE_MESSAGE,
+                });
+            }
         }
         res.json({
             message: maintenanceLogoutCount > 0
