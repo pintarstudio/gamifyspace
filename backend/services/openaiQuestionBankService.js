@@ -225,11 +225,11 @@ function normalizeDrafts(items, bankType, startNumber, options = {}) {
     });
 }
 
-async function postStructuredResponse({name, schema, system, user, maxOutputTokens, model}) {
+async function postStructuredResponse({name, schema, system, user, maxOutputTokens, maxRetryOutputTokens = 8000, model}) {
     const selectedModel = getQuestionModel(model);
     const tokenBudgets = [
         maxOutputTokens,
-        Math.min(8000, Math.max(maxOutputTokens + 2000, Math.ceil(maxOutputTokens * 2.5))),
+        Math.max(maxOutputTokens, Math.min(maxRetryOutputTokens, Math.max(maxOutputTokens + 2000, Math.ceil(maxOutputTokens * 2.5)))),
     ];
     let lastError = null;
 
@@ -420,7 +420,8 @@ export async function generateQuestionDrafts({bankType, topicName, materials, ma
             source,
             custom_instruction: safeCustomInstruction || null,
         }),
-        maxOutputTokens: isCase ? Math.min(6200, 700 + safeCount * 320) : Math.min(6200, 700 + safeCount * 260),
+        maxOutputTokens: 1000 + safeCount * (preserveCode ? 1200 : isCase ? 1000 : 700),
+        maxRetryOutputTokens: 32000,
         model: selectedModel,
     });
 
