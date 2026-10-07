@@ -1158,6 +1158,7 @@ const AdminPage = () => {
         count: 5,
     });
     const [instructionPresets, setInstructionPresets] = useState([]);
+    const [editingInstructionPresetId, setEditingInstructionPresetId] = useState(null);
     const [instructionPresetForm, setInstructionPresetForm] = useState({
         preset_name: "",
         instruction_text: "",
@@ -2066,16 +2067,22 @@ const AdminPage = () => {
 
         setBusy(true);
         setMessage("");
-        const data = await apiPost("/admin/question-instruction-presets", {
-            preset_name: presetName,
-            instruction_text: instructionText,
-        });
-        if (data.message) setMessage(data.message);
-        if (data.data) {
-            setInstructionPresetForm({preset_name: "", instruction_text: ""});
-            await loadInstructionPresets();
+        try {
+            const payload = {preset_name: presetName, instruction_text: instructionText};
+            const data = editingInstructionPresetId
+                ? await apiPatch(`/admin/question-instruction-presets/${editingInstructionPresetId}`, payload)
+                : await apiPost("/admin/question-instruction-presets", payload);
+            if (data.message) setMessage(data.message);
+            if (data.data) {
+                setEditingInstructionPresetId(null);
+                setInstructionPresetForm({preset_name: "", instruction_text: ""});
+                await loadInstructionPresets();
+            }
+        } catch (error) {
+            setMessage("Gagal menyimpan preset instruction. Periksa koneksi dan coba lagi.");
+        } finally {
+            setBusy(false);
         }
-        setBusy(false);
     };
 
     const deleteInstructionPreset = async (preset) => {
@@ -2083,6 +2090,10 @@ const AdminPage = () => {
         setBusy(true);
         const data = await apiDelete(`/admin/question-instruction-presets/${preset.preset_id}`);
         if (data.message) setMessage(data.message);
+        if (data.data && editingInstructionPresetId === preset.preset_id) {
+            setEditingInstructionPresetId(null);
+            setInstructionPresetForm({preset_name: "", instruction_text: ""});
+        }
         await loadInstructionPresets();
         setBusy(false);
     };
@@ -3852,8 +3863,21 @@ const AdminPage = () => {
                                     onClick={saveInstructionPreset}
                                     disabled={busy || !instructionPresetForm.preset_name.trim() || !instructionPresetForm.instruction_text.trim()}
                                 >
-                                    Save Preset
+                                    {editingInstructionPresetId ? "Update Preset" : "Save Preset"}
                                 </button>
+                                {editingInstructionPresetId && (
+                                    <button
+                                        type="button"
+                                        className="admin-instruction-presets__secondary"
+                                        disabled={busy}
+                                        onClick={() => {
+                                            setEditingInstructionPresetId(null);
+                                            setInstructionPresetForm({preset_name: "", instruction_text: ""});
+                                        }}
+                                    >
+                                        Cancel
+                                    </button>
+                                )}
                             </div>
                             <div className="admin-instruction-presets__list">
                                 {instructionPresets.length === 0 && <span>No presets saved yet.</span>}
@@ -3865,6 +3889,22 @@ const AdminPage = () => {
                                         <button
                                             type="button"
                                             className="admin-instruction-preset__delete"
+                                            disabled={busy}
+                                            aria-label={`Edit ${preset.preset_name}`}
+                                            onClick={() => {
+                                                setEditingInstructionPresetId(preset.preset_id);
+                                                setInstructionPresetForm({
+                                                    preset_name: preset.preset_name,
+                                                    instruction_text: preset.instruction_text,
+                                                });
+                                            }}
+                                        >
+                                            Edit
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="admin-instruction-preset__delete"
+                                            disabled={busy}
                                             onClick={() => deleteInstructionPreset(preset)}
                                             aria-label={`Delete ${preset.preset_name}`}
                                         >

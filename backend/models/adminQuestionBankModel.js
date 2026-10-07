@@ -244,6 +244,18 @@ export async function createQuestionInstructionPreset({presetName, instructionTe
     return result.rows[0];
 }
 
+export async function updateQuestionInstructionPreset(presetId, {presetName, instructionText}) {
+    await ensureQuestionBankAdminTables();
+    const result = await pool.query(
+        `UPDATE question_instruction_presets
+         SET preset_name = $2, instruction_text = $3, updated_at = NOW()
+         WHERE preset_id = $1
+         RETURNING preset_id, preset_name, instruction_text, created_at, updated_at`,
+        [presetId, nullableText(presetName), nullableText(instructionText)]
+    );
+    return result.rows[0] || null;
+}
+
 export async function deleteQuestionInstructionPreset(presetId) {
     await ensureQuestionBankAdminTables();
     const result = await pool.query(

@@ -32,6 +32,7 @@ import {
     saveGeneratedQuestions,
     saveMaterialDigest,
     updateTopicMaterial,
+    updateQuestionInstructionPreset,
     upsertQuestionBankItem,
 } from "../models/adminQuestionBankModel.js";
 import {
@@ -566,13 +567,24 @@ export async function createQuestionInstructionPresetData(req, res) {
             return res.status(400).json({message: "Instruction maksimal 8000 karakter"});
         }
 
-        const data = await createQuestionInstructionPreset({
+        const presetId = req.params.presetId;
+        if (presetId && (!/^\d+$/.test(presetId) || !Number.isSafeInteger(Number(presetId)) || Number(presetId) < 1)) {
+            return res.status(400).json({message: "ID preset tidak valid"});
+        }
+        const payload = {
             presetName,
             instructionText,
             createdBy: admin.useradmin_id,
-        });
-        res.status(201).json({message: "Preset instruction berhasil disimpan", data});
+        };
+        const data = presetId
+            ? await updateQuestionInstructionPreset(presetId, payload)
+            : await createQuestionInstructionPreset(payload);
+        if (!data) return res.status(404).json({message: "Preset instruction tidak ditemukan"});
+        res.status(presetId ? 200 : 201).json({message: "Preset instruction berhasil disimpan", data});
     } catch (error) {
+        if (error.code === "23505") {
+            return res.status(409).json({message: "Nama preset sudah digunakan. Pilih nama lain."});
+        }
         console.error("Admin question instruction preset create error:", error);
         res.status(500).json({message: "Gagal menyimpan preset instruction"});
     }

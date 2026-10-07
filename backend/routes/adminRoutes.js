@@ -52,6 +52,7 @@ router.delete("/materials/:materialId", deleteTopicMaterialData);
 router.post("/materials/:materialId/digest", generateTopicMaterialDigest);
 router.get("/question-instruction-presets", getQuestionInstructionPresets);
 router.post("/question-instruction-presets", createQuestionInstructionPresetData);
+router.patch("/question-instruction-presets/:presetId", createQuestionInstructionPresetData);
 router.delete("/question-instruction-presets/:presetId", deleteQuestionInstructionPresetData);
 router.get("/question-bank-coverage", getQuestionBankCoverage);
 router.post("/question-bank/generate", generateQuestionBankDrafts);
