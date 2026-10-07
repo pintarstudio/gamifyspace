@@ -1445,14 +1445,29 @@ const AdminPage = () => {
     };
 
     const loadMaterials = async () => {
-        const data = await apiGet("/admin/materials");
-        setMaterials(data.materials || []);
+        try {
+            const data = await apiGet("/admin/materials");
+            if (!Array.isArray(data.materials)) {
+                setMessage(data.message || "Gagal mengambil course material. Silakan muat ulang halaman.");
+                return;
+            }
+            setMaterials(data.materials);
+        } catch (error) {
+            setMessage("Gagal mengambil course material. Periksa koneksi dan muat ulang halaman.");
+        }
     };
 
     const loadInstructionPresets = async () => {
-        const data = await apiGet("/admin/question-instruction-presets");
-        setInstructionPresets(data.presets || []);
-        if (data.message) setMessage(data.message);
+        try {
+            const data = await apiGet("/admin/question-instruction-presets");
+            if (!Array.isArray(data.presets)) {
+                setMessage(data.message || "Gagal mengambil preset instruction. Silakan muat ulang halaman.");
+                return;
+            }
+            setInstructionPresets(data.presets);
+        } catch (error) {
+            setMessage("Gagal mengambil preset instruction. Periksa koneksi dan muat ulang halaman.");
+        }
     };
 
     const loadBankRows = async (bankType = activeConfig?.bankType) => {
