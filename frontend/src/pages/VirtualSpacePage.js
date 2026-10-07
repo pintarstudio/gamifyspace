@@ -7,6 +7,7 @@ import ActivityHistoryList from "../components/ActivityHistoryList";
 import AvatarIcon from "../components/AvatarIcon";
 import ChatLauncher from "../components/ChatLauncher";
 import DashboardTabIcon from "../components/DashboardTabIcon";
+import MarkdownText from "../components/MarkdownText";
 import TopicProgressCard from "../components/TopicProgressCard";
 import VirtualSpacePixi from "../components/VirtualSpacePixi";
 import UserHUD from "../components/UserHUD";
@@ -975,7 +976,7 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
                                                 ? "Activity"
                                                 : selectedActivity.activity_type === "quiz" ? "Quiz" : "Case"}
                                         </h2>
-                                        <p>{selectedActivity.case_prompt}</p>
+                                        <MarkdownText>{selectedActivity.case_prompt}</MarkdownText>
                                     </section>
 
                                     <section>
@@ -1077,9 +1078,12 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
                                                             <article key={question.question_id}>
                                                                 <div className="quiz-history-question">
                                                                     <span>Question {index + 1}</span>
-                                                                    <strong>{question.question_text}</strong>
+                                                                    <MarkdownText>{question.question_text}</MarkdownText>
                                                                     {showCorrectAnswer && (
-                                                                        <p>Correct: {choiceLabel(question.correct_answer_index)}. {question.choices?.[question.correct_answer_index]}</p>
+                                                                        <div className="quiz-history-correct">
+                                                                            Correct: {choiceLabel(question.correct_answer_index)}.
+                                                                            <MarkdownText>{question.choices?.[question.correct_answer_index]}</MarkdownText>
+                                                                        </div>
                                                                     )}
                                                                 </div>
                                                                 <div className="individual-history-answer">
@@ -1087,11 +1091,11 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
                                                                         {answer?.is_correct ? "Correct" : "Wrong"}
                                                                     </b>
                                                                     {!showAssessmentScore && (
-                                                                        <span>
+                                                                        <div className="quiz-history-choice">
                                                                             Your answer: {answer?.answer_index === null || answer?.answer_index === undefined
                                                                                 ? "No answer"
-                                                                                : `${choiceLabel(answer.answer_index)}. ${question.choices?.[answer.answer_index] || ""}`}
-                                                                        </span>
+                                                                                : <>{choiceLabel(answer.answer_index)}. <MarkdownText>{question.choices?.[answer.answer_index] || ""}</MarkdownText></>}
+                                                                        </div>
                                                                     )}
                                                                     {showIndividualXp && <em>{answer?.xp_earned || 0} XP</em>}
                                                                     {showAssessmentScore && <em>{answer?.score || 0} pts</em>}
@@ -1166,8 +1170,11 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
                                                     <article key={question.question_id}>
                                                         <div className="quiz-history-question">
                                                             <span>Question {index + 1}</span>
-                                                            <strong>{question.question_text}</strong>
-                                                            <p>Correct: {choiceLabel(question.correct_answer_index)}. {question.choices?.[question.correct_answer_index]}</p>
+                                                            <MarkdownText>{question.question_text}</MarkdownText>
+                                                            <div className="quiz-history-correct">
+                                                                Correct: {choiceLabel(question.correct_answer_index)}.
+                                                                <MarkdownText>{question.choices?.[question.correct_answer_index]}</MarkdownText>
+                                                            </div>
                                                         </div>
                                                         {(selectedActivity.answers || [])
                                                             .filter((answer) => String(answer.question_id) === String(question.question_id))
@@ -1179,11 +1186,11 @@ const VirtualSpacePage = ({ user, setLoggedIn, setUser }) => {
                                                                     <AvatarIcon path={answer.avatar_public_path} alt={answer.name} />
                                                                     <div>
                                                                         <strong>{answer.name}</strong>
-                                                                        <span>
+                                                                        <div className="quiz-history-choice">
                                                                             {answer.answer_index === null
                                                                                 ? "No answer"
-                                                                            : `${choiceLabel(answer.answer_index)}. ${question.choices?.[answer.answer_index]}`}
-                                                                        </span>
+                                                                            : <>{choiceLabel(answer.answer_index)}. <MarkdownText>{question.choices?.[answer.answer_index]}</MarkdownText></>}
+                                                                        </div>
                                                                     </div>
                                                                     {showGameLayer && (
                                                                         <b className={answer.is_correct ? "is-correct" : "is-wrong"}>{answer.score} pts</b>

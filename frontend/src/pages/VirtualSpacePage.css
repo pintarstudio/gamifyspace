@@ -1852,6 +1852,19 @@
     margin-bottom: 6px;
 }
 
+.quiz-history-question .markdown-text,
+.quiz-history-correct .markdown-text,
+.quiz-history-choice .markdown-text {
+    gap: 6px;
+}
+
+.quiz-history-correct,
+.quiz-history-choice {
+    color: #5e6872;
+    font-size: 13px;
+    font-weight: 800;
+}
+
 .quiz-history-answer {
     align-items: center;
     display: grid;

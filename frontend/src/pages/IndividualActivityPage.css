@@ -543,8 +543,17 @@
     width: 34px;
 }
 
-.individual-option strong {
+.individual-option strong,
+.individual-option__text {
     line-height: 1.35;
+    min-width: 0;
+}
+
+.individual-option__text .markdown-text,
+.individual-review__prompt .markdown-text,
+.individual-review__correct .markdown-text,
+.individual-review__selected .markdown-text {
+    gap: 6px;
 }
 
 .individual-answer-note {
@@ -695,8 +704,10 @@
     font-size: 13px;
 }
 
-.individual-review__answer span {
+.individual-review__answer span,
+.individual-review__selected {
     color: #5e6872;
+    min-width: 0;
 }
 
 .individual-review__answer em {

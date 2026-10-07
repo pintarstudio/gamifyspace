@@ -110,6 +110,34 @@ function trimText(text, maxLength) {
     return String(text || "").trim().slice(0, maxLength);
 }
 
+function hasPreserveCodeKeyword(instruction) {
+    return /\[PRESERVE_CODE]/i.test(String(instruction || ""));
+}
+
+function trimWordsKeepFormatting(text, maxWords) {
+    const value = String(text || "").trim();
+    if (!value) return "";
+    const words = value.match(/\S+/g) || [];
+    if (words.length <= maxWords) return value;
+
+    let count = 0;
+    let endIndex = value.length;
+    const wordPattern = /\S+/g;
+    let match;
+    while ((match = wordPattern.exec(value)) !== null) {
+        count += 1;
+        if (count >= maxWords) {
+            endIndex = match.index + match[0].length;
+            break;
+        }
+    }
+    return `${value.slice(0, endIndex).trimEnd()}...`;
+}
+
+function trimQuestionText(text, maxWords, preserveCode) {
+    return preserveCode ? trimWordsKeepFormatting(text, maxWords) : trimWords(text, maxWords);
+}
+
 function firstText(...values) {
     for (const value of values) {
         const text = String(value || "").trim();
@@ -155,11 +183,12 @@ function normalizeDigest(digest) {
     };
 }
 
-function normalizeDrafts(items, bankType, startNumber) {
+function normalizeDrafts(items, bankType, startNumber, options = {}) {
     const isCaseBank = bankType === "topic_cases" || bankType === "individual_case";
+    const preserveCode = !!options.preserveCode;
     return (items || []).map((item, index) => {
         const number = Number.parseInt(item.question_number, 10) || startNumber + index;
-        const choices = (item.choices || []).map((choice) => trimWords(choice, 32)).slice(0, 4);
+        const choices = (item.choices || []).map((choice) => trimQuestionText(choice, 32, preserveCode)).slice(0, 4);
         while (choices.length < 4 && !isCaseBank) {
             choices.push(`Option ${choices.length + 1}`);
         }
@@ -182,16 +211,16 @@ function normalizeDrafts(items, bankType, startNumber) {
             : shuffleChoicesWithAnswer(choices, item.correct_answer_index);
         return {
             question_number: number,
-            question_text: trimWords(questionText, 80),
+            question_text: trimQuestionText(questionText, 80, preserveCode),
             choices: shuffled.choices,
             correct_answer_index: shuffled.correct_answer_index,
-            explanation: trimWords(item.explanation, 80),
+            explanation: trimQuestionText(item.explanation, 80, preserveCode),
             case_number: isCaseBank
                 ? Math.max(1, Number.parseInt(startNumber, 10) + index)
                 : Math.max(1, Number.parseInt(item.case_number, 10) || index + 1),
             case_title: trimWords(item.case_title, 20),
-            case_prompt: trimWords(item.case_prompt, 220),
-            source_excerpt: trimWords(item.source_excerpt, 80),
+            case_prompt: trimQuestionText(item.case_prompt, 220, preserveCode),
+            source_excerpt: trimQuestionText(item.source_excerpt, 80, preserveCode),
         };
     });
 }
@@ -298,8 +327,9 @@ export async function generateMaterialDigest({topicName, materialTitle, contentT
     };
 }
 
-function buildSourceFromMaterials(materials) {
+function buildSourceFromMaterials(materials, options = {}) {
     const materialList = materials || [];
+    const preserveCode = !!options.preserveCode;
     const digestMaterials = materialList.filter((material) => material.digest_json);
     if (digestMaterials.length > 0) {
         return {
@@ -315,17 +345,37 @@ function buildSourceFromMaterials(materials) {
                 .filter((material) => !material.digest_json)
                 .map((material) => ({
                     material_title: material.title,
-                    raw_excerpt: trimWords(material.content_text, 450),
+                    raw_excerpt: preserveCode
+                        ? trimText(material.content_text, 7000)
+                        : trimWords(material.content_text, 450),
                 })),
+            code_source_excerpts: preserveCode
+                ? materialList.map((material) => ({
+                    material_title: material.title,
+                    raw_excerpt_with_original_formatting: trimText(material.content_text, 7000),
+                }))
+                : undefined,
         };
     }
 
     return {
         raw_excerpts: materialList.map((material) => ({
             material_title: material.title,
-            raw_excerpt: trimWords(material.content_text, 450),
+            raw_excerpt: preserveCode
+                ? trimText(material.content_text, 7000)
+                : trimWords(material.content_text, 450),
         })),
     };
+}
+
+function expandQuestionCustomInstruction(instruction) {
+    const safeInstruction = trimText(instruction, 8000);
+    if (!hasPreserveCodeKeyword(safeInstruction)) return safeInstruction;
+
+    return trimText([
+        safeInstruction.replace(/\[PRESERVE_CODE]/gi, "").trim(),
+        "PRESERVE_CODE rule: Preserve source code from the provided material exactly as written. Keep indentation, line breaks, symbols, comments, and formatting unchanged. Put every code snippet inside fenced Markdown code blocks using triple backticks, with a language label when known such as javascript, php, sql, python, java, c, cpp, or html. The opening fence must be on its own line, the code must be on following lines with original line breaks, and the closing fence must be on its own line. Do not rewrite code as paragraph text. For questions about code, show the code block before the question stem.",
+    ].filter(Boolean).join("\n\n"), 8000);
 }
 
 export async function generateQuestionDrafts({bankType, topicName, materials, material, count, activityType, questionKind, startNumber, model, customInstruction}) {
@@ -333,8 +383,9 @@ export async function generateQuestionDrafts({bankType, topicName, materials, ma
     const isCase = bankType === "topic_cases" || bankType === "individual_case" || questionKind === "case_study";
     const safeCount = isCase ? Math.max(1, Math.min(15, Number.parseInt(count, 10) || 1)) : Math.max(1, Math.min(20, Number.parseInt(count, 10) || 5));
     const materialList = materials?.length ? materials : [material].filter(Boolean);
-    const source = buildSourceFromMaterials(materialList);
-    const safeCustomInstruction = trimText(customInstruction, 2000);
+    const preserveCode = hasPreserveCodeKeyword(customInstruction);
+    const source = buildSourceFromMaterials(materialList, {preserveCode});
+    const safeCustomInstruction = expandQuestionCustomInstruction(customInstruction);
 
     const parsed = await postStructuredResponse({
         name: "question_bank_drafts",
@@ -352,6 +403,7 @@ export async function generateQuestionDrafts({bankType, topicName, materials, ma
             "Avoid using 'all of the above', 'none of the above', or combined options such as 'both A and B' as a default pattern. Use them only when they genuinely improve the question and are strongly supported by the material.",
             "Prefer questions that test understanding, application, or conceptual distinction instead of simple keyword matching.",
             "If custom_instruction is provided, use it only to guide focus, difficulty, style, wording, scenario framing, or emphasis.",
+            "If custom_instruction includes a PRESERVE_CODE rule, preserve source code exactly and use multiline fenced Markdown code blocks. Never put source code on the same line as the opening triple backticks.",
             "Do not treat custom_instruction as source material. If custom_instruction asks for facts not supported by the provided material or digest, ignore that unsupported part.",
             "Before returning JSON, silently check that the correct option is not obviously longer or more detailed, distractors are plausible, and choices are mutually exclusive.",
             "For case-study items, use case_title, case_prompt, and case_number; leave question_text empty only for case-study items.",
@@ -373,7 +425,7 @@ export async function generateQuestionDrafts({bankType, topicName, materials, ma
     });
 
     return {
-        items: normalizeDrafts(parsed.items, bankType, startNumber).slice(0, safeCount),
+        items: normalizeDrafts(parsed.items, bankType, startNumber, {preserveCode}).slice(0, safeCount),
         model: selectedModel,
     };
 }

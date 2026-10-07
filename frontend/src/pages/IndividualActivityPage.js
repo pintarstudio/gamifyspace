@@ -9,6 +9,7 @@ import {
 } from "../utils/activityStatus";
 import {clearActivityRecovery, saveActivityRecovery} from "../utils/activityRecovery";
 import useCopyProtection from "../utils/useCopyProtection";
+import MarkdownText from "../components/MarkdownText";
 import "./IndividualActivityPage.css";
 
 const choiceLabel = (index) => ["A", "B", "C", "D"][index] || String(index + 1);
@@ -725,7 +726,7 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
                         <section className="individual-panel">
                             <span className="individual-label">Case Study</span>
                             <h2>{displayedQuestion?.case_title}</h2>
-                            <p>{displayedQuestion?.case_prompt}</p>
+                            <MarkdownText>{displayedQuestion?.case_prompt}</MarkdownText>
                         </section>
 
                         <section className="individual-panel individual-answer">
@@ -753,7 +754,7 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
                             <h2>Question {activeSession.current_question_index + 1}</h2>
                             <span>{activeSession.question_count} questions</span>
                         </div>
-                        <p>{displayedQuestion?.question_text}</p>
+                        <MarkdownText className="individual-question__text">{displayedQuestion?.question_text}</MarkdownText>
                         <div className="individual-options">
                             {(displayedQuestion?.choices || []).map((choice, index) => {
                                 const isSelected = revealAnswer?.answer_index === index;
@@ -771,7 +772,7 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
                                         disabled={busy || isTimeUp || revealExerciseChoice}
                                     >
                                         <span>{choiceLabel(index)}</span>
-                                        <strong>{choice}</strong>
+                                        <div className="individual-option__text"><MarkdownText>{choice}</MarkdownText></div>
                                     </button>
                                 );
                             })}
@@ -858,9 +859,12 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
                                     <article key={question.question_id}>
                                         <div className="individual-review__question">
                                             <span>Question {index + 1}</span>
-                                            <strong>{question.question_text}</strong>
+                                            <div className="individual-review__prompt"><MarkdownText>{question.question_text}</MarkdownText></div>
                                             {!isAssessment && (
-                                                <p>Correct: {choiceLabel(question.correct_answer_index)}. {question.choices?.[question.correct_answer_index]}</p>
+                                                <div className="individual-review__correct">
+                                                    Correct: {choiceLabel(question.correct_answer_index)}.
+                                                    <MarkdownText>{question.choices?.[question.correct_answer_index]}</MarkdownText>
+                                                </div>
                                             )}
                                         </div>
                                         <div className="individual-review__answer">
@@ -868,11 +872,11 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
                                                 {answer?.is_correct ? "Correct" : "Wrong"}
                                             </b>
                                             {!isAssessment && (
-                                                <span>
+                                                <div className="individual-review__selected">
                                                     Your answer: {answer?.answer_index === null || answer?.answer_index === undefined
                                                         ? "No answer"
-                                                        : `${choiceLabel(answer.answer_index)}. ${question.choices?.[answer.answer_index] || ""}`}
-                                                </span>
+                                                        : <>{choiceLabel(answer.answer_index)}. <MarkdownText>{question.choices?.[answer.answer_index] || ""}</MarkdownText></>}
+                                                </div>
                                             )}
                                             {showGamification && activeSession.activity_type === "exercise" && (
                                                 <em>{answer?.xp_earned || 0} XP</em>

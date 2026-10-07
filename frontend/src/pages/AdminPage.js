@@ -1,6 +1,7 @@
 import React, {useEffect, useMemo, useState} from "react";
 import {useLocation, useNavigate} from "react-router-dom";
 import {apiDelete, apiGet, apiPatch, apiPost} from "../api/apiClient";
+import MarkdownText from "../components/MarkdownText";
 import "./AdminPage.css";
 
 const DASHBOARD_COURSE_SESSION_KEY = "gamifyit:selectedInstructorDashboardCourseId";
@@ -1156,6 +1157,11 @@ const AdminPage = () => {
         custom_instruction: "",
         count: 5,
     });
+    const [instructionPresets, setInstructionPresets] = useState([]);
+    const [instructionPresetForm, setInstructionPresetForm] = useState({
+        preset_name: "",
+        instruction_text: "",
+    });
     const [drafts, setDrafts] = useState([]);
     const [draftMeta, setDraftMeta] = useState(null);
     const [bankRows, setBankRows] = useState([]);
@@ -1384,6 +1390,7 @@ const AdminPage = () => {
         }
         if (admin && custom === "questionBank") {
             loadMaterials();
+            loadInstructionPresets();
         }
         if (admin && custom === "bankManager") {
             setBusy(true);
@@ -1440,6 +1447,12 @@ const AdminPage = () => {
     const loadMaterials = async () => {
         const data = await apiGet("/admin/materials");
         setMaterials(data.materials || []);
+    };
+
+    const loadInstructionPresets = async () => {
+        const data = await apiGet("/admin/question-instruction-presets");
+        setInstructionPresets(data.presets || []);
+        if (data.message) setMessage(data.message);
     };
 
     const loadBankRows = async (bankType = activeConfig?.bankType) => {
@@ -2019,6 +2032,46 @@ const AdminPage = () => {
         setDraftMeta(null);
     };
 
+    const applyInstructionPreset = (preset) => {
+        setQuestionSettings((current) => ({
+            ...current,
+            custom_instruction: preset.instruction_text || "",
+        }));
+        setDrafts([]);
+        setDraftMeta(null);
+    };
+
+    const saveInstructionPreset = async () => {
+        const presetName = instructionPresetForm.preset_name.trim();
+        const instructionText = instructionPresetForm.instruction_text.trim();
+        if (!presetName || !instructionText) {
+            setMessage("Isi nama preset dan instruction preset terlebih dahulu.");
+            return;
+        }
+
+        setBusy(true);
+        setMessage("");
+        const data = await apiPost("/admin/question-instruction-presets", {
+            preset_name: presetName,
+            instruction_text: instructionText,
+        });
+        if (data.message) setMessage(data.message);
+        if (data.data) {
+            setInstructionPresetForm({preset_name: "", instruction_text: ""});
+            await loadInstructionPresets();
+        }
+        setBusy(false);
+    };
+
+    const deleteInstructionPreset = async (preset) => {
+        if (!window.confirm(`Hapus preset "${preset.preset_name}"?`)) return;
+        setBusy(true);
+        const data = await apiDelete(`/admin/question-instruction-presets/${preset.preset_id}`);
+        if (data.message) setMessage(data.message);
+        await loadInstructionPresets();
+        setBusy(false);
+    };
+
     const updateQuestionBankTarget = (value) => {
         const target = QUESTION_BANK_TARGETS.find((item) => item.value === value) || QUESTION_BANK_TARGETS[0];
         const next = {
@@ -2242,7 +2295,7 @@ const AdminPage = () => {
                 const isCorrect = Number(correctAnswerIndex) === index;
                 return (
                     <li className={isCorrect ? "is-correct" : ""} key={index}>
-                        <span>{choice}</span>
+                        <MarkdownText>{choice}</MarkdownText>
                         {isCorrect && <b>Correct</b>}
                     </li>
                 );
@@ -3388,11 +3441,17 @@ const AdminPage = () => {
                                 </td>
                                 {config.columns.map((column) => (
                                     <td key={column.key}>
-                                        {formatValue(column, column.key === "question_text" ? row.question_text || row.case_title : row[column.key])}
+                                        {column.key === "question_text" ? (
+                                            <MarkdownText>{row.question_text || row.case_title}</MarkdownText>
+                                        ) : formatValue(column, row[column.key])}
                                     </td>
                                 ))}
                                 <td>
-                                    {row.choices?.length ? renderChoicesPreview(row.choices, row.correct_answer_index) : (row.case_prompt || row.explanation || "-")}
+                                    {row.choices?.length
+                                        ? renderChoicesPreview(row.choices, row.correct_answer_index)
+                                        : row.case_prompt || row.explanation
+                                            ? <MarkdownText>{row.case_prompt || row.explanation}</MarkdownText>
+                                            : "-"}
                                 </td>
                                 <td>
                                     <div className="admin-row-actions">
@@ -3721,11 +3780,85 @@ const AdminPage = () => {
                             <textarea
                                 value={questionSettings.custom_instruction}
                                 onChange={(event) => updateQuestionSettings("custom_instruction", event.target.value)}
-                                maxLength={2000}
-                                placeholder="Optional. Example: Fokus pada perbandingan konsep, buat distraktor lebih mirip, dan hindari pertanyaan definisi langsung."
+                                maxLength={8000}
+                                placeholder="Optional. Use [PRESERVE_CODE] when material contains source code. Example: [PRESERVE_CODE] Fokus pada debugging dan output program."
                                 rows={4}
                             />
+                            <small className="admin-field-hint">
+                                Keyword: <code>[PRESERVE_CODE]</code> keeps code blocks, indentation, and line breaks during question generation.
+                                {" "}{questionSettings.custom_instruction.length}/8000 characters.
+                            </small>
                         </label>
+                        <div className="admin-instruction-presets admin-form-wide">
+                            <div className="admin-instruction-presets__header">
+                                <strong>Instruction Presets</strong>
+                                <span>Save a long reusable instruction, then click a preset to apply it to the prompt above.</span>
+                            </div>
+                            <div className="admin-instruction-presets__form">
+                                <label>
+                                    Preset Name
+                                    <input
+                                        value={instructionPresetForm.preset_name}
+                                        onChange={(event) => setInstructionPresetForm((current) => ({
+                                            ...current,
+                                            preset_name: event.target.value,
+                                        }))}
+                                        maxLength={120}
+                                        placeholder="Example: Code case study"
+                                    />
+                                </label>
+                                <label>
+                                    Preset Instruction
+                                    <textarea
+                                        value={instructionPresetForm.instruction_text}
+                                        onChange={(event) => setInstructionPresetForm((current) => ({
+                                            ...current,
+                                            instruction_text: event.target.value,
+                                        }))}
+                                        maxLength={8000}
+                                        placeholder="Example: [PRESERVE_CODE] untuk 10 soal, buat studi kasus dengan potongan kode sederhana..."
+                                        rows={4}
+                                    />
+                                    <small>{instructionPresetForm.instruction_text.length}/8000 characters</small>
+                                </label>
+                                <button
+                                    type="button"
+                                    className="admin-instruction-presets__secondary"
+                                    onClick={() => setInstructionPresetForm((current) => ({
+                                        ...current,
+                                        instruction_text: questionSettings.custom_instruction,
+                                    }))}
+                                    disabled={!questionSettings.custom_instruction.trim()}
+                                >
+                                    Copy Current Prompt
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={saveInstructionPreset}
+                                    disabled={busy || !instructionPresetForm.preset_name.trim() || !instructionPresetForm.instruction_text.trim()}
+                                >
+                                    Save Preset
+                                </button>
+                            </div>
+                            <div className="admin-instruction-presets__list">
+                                {instructionPresets.length === 0 && <span>No presets saved yet.</span>}
+                                {instructionPresets.map((preset) => (
+                                    <div key={preset.preset_id} className="admin-instruction-preset">
+                                        <button type="button" onClick={() => applyInstructionPreset(preset)}>
+                                            {preset.preset_name}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="admin-instruction-preset__delete"
+                                            onClick={() => deleteInstructionPreset(preset)}
+                                            aria-label={`Delete ${preset.preset_name}`}
+                                        >
+                                            Delete
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
                     </div>
                     <button type="submit" disabled={busy || !questionSettings.topic_id || !questionSettings.material_ids?.length}>
                         Generate Drafts
@@ -3789,6 +3922,10 @@ const AdminPage = () => {
                                                 rows={5}
                                             />
                                         </label>
+                                        <div className="admin-draft-preview">
+                                            <strong>Case Preview</strong>
+                                            <MarkdownText>{draft.case_prompt}</MarkdownText>
+                                        </div>
                                     </>
                                 ) : (
                                     <>
@@ -3808,6 +3945,10 @@ const AdminPage = () => {
                                                 rows={3}
                                             />
                                         </label>
+                                        <div className="admin-draft-preview">
+                                            <strong>Question Preview</strong>
+                                            <MarkdownText>{draft.question_text}</MarkdownText>
+                                        </div>
                                         <div className="admin-choice-grid">
                                             {(draft.choices || []).map((choice, choiceIndex) => (
                                                 <label key={choiceIndex}>

@@ -2,6 +2,7 @@ import React, {useEffect, useMemo, useRef, useState} from "react";
 import {useSearchParams} from "react-router-dom";
 import {apiGet, apiPatch, apiPost} from "../api/apiClient";
 import AvatarIcon from "../components/AvatarIcon";
+import MarkdownText from "../components/MarkdownText";
 import socket from "../utils/socketClient";
 import {
     ACTIVITY_STATUS,
@@ -872,7 +873,7 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack, activit
                         <>
                             <div className="table-panel">
                                 <h2>Case Study</h2>
-                                <p>{activeSession.case_prompt}</p>
+                                <MarkdownText>{activeSession.case_prompt}</MarkdownText>
                             </div>
 
                             <div className="table-panel table-answer">

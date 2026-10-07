@@ -4,9 +4,11 @@ import {
     createAdminResourceData,
     bulkAssignCourseGroupStudents,
     bulkDeleteQuestionBankItems,
+    createQuestionInstructionPresetData,
     createQuestionBankItem,
     createTopicMaterialData,
     deleteAdminResourceData,
+    deleteQuestionInstructionPresetData,
     deleteTopicMaterialData,
     deleteUserActivityData,
     generateQuestionBankDrafts,
@@ -14,6 +16,7 @@ import {
     getAdminReferenceData,
     getAdminResource,
     getAdminSession,
+    getQuestionInstructionPresets,
     getQuestionBankCoverage,
     getQuestionBankItems,
     getTopicMaterials,
@@ -47,6 +50,9 @@ router.post("/materials", createTopicMaterialData);
 router.patch("/materials/:materialId", updateTopicMaterialData);
 router.delete("/materials/:materialId", deleteTopicMaterialData);
 router.post("/materials/:materialId/digest", generateTopicMaterialDigest);
+router.get("/question-instruction-presets", getQuestionInstructionPresets);
+router.post("/question-instruction-presets", createQuestionInstructionPresetData);
+router.delete("/question-instruction-presets/:presetId", deleteQuestionInstructionPresetData);
 router.get("/question-bank-coverage", getQuestionBankCoverage);
 router.post("/question-bank/generate", generateQuestionBankDrafts);
 router.post("/question-bank/save", saveQuestionBankDrafts);

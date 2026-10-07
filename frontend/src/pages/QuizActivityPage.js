@@ -2,6 +2,7 @@ import React, {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import {useSearchParams} from "react-router-dom";
 import {apiGet, apiPost} from "../api/apiClient";
 import AvatarIcon from "../components/AvatarIcon";
+import MarkdownText from "../components/MarkdownText";
 import socket from "../utils/socketClient";
 import {
     ACTIVITY_STATUS,
@@ -914,7 +915,7 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
                                             </strong>
                                         )}
                                     </div>
-                                    <h2>{currentQuestion.question_text}</h2>
+                                    <MarkdownText className="quiz-question__text">{currentQuestion.question_text}</MarkdownText>
 
                                     <div className="quiz-options">
                                         {(currentQuestion.choices || []).map((choice, index) => {
@@ -935,7 +936,7 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
                                                     disabled={busy || !!myAnswer || localTimeLeft <= 0}
                                                 >
                                                     <span>{formatChoiceLabel(index)}</span>
-                                                    <strong>{choice}</strong>
+                                                    <div className="quiz-option__text"><MarkdownText>{choice}</MarkdownText></div>
                                                 </button>
                                             );
                                         })}
@@ -1057,19 +1058,23 @@ const QuizActivityPage = ({embedded = false, noVirtual = false, onBack, activity
                                 <div className="quiz-review-list">
                                     {activeSession.questions.map((question, questionIndex) => (
                                         <article className="quiz-review-card" key={question.question_id}>
-                                            <h3>{questionIndex + 1}. {question.question_text}</h3>
-                                            <p>Correct answer: {formatChoiceLabel(question.correct_answer_index)}. {question.choices?.[question.correct_answer_index]}</p>
+                                            <h3>Question {questionIndex + 1}</h3>
+                                            <MarkdownText>{question.question_text}</MarkdownText>
+                                            <div className="quiz-review-correct">
+                                                Correct answer: {formatChoiceLabel(question.correct_answer_index)}.
+                                                <MarkdownText>{question.choices?.[question.correct_answer_index]}</MarkdownText>
+                                            </div>
                                             {(answerMap[String(question.question_id)] || []).map((answer) => (
                                                 <div
                                                     className={`quiz-review-answer${showGamification ? "" : " quiz-review-answer--no-score"}`}
                                                     key={answer.answer_id}
                                                 >
                                                     <strong>{answer.name}</strong>
-                                                    <span>
+                                                    <div className="quiz-review-choice">
                                                         {answer.answer_index === null
                                                             ? "No answer"
-                                                            : `${formatChoiceLabel(answer.answer_index)}. ${question.choices?.[answer.answer_index] || ""}`}
-                                                    </span>
+                                                            : <>{formatChoiceLabel(answer.answer_index)}. <MarkdownText>{question.choices?.[answer.answer_index] || ""}</MarkdownText></>}
+                                                    </div>
                                                     {showGamification && (
                                                         <b className={answer.is_correct ? "is-correct" : "is-wrong"}>
                                                             {answer.score} pts

@@ -43,6 +43,22 @@ async function createQuestionBankAdminTables() {
             deleted_at TIMESTAMPTZ
         )
     `);
+
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS question_instruction_presets (
+            preset_id SERIAL PRIMARY KEY,
+            preset_name TEXT NOT NULL,
+            instruction_text TEXT NOT NULL,
+            created_by INTEGER REFERENCES useradmin(useradmin_id) ON DELETE SET NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    `);
+
+    await pool.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS question_instruction_presets_name_unique_idx
+            ON question_instruction_presets (LOWER(preset_name))
+    `);
 }
 
 export async function ensureQuestionBankAdminTables() {
@@ -175,6 +191,66 @@ export async function deleteTopicMaterial(materialId) {
            AND deleted_at IS NULL
          RETURNING material_id`,
         [materialId]
+    );
+    return result.rows[0] || null;
+}
+
+export async function listQuestionInstructionPresets() {
+    await ensureQuestionBankAdminTables();
+    const result = await pool.query(
+        `SELECT
+             preset_id,
+             preset_name,
+             instruction_text,
+             created_at,
+             updated_at
+         FROM question_instruction_presets
+         ORDER BY preset_name ASC`
+    );
+    return result.rows;
+}
+
+export async function createQuestionInstructionPreset({presetName, instructionText, createdBy}) {
+    await ensureQuestionBankAdminTables();
+    const existing = await pool.query(
+        `SELECT preset_id
+         FROM question_instruction_presets
+         WHERE LOWER(preset_name) = LOWER($1)
+         LIMIT 1`,
+        [nullableText(presetName)]
+    );
+
+    if (existing.rows[0]) {
+        const result = await pool.query(
+            `UPDATE question_instruction_presets
+             SET preset_name = $2,
+                 instruction_text = $3,
+                 created_by = $4,
+                 updated_at = NOW()
+             WHERE preset_id = $1
+             RETURNING preset_id, preset_name, instruction_text, created_at, updated_at`,
+            [existing.rows[0].preset_id, nullableText(presetName), nullableText(instructionText), createdBy]
+        );
+        return result.rows[0];
+    }
+
+    const result = await pool.query(
+        `INSERT INTO question_instruction_presets
+             (preset_name, instruction_text, created_by)
+         VALUES ($1, $2, $3)
+         RETURNING preset_id, preset_name, instruction_text, created_at, updated_at`,
+        [nullableText(presetName), nullableText(instructionText), createdBy]
+    );
+    return result.rows[0];
+}
+
+export async function deleteQuestionInstructionPreset(presetId) {
+    await ensureQuestionBankAdminTables();
+    const result = await pool.query(
+        `DELETE FROM question_instruction_presets
+         WHERE preset_id = $1
+         RETURNING preset_id`,
+        [presetId]
     );
     return result.rows[0] || null;
 }

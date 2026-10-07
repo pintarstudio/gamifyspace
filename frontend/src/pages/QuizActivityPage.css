@@ -483,8 +483,17 @@
     width: 34px;
 }
 
-.quiz-option strong {
+.quiz-option strong,
+.quiz-option__text {
     line-height: 1.35;
+    min-width: 0;
+}
+
+.quiz-option__text .markdown-text,
+.quiz-question__text,
+.quiz-review-correct .markdown-text,
+.quiz-review-choice .markdown-text {
+    gap: 6px;
 }
 
 .quiz-option.is-selected {
@@ -745,7 +754,8 @@
     grid-template-columns: minmax(120px, 0.36fr) minmax(0, 1fr);
 }
 
-.quiz-review-answer span {
+.quiz-review-answer span,
+.quiz-review-choice {
     color: #5e6872;
     min-width: 0;
     overflow-wrap: anywhere;

@@ -17,11 +17,14 @@ import {
 } from "../models/adminModel.js";
 import {
     bulkDeactivateQuestionBankItems,
+    createQuestionInstructionPreset,
     createTopicMaterial,
+    deleteQuestionInstructionPreset,
     deleteTopicMaterial,
     getNextQuestionNumber,
     getTopicMaterialById,
     getTopicMaterialsByIds,
+    listQuestionInstructionPresets,
     listQuestionBankCoverage,
     listQuestionBankItems,
     listTopicMaterials,
@@ -530,6 +533,62 @@ export async function deleteTopicMaterialData(req, res) {
     } catch (error) {
         console.error("Admin material delete error:", error);
         res.status(500).json({message: "Gagal menghapus course material"});
+    }
+}
+
+export async function getQuestionInstructionPresets(req, res) {
+    try {
+        const admin = await getCurrentAdmin(req);
+        if (!admin) return res.status(401).json({message: "Admin belum login"});
+
+        const presets = await listQuestionInstructionPresets();
+        res.json({presets});
+    } catch (error) {
+        console.error("Admin question instruction preset list error:", error);
+        res.status(500).json({message: "Gagal mengambil preset instruction"});
+    }
+}
+
+export async function createQuestionInstructionPresetData(req, res) {
+    try {
+        const admin = await getCurrentAdmin(req);
+        if (!admin) return res.status(401).json({message: "Admin belum login"});
+
+        const presetName = String(req.body.preset_name || "").trim();
+        const instructionText = String(req.body.instruction_text || "").trim();
+        if (!presetName || !instructionText) {
+            return res.status(400).json({message: "Nama preset dan instruction wajib diisi"});
+        }
+        if (presetName.length > 120) {
+            return res.status(400).json({message: "Nama preset maksimal 120 karakter"});
+        }
+        if (instructionText.length > 8000) {
+            return res.status(400).json({message: "Instruction maksimal 8000 karakter"});
+        }
+
+        const data = await createQuestionInstructionPreset({
+            presetName,
+            instructionText,
+            createdBy: admin.useradmin_id,
+        });
+        res.status(201).json({message: "Preset instruction berhasil disimpan", data});
+    } catch (error) {
+        console.error("Admin question instruction preset create error:", error);
+        res.status(500).json({message: "Gagal menyimpan preset instruction"});
+    }
+}
+
+export async function deleteQuestionInstructionPresetData(req, res) {
+    try {
+        const admin = await getCurrentAdmin(req);
+        if (!admin) return res.status(401).json({message: "Admin belum login"});
+
+        const data = await deleteQuestionInstructionPreset(req.params.presetId);
+        if (!data) return res.status(404).json({message: "Preset instruction tidak ditemukan"});
+        res.json({message: "Preset instruction berhasil dihapus", data});
+    } catch (error) {
+        console.error("Admin question instruction preset delete error:", error);
+        res.status(500).json({message: "Gagal menghapus preset instruction"});
     }
 }
 
