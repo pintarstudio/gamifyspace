@@ -171,6 +171,7 @@ function App() {
                 <Route path="/adminpassword" element={<AdminPage/>}/>
                 <Route path="/questionbankadmin" element={<AdminPage/>}/>
                 <Route path="/questionbankmonitor" element={<AdminPage/>}/>
+                <Route path="/copyquestionbankadmin" element={<AdminPage/>}/>
                 <Route path="/quizbankadmin" element={<AdminPage/>}/>
                 <Route path="/individualbankadmin" element={<AdminPage/>}/>
                 <Route path="/groupcasebankadmin" element={<AdminPage/>}/>

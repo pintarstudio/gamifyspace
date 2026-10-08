@@ -1,8 +1,9 @@
 import express from "express";
-import {getInstructorDashboard} from "../controllers/instructorDashboardController.js";
+import {getInstructorDashboard, getTopicSummaryExport} from "../controllers/instructorDashboardController.js";
 
 const router = express.Router();
 
 router.get("/dashboard", getInstructorDashboard);
+router.get("/courses/:courseId/topics/:topicId/summary-export", getTopicSummaryExport);
 
 export default router;

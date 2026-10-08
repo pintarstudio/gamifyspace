@@ -1,3 +1,4 @@
+import {copyQuestionBankItems} from "../models/questionBankCopyModel.js";
 import {
     bulkAssignStudentsToCourseGroup,
     createAdminResource,
@@ -724,6 +725,19 @@ export async function getQuestionBankItems(req, res) {
     } catch (error) {
         console.error("Admin question bank list error:", error);
         res.status(500).json({message: "Gagal mengambil question bank"});
+    }
+}
+
+export async function copyQuestionBankData(req, res) {
+    try {
+        const admin = await getCurrentAdmin(req);
+        if (!admin) return res.status(401).json({message: "Admin belum login"});
+        const data = await copyQuestionBankItems(req.body);
+        res.status(201).json({message: `${data.count} soal berhasil disalin dengan urutan acak (nomor ${data.start_number}-${data.end_number}).`, data});
+    } catch (error) {
+        if (error.status === 400) return res.status(400).json({message: error.message});
+        console.error("Question bank copy error:", error);
+        res.status(500).json({message: "Gagal menyalin soal. Tidak ada perubahan yang disimpan."});
     }
 }
 

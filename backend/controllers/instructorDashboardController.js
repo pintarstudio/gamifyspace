@@ -7,6 +7,109 @@ import {ensureQuizActivityTables} from "../models/quizActivityModel.js";
 import {ensureTableActivityTables} from "../models/tableActivityModel.js";
 import {ensureGamificationTables} from "../models/gamificationModel.js";
 import {INSTRUCTOR_ROLE_ID, STUDENT_ROLE_ID} from "../models/roleModel.js";
+import {buildTopicSummary} from "../services/topicSummaryService.js";
+
+export async function getTopicSummaryExport(req, res) {
+    let client;
+    try {
+        const instructor = await getAuthenticatedInstructor(req, res);
+        if (!instructor) return;
+        const {courseId, topicId} = req.params;
+        if (![courseId, topicId].every((value) => /^\d+$/.test(value) && Number.isSafeInteger(Number(value)) && Number(value) > 0 && Number(value) <= 2147483647)) {
+            return res.status(400).json({message: "Course atau topic tidak valid."});
+        }
+        const scope = await pool.query(
+            `SELECT c.course_id, c.course_name, t.topic_id, t.topic_name
+             FROM courses c JOIN topics t ON t.course_id = c.course_id
+             WHERE c.course_id = $1 AND t.topic_id = $2
+               AND c.deleted_at IS NULL AND t.deleted_at IS NULL
+               AND ($3::boolean OR c.instructor_id = $4 OR c.instructor2_id = $4 OR c.course_id = $5)`,
+            [courseId, topicId, !!instructor.is_admin, instructor.user_id || null, instructor.course_id || null]
+        );
+        if (!scope.rows[0]) return res.status(404).json({message: "Course atau topic tidak ditemukan atau tidak dapat diakses."});
+        await Promise.all([ensureTableActivityTables(), ensureQuizActivityTables(), ensureIndividualActivityTables(), ensureGamificationTables()]);
+        client = await pool.connect();
+        await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
+        const groups = await client.query(
+            `SELECT course_group_id, group_name FROM course_groups
+             WHERE course_id = $1 AND deleted_at IS NULL
+               AND LOWER(TRIM(group_name)) IN ('b', 'c', 'group b', 'group c')
+             ORDER BY group_name`, [courseId]
+        );
+        const students = await client.query(
+            `WITH totals AS (
+                 SELECT u.user_id, u.name, u.email, u.course_group_id,
+                        COALESCE(SUM(gus.xp_earned), 0)::int AS total_xp
+                 FROM users u
+                 LEFT JOIN gamification_user_scores gus ON gus.user_id = u.user_id AND gus.course_id = u.course_id
+                 WHERE u.course_id = $1 AND u.role_id = $2 AND u.deleted_at IS NULL
+                 GROUP BY u.user_id
+             )
+             SELECT totals.*, gl.level_id, gl.level_name FROM totals
+             LEFT JOIN LATERAL (
+                 SELECT level_id, level_name FROM gamification_levels
+                 WHERE totals.total_xp >= min_xp AND (max_xp IS NULL OR totals.total_xp <= max_xp)
+                 ORDER BY min_xp DESC, level_id DESC LIMIT 1
+             ) gl ON TRUE
+             ORDER BY totals.name, totals.user_id`, [courseId, STUDENT_ROLE_ID]
+        );
+        const individual = await client.query(
+            `SELECT ias.user_id, ias.activity_type, ias.question_kind,
+                    COALESCE(gus.xp_earned, ias.xp_total, 0)::int AS xp_earned
+             FROM individual_activity_sessions ias
+             LEFT JOIN gamification_user_scores gus ON gus.activity_type = 'individual_exercise'
+               AND gus.activity_id = ias.session_id AND gus.user_id = ias.user_id
+             WHERE ias.course_id = $1 AND ias.topic_id = $2 AND ias.status = 'completed'`, [courseId, topicId]
+        );
+        const submissions = await client.query(
+            `SELECT s.session_id, COALESCE(s.course_group_id, creator.course_group_id) AS course_group_id,
+                    COALESCE(tc.case_title, s.case_title, 'Group case study') AS activity_title,
+                    COALESCE(ggs.xp_total, 0)::int AS group_xp, s.submitted_at,
+                    COALESCE((SELECT JSONB_AGG(JSONB_BUILD_OBJECT('user_id', u.user_id, 'name', u.name) ORDER BY u.name)
+                              FROM table_group_members m JOIN users u ON u.user_id = m.user_id
+                              WHERE m.session_id = s.session_id AND u.deleted_at IS NULL AND u.role_id = $3), '[]'::jsonb) AS members
+             FROM table_group_sessions s
+             LEFT JOIN users creator ON creator.user_id = s.created_by
+             LEFT JOIN topic_cases tc ON tc.case_id = s.case_id
+             LEFT JOIN gamification_group_scores ggs ON ggs.activity_type = 'table_case_study'
+               AND ggs.activity_id = s.session_id AND ggs.group_id = s.group_id
+             WHERE s.course_id = $1 AND s.topic_id = $2 AND s.submitted_at IS NOT NULL`, [courseId, topicId, STUDENT_ROLE_ID]
+        );
+        const contributions = await client.query(
+            `SELECT gus.user_id, gus.xp_earned, COALESCE(s.course_group_id, creator.course_group_id) AS course_group_id
+             FROM table_group_sessions s
+             JOIN gamification_user_scores gus ON gus.activity_type = 'table_case_study' AND gus.activity_id = s.session_id
+             LEFT JOIN users creator ON creator.user_id = s.created_by
+             WHERE s.course_id = $1 AND s.topic_id = $2 AND s.submitted_at IS NOT NULL`, [courseId, topicId]
+        );
+        const quizzes = await client.query(
+            `SELECT qs.quiz_session_id, COALESCE(qs.course_group_id, host.course_group_id) AS course_group_id,
+                    qsr.results_json,
+                    COALESCE((SELECT JSONB_AGG(JSONB_BUILD_OBJECT('user_id', u.user_id))
+                              FROM quiz_members qm JOIN users u ON u.user_id = qm.user_id
+                              WHERE qm.quiz_session_id = qs.quiz_session_id AND u.deleted_at IS NULL AND u.role_id = $3), '[]'::jsonb) AS members
+             FROM quiz_sessions qs
+             LEFT JOIN users host ON host.user_id = qs.hosted_by
+             LEFT JOIN quiz_session_results qsr ON qsr.quiz_session_id = qs.quiz_session_id
+             WHERE qs.course_id = $1 AND qs.topic_id = $2 AND qs.status = 'saved'`, [courseId, topicId, STUDENT_ROLE_ID]
+        );
+        const levels = await client.query("SELECT level_id, level_name FROM gamification_levels ORDER BY level_id");
+        await client.query("COMMIT");
+        const scopeRow = scope.rows[0];
+        res.set("Cache-Control", "no-store");
+        res.json(buildTopicSummary({
+            course: scopeRow, topic: scopeRow, groups: groups.rows, students: students.rows,
+            individual: individual.rows, submissions: submissions.rows, contributions: contributions.rows,
+            quizzes: quizzes.rows, levels: levels.rows,
+        }));
+    } catch (error) {
+        if (client) await client.query("ROLLBACK").catch(() => {});
+        console.error("Topic summary export error:", error);
+        res.status(500).json({message: "Gagal membuat ringkasan topic. Silakan coba lagi."});
+    } finally {
+        if (client) client.release();
+    }
+}
 
 async function getAuthenticatedInstructor(req, res) {
     await ensureAdminTables();

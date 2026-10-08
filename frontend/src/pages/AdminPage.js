@@ -368,6 +368,11 @@ const MENU_GROUPS = [
         key: "question-bank",
         items: [
             {
+                label: "Copy Question Bank",
+                path: "/copyquestionbankadmin",
+                custom: "bankCopy",
+            },
+            {
                 label: "Question Bank Monitor",
                 path: "/questionbankmonitor",
                 custom: "questionBankCoverage",
@@ -400,6 +405,14 @@ const MENU_GROUPS = [
 
 const DEFAULT_PATH = "/gamifyitadmin";
 const BANK_PAGE_SIZE = 15;
+const COPY_BANK_OPTIONS = [
+    {value: "quiz", label: "Quiz - Multiple Choice", bankType: "quiz_question_bank", kind: "multiple_choice"},
+    {value: "individual_mc", label: "Individual Exercise - Multiple Choice", bankType: "individual_questions", kind: "multiple_choice", activity: "exercise"},
+    {value: "pre_test", label: "Pre-test - Multiple Choice", bankType: "individual_questions", kind: "multiple_choice", activity: "pre_test"},
+    {value: "post_test", label: "Post-test - Multiple Choice", bankType: "individual_questions", kind: "multiple_choice", activity: "post_test"},
+    {value: "individual_case", label: "Individual Case Study", bankType: "individual_questions", kind: "case_study", activity: "exercise"},
+    {value: "group_case", label: "Group Case Study", bankType: "topic_cases", kind: "case_study"},
+];
 const OPENAI_MODEL_OPTIONS = [
     {value: "gpt-5.4-mini", label: "GPT-5.4 Mini - balanced"},
     {value: "gpt-5.4-nano", label: "GPT-5.4 Nano - fastest/cheapest"},
@@ -984,10 +997,9 @@ function worksheetCell(rowIndex, colIndex, cell) {
     return `<c r="${ref}"${style} t="inlineStr"><is><t>${escapeXml(value)}</t></is></c>`;
 }
 
-function createXlsxBlob(rows, sheetName = "Export") {
-    const sheetRows = rows.map((row, rowIndex) => (
-        `<row r="${rowIndex + 1}">${row.map((cell, colIndex) => worksheetCell(rowIndex, colIndex, cell)).join("")}</row>`
-    )).join("");
+function createXlsxBlob(rows, sheetName = "Export", additionalSheets = []) {
+    const sheets = [{name: sheetName, rows}, ...additionalSheets];
+    const alignment = additionalSheets.length ? '<alignment vertical="top" wrapText="1"/>' : "";
     const entries = [
         {
             name: "[Content_Types].xml",
@@ -997,7 +1009,7 @@ function createXlsxBlob(rows, sheetName = "Export") {
 <Default Extension="xml" ContentType="application/xml"/>
 <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
 <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
-<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+${sheets.map((sheet, index) => `<Override PartName="/xl/worksheets/sheet${index + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join("\n")}
 </Types>`,
         },
         {
@@ -1011,15 +1023,15 @@ function createXlsxBlob(rows, sheetName = "Export") {
             name: "xl/workbook.xml",
             content: `<?xml version="1.0" encoding="UTF-8"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-<sheets><sheet name="${escapeXml(sheetName).slice(0, 31)}" sheetId="1" r:id="rId1"/></sheets>
+<sheets>${sheets.map((sheet, index) => `<sheet name="${escapeXml(sheet.name.slice(0, 31))}" sheetId="${index + 1}" r:id="rId${index + 1}"/>`).join("")}</sheets>
 </workbook>`,
         },
         {
             name: "xl/_rels/workbook.xml.rels",
             content: `<?xml version="1.0" encoding="UTF-8"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
-<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+${sheets.map((sheet, index) => `<Relationship Id="rId${index + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${index + 1}.xml"/>`).join("\n")}
+<Relationship Id="rId${sheets.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
 </Relationships>`,
         },
         {
@@ -1040,20 +1052,38 @@ function createXlsxBlob(rows, sheetName = "Export") {
 <borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>
 <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
 <cellXfs count="3">
-<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
-<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/>
-<xf numFmtId="0" fontId="2" fillId="3" borderId="0" xfId="0" applyFont="1" applyFill="1"/>
+<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1">${alignment}</xf>
+<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1">${alignment}</xf>
+<xf numFmtId="0" fontId="2" fillId="3" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1">${alignment}</xf>
 </cellXfs>
 <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
 </styleSheet>`,
         },
-        {
-            name: "xl/worksheets/sheet1.xml",
+        ...sheets.map((sheet, index) => {
+            const headerIndex = sheet.rows.findIndex((row) => row.some((cell) => cell?.style === "header"));
+            const widths = [];
+            for (const row of sheet.rows.slice(Math.max(0, headerIndex))) row.forEach((cell, colIndex) => {
+                widths[colIndex] = Math.min(85, Math.max(widths[colIndex] || 14, String(workbookCellValue(cell) ?? "").length + 2));
+            });
+            const sheetRows = sheet.rows.map((row, rowIndex) => {
+                const lines = Math.max(1, ...row.map((cell, colIndex) => (
+                    String(workbookCellValue(cell) ?? "").split("\n").reduce((total, line) => (
+                        total + Math.max(1, Math.ceil(line.length / Math.max(1, (widths[colIndex] || 14) - 3)))
+                    ), 0)
+                )));
+                const height = additionalSheets.length ? ` ht="${Math.min(409, lines * 16 + 8)}" customHeight="1"` : "";
+                return `<row r="${rowIndex + 1}"${height}>${row.map((cell, colIndex) => worksheetCell(rowIndex, colIndex, cell)).join("")}</row>`;
+            }).join("");
+            return {
+            name: `xl/worksheets/sheet${index + 1}.xml`,
             content: `<?xml version="1.0" encoding="UTF-8"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+${additionalSheets.length ? `<sheetViews><sheetView workbookViewId="0"><pane ySplit="${headerIndex + 1}" topLeftCell="A${headerIndex + 2}" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
+<cols>${widths.map((width, colIndex) => `<col min="${colIndex + 1}" max="${colIndex + 1}" width="${width}" customWidth="1"/>`).join("")}</cols>` : ""}
 <sheetData>${sheetRows}</sheetData>
 </worksheet>`,
-        },
+            };
+        }),
     ];
 
     return new Blob([createStoredZip(entries)], {
@@ -1118,6 +1148,7 @@ const AdminPage = () => {
     const [admin, setAdmin] = useState(null);
     const [loading, setLoading] = useState(true);
     const [busy, setBusy] = useState(false);
+    const [topicSummaryDownloading, setTopicSummaryDownloading] = useState(false);
     const [message, setMessage] = useState("");
     const [rows, setRows] = useState([]);
     const [rowsResource, setRowsResource] = useState("");
@@ -1167,6 +1198,13 @@ const AdminPage = () => {
     const [draftMeta, setDraftMeta] = useState(null);
     const [bankRows, setBankRows] = useState([]);
     const [bankPage, setBankPage] = useState(1);
+    const [bankCopy, setBankCopy] = useState({source_course_id: "", source_topic_id: "", source_bank: "quiz", target_course_id: "", target_topic_id: "", target_bank: "individual_mc"});
+    const [bankCopyRows, setBankCopyRows] = useState([]);
+    const [bankCopyIds, setBankCopyIds] = useState([]);
+    const [bankCopyPage, setBankCopyPage] = useState(1);
+    const [bankCopyLoading, setBankCopyLoading] = useState(false);
+    const [bankCopySaving, setBankCopySaving] = useState(false);
+    const [bankCopyError, setBankCopyError] = useState("");
     const [bankForm, setBankForm] = useState({});
     const [editingBankRow, setEditingBankRow] = useState(null);
     const [bankFilters, setBankFilters] = useState({course_id: "", topic_id: "", activity_type: "", question_kind: ""});
@@ -1429,6 +1467,37 @@ const AdminPage = () => {
             active = false;
         };
     }, [admin, activeConfig, questionBankCoverageCourseId]);
+
+    useEffect(() => {
+        if (!admin || activeConfig?.custom !== "bankCopy") return;
+        let active = true;
+        setBankCopyRows([]);
+        setBankCopyIds([]);
+        setBankCopyPage(1);
+        setBankCopyError("");
+        if (!bankCopy.source_topic_id) {
+            setBankCopyLoading(false);
+            return;
+        }
+        const source = COPY_BANK_OPTIONS.find((option) => option.value === bankCopy.source_bank);
+        setBankCopyLoading(true);
+        apiGet(`/admin/question-bank/${source.bankType}?topic_id=${encodeURIComponent(bankCopy.source_topic_id)}`)
+            .then((data) => {
+                if (!active) return;
+                if (!Array.isArray(data.rows)) {
+                    setBankCopyError(data.message || "Gagal memuat daftar soal.");
+                    return;
+                }
+                setBankCopyRows(data.rows.filter((row) => !source.activity || (row.activity_type === source.activity && row.question_kind === source.kind)));
+            })
+            .catch(() => {
+                if (active) setBankCopyError("Gagal memuat daftar soal. Periksa koneksi dan coba lagi.");
+            })
+            .finally(() => {
+                if (active) setBankCopyLoading(false);
+            });
+        return () => { active = false; };
+    }, [admin, activeConfig, bankCopy.source_topic_id, bankCopy.source_bank]);
 
     const loadRows = async (config = activeConfig) => {
         if (!config) return;
@@ -2373,6 +2442,35 @@ const AdminPage = () => {
         URL.revokeObjectURL(url);
     };
 
+    const exportSelectedTopicSummary = async () => {
+        if (!selectedDashboardCourse?.course_id || !selectedDashboardTopic?.topic_id || topicSummaryDownloading) return;
+        const course = selectedDashboardCourse;
+        const topic = selectedDashboardTopic;
+        setTopicSummaryDownloading(true);
+        setMessage("");
+        try {
+            const data = await apiGet(`/instructor/courses/${course.course_id}/topics/${topic.topic_id}/summary-export`);
+            if (!Array.isArray(data.sheets) || !data.sheets.length) {
+                setMessage(data.message || "Gagal membuat ringkasan topic.");
+                return;
+            }
+            const [first, ...rest] = data.sheets;
+            const blob = createXlsxBlob(first.rows, first.name, rest);
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = `${slugifyFilePart(course.course_name)}-${slugifyFilePart(topic.topic_name)}-topic-summary.xlsx`;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+        } catch (error) {
+            setMessage("Gagal mengunduh ringkasan topic. Periksa koneksi dan coba lagi.");
+        } finally {
+            setTopicSummaryDownloading(false);
+        }
+    };
+
     const exportSelectedTopicActivityProgress = (pendingOnly = false) => {
         const rows = (selectedDashboardTopic?.groups || []).flatMap((group) => {
             const topic = topicProgressForGroup(selectedDashboardCourse, group)
@@ -2732,6 +2830,9 @@ const AdminPage = () => {
                             <span>Download baseline status and activity counts for all groups in this topic</span>
                         </div>
                         <div className="instructor-topic-action-buttons">
+                            <button type="button" onClick={exportSelectedTopicSummary} disabled={topicSummaryDownloading}>
+                                {topicSummaryDownloading ? "Preparing Topic Summary..." : "Download Topic Summary"}
+                            </button>
                             <button type="button" onClick={() => exportSelectedTopicActivityProgress(false)}>
                                 Download Activity Progress
                             </button>
@@ -3509,6 +3610,132 @@ const AdminPage = () => {
         );
     };
 
+    const submitBankCopy = async (event) => {
+        event.preventDefault();
+        if (!bankCopyIds.length || bankCopySaving || bankCopyLoading) return;
+        const source = COPY_BANK_OPTIONS.find((option) => option.value === bankCopy.source_bank);
+        const target = COPY_BANK_OPTIONS.find((option) => option.value === bankCopy.target_bank);
+        if (!window.confirm(`Salin ${bankCopyIds.length} soal dari ${source.label} ke ${target.label} dengan urutan acak?`)) return;
+        setBankCopySaving(true);
+        setMessage("");
+        try {
+            const data = await apiPost("/admin/question-bank/copy", {
+                source_bank: bankCopy.source_bank, target_bank: bankCopy.target_bank,
+                source_topic_id: bankCopy.source_topic_id, target_topic_id: bankCopy.target_topic_id,
+                item_ids: bankCopyIds,
+            });
+            setMessage(data.message || "Gagal menyalin soal.");
+            if (data.data) setBankCopyIds([]);
+        } catch (error) {
+            setMessage("Status penyalinan belum dapat dipastikan karena koneksi terputus. Periksa bank tujuan sebelum mencoba lagi.");
+        } finally {
+            setBankCopySaving(false);
+        }
+    };
+
+    const renderBankCopy = () => {
+        const source = COPY_BANK_OPTIONS.find((option) => option.value === bankCopy.source_bank);
+        const destinations = COPY_BANK_OPTIONS.filter((option) => option.kind === source.kind && option.value !== source.value);
+        const pages = Math.max(1, Math.ceil(bankCopyRows.length / BANK_PAGE_SIZE));
+        const pageRows = bankCopyRows.slice((bankCopyPage - 1) * BANK_PAGE_SIZE, bankCopyPage * BANK_PAGE_SIZE);
+        const locked = bankCopySaving;
+        return (
+            <>
+                <div className="admin-page-header"><h1>Copy Question Bank</h1></div>
+                {message && <div className="admin-inline-message" role="status">{message}</div>}
+                {bankCopyError && <div className="admin-inline-message" role="alert">{bankCopyError}</div>}
+                <form className="admin-data-form admin-bank-copy-form" onSubmit={submitBankCopy}>
+                    <div className="admin-form-grid">
+                        <label>Source Course
+                            <select required disabled={locked} value={bankCopy.source_course_id} onChange={(event) => {
+                                setBankCopyRows([]); setBankCopyIds([]); setMessage("");
+                                setBankCopy((current) => ({...current, source_course_id: event.target.value, source_topic_id: "", target_course_id: event.target.value, target_topic_id: ""}));
+                            }}>
+                                <option value="">Select course</option>
+                                {(references.courses || []).map((course) => <option key={course.course_id} value={course.course_id}>{course.course_name}</option>)}
+                            </select>
+                        </label>
+                        <label>Destination Course
+                            <select required disabled={locked} value={bankCopy.target_course_id} onChange={(event) => setBankCopy((current) => ({...current, target_course_id: event.target.value, target_topic_id: ""}))}>
+                                <option value="">Select course</option>
+                                {(references.courses || []).map((course) => <option key={course.course_id} value={course.course_id}>{course.course_name}</option>)}
+                            </select>
+                        </label>
+                        <label>Source Topic
+                            <select required disabled={locked || !bankCopy.source_course_id} value={bankCopy.source_topic_id} onChange={(event) => {
+                                setBankCopyRows([]); setBankCopyIds([]); setMessage("");
+                                setBankCopy((current) => ({...current, source_topic_id: event.target.value,
+                                    target_topic_id: current.target_course_id === current.source_course_id ? event.target.value : current.target_topic_id}));
+                            }}>
+                                <option value="">Select topic</option>
+                                {(references.topics || []).filter((topic) => String(topic.course_id) === String(bankCopy.source_course_id)).map((topic) => <option key={topic.topic_id} value={topic.topic_id}>{topic.topic_name}</option>)}
+                            </select>
+                        </label>
+                        <label>Destination Topic
+                            <select required disabled={locked || !bankCopy.target_course_id} value={bankCopy.target_topic_id} onChange={(event) => setBankCopy((current) => ({...current, target_topic_id: event.target.value}))}>
+                                <option value="">Select topic</option>
+                                {(references.topics || []).filter((topic) => String(topic.course_id) === String(bankCopy.target_course_id)).map((topic) => <option key={topic.topic_id} value={topic.topic_id}>{topic.topic_name}</option>)}
+                            </select>
+                        </label>
+                        <label>Source Bank
+                            <select disabled={locked} value={bankCopy.source_bank} onChange={(event) => {
+                                const next = COPY_BANK_OPTIONS.find((option) => option.value === event.target.value);
+                                const compatible = COPY_BANK_OPTIONS.filter((option) => option.kind === next.kind && option.value !== next.value);
+                                setBankCopyRows([]); setBankCopyIds([]); setMessage("");
+                                setBankCopy((current) => ({...current, source_bank: next.value,
+                                    target_bank: compatible.some((option) => option.value === current.target_bank) ? current.target_bank : compatible[0].value}));
+                            }}>
+                                {COPY_BANK_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                            </select>
+                        </label>
+                        <label>Destination Bank
+                            <select disabled={locked} value={bankCopy.target_bank} onChange={(event) => setBankCopy((current) => ({...current, target_bank: event.target.value}))}>
+                                {destinations.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                            </select>
+                        </label>
+                    </div>
+                    <div className="admin-bank-copy-toolbar">
+                        <label className="admin-bank-copy-select">
+                            <input type="checkbox" disabled={locked || bankCopyLoading || !bankCopyRows.length}
+                                checked={bankCopyRows.length > 0 && bankCopyIds.length === bankCopyRows.length}
+                                onChange={(event) => setBankCopyIds(event.target.checked ? bankCopyRows.map((row) => row.question_id || row.case_id) : [])}/>
+                            Select all ({bankCopyRows.length})
+                        </label>
+                        <span>{bankCopyIds.length} selected</span>
+                        <button type="submit" disabled={locked || bankCopyLoading || !bankCopyIds.length || !bankCopy.target_topic_id}>
+                            {locked ? "Copying..." : "Copy Selected Questions"}
+                        </button>
+                    </div>
+                    <div className="admin-table-wrap">
+                        <table className="admin-bank-copy-table">
+                            <thead><tr><th>Select</th><th>Number</th><th>{source.kind === "case_study" ? "Case Study" : "Question"}</th></tr></thead>
+                            <tbody>
+                                {pageRows.map((row) => {
+                                    const id = row.question_id || row.case_id;
+                                    return <tr key={id}>
+                                        <td><input type="checkbox" disabled={locked} checked={bankCopyIds.includes(id)} aria-label={`Select question ${row.question_number || row.case_number}`}
+                                            onChange={(event) => setBankCopyIds((current) => event.target.checked ? [...current, id] : current.filter((item) => item !== id))}/></td>
+                                        <td>{row.question_number || row.case_number}</td>
+                                        <td><details><summary>{row.case_title || `Question ${row.question_number}`}</summary>
+                                            <MarkdownText>{row.case_prompt || row.question_text}</MarkdownText>
+                                            {row.question_type === "multiple_choice" && renderChoicesPreview(row.choices, row.correct_answer_index)}
+                                        </details></td>
+                                    </tr>;
+                                })}
+                                {!pageRows.length && <tr><td colSpan={3}>{bankCopyLoading ? "Loading questions..." : bankCopy.source_topic_id ? "No questions available." : "Select a source topic."}</td></tr>}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div className="admin-bank-copy-pagination">
+                        <button type="button" disabled={locked || bankCopyPage <= 1} onClick={() => setBankCopyPage((page) => page - 1)} aria-label="Previous page">Previous</button>
+                        <span>Page {bankCopyPage} of {pages}</span>
+                        <button type="button" disabled={locked || bankCopyPage >= pages} onClick={() => setBankCopyPage((page) => page + 1)} aria-label="Next page">Next</button>
+                    </div>
+                </form>
+            </>
+        );
+    };
+
     const renderQuestionBankCoverage = () => {
         const selectedCourse = (references.courses || []).find((course) => (
             String(course.course_id) === String(questionBankCoverageCourseId)
@@ -4160,6 +4387,8 @@ const AdminPage = () => {
                         renderQuestionBankCoverage()
                     ) : activeConfig.custom === "bankManager" ? (
                         renderBankManager()
+                    ) : activeConfig.custom === "bankCopy" ? (
+                        renderBankCopy()
                     ) : activeConfig.custom === "userActivities" ? (
                         renderUserActivities()
                     ) : activeConfig.custom === "changePassword" ? (

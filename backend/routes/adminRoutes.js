@@ -6,6 +6,7 @@ import {
     bulkDeleteQuestionBankItems,
     createQuestionInstructionPresetData,
     createQuestionBankItem,
+    copyQuestionBankData,
     createTopicMaterialData,
     deleteAdminResourceData,
     deleteQuestionInstructionPresetData,
@@ -57,6 +58,7 @@ router.delete("/question-instruction-presets/:presetId", deleteQuestionInstructi
 router.get("/question-bank-coverage", getQuestionBankCoverage);
 router.post("/question-bank/generate", generateQuestionBankDrafts);
 router.post("/question-bank/save", saveQuestionBankDrafts);
+router.post("/question-bank/copy", copyQuestionBankData);
 router.get("/question-bank/:bankType", getQuestionBankItems);
 router.post("/question-bank/:bankType/bulk-delete", bulkDeleteQuestionBankItems);
 router.post("/question-bank/:bankType", createQuestionBankItem);

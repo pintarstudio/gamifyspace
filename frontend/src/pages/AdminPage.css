@@ -2629,3 +2629,58 @@
         text-align: left;
     }
 }
+.admin-bank-copy-form {
+    align-content: start;
+}
+
+.admin-bank-copy-toolbar,
+.admin-bank-copy-pagination {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.admin-bank-copy-toolbar button {
+    margin-left: auto;
+    width: auto;
+}
+
+.admin-bank-copy-select {
+    display: flex !important;
+    align-items: center;
+    gap: 8px;
+}
+
+.admin-bank-copy-select input,
+.admin-bank-copy-table input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    flex: 0 0 18px;
+}
+
+.admin-bank-copy-table {
+    table-layout: fixed;
+}
+
+.admin-bank-copy-table th:first-child {
+    width: 70px;
+}
+
+.admin-bank-copy-table th:nth-child(2) {
+    width: 80px;
+}
+
+.admin-bank-copy-table td {
+    overflow-wrap: anywhere;
+    vertical-align: top;
+}
+
+.admin-bank-copy-table summary {
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.admin-bank-copy-pagination {
+    justify-content: flex-end;
+}
