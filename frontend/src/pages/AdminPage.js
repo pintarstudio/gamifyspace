@@ -1224,6 +1224,8 @@ const AdminPage = () => {
     });
     const [userActivityUserId, setUserActivityUserId] = useState(() => readSessionValue(USER_ACTIVITY_USER_SESSION_KEY));
     const [userActivityData, setUserActivityData] = useState(null);
+    const [userActivityPage, setUserActivityPage] = useState(1);
+    const [selectedUserActivities, setSelectedUserActivities] = useState([]);
     const [studentBulk, setStudentBulk] = useState({
         course_id: "",
         course_group_id: "",
@@ -1571,19 +1573,47 @@ const AdminPage = () => {
         }
         setBusy(true);
         if (!options.quiet) setMessage("");
-        const data = await apiGet(`/admin/users/${encodeURIComponent(userId)}/activities`);
-        if (data.user) {
-            setUserActivityData(data);
-        } else {
-            setUserActivityData(null);
-            if (data.message) setMessage(data.message);
+        try {
+            const data = await apiGet(`/admin/users/${encodeURIComponent(userId)}/activities?page=${userActivityPage}`);
+            if (data.user) {
+                setUserActivityData(data);
+                setUserActivityPage(data.pagination?.page || 1);
+                setSelectedUserActivities([]);
+            } else {
+                setUserActivityData(null);
+                if (data.message) setMessage(data.message);
+            }
+        } catch (error) {
+            setMessage("Gagal memuat aktivitas. Periksa koneksi dan coba lagi.");
+        } finally {
+            setBusy(false);
         }
-        setBusy(false);
     };
 
     const updateUserActivityUser = async (userId) => {
+        setUserActivityData(null);
+        setUserActivityPage(1);
+        setSelectedUserActivities([]);
         setUserActivityUserId(userId);
         writeSessionValue(USER_ACTIVITY_USER_SESSION_KEY, userId);
+    };
+
+    const deleteSelectedActivityRows = async () => {
+        if (busy || !selectedUserActivities.length || String(userActivityData?.user?.user_id) !== String(userActivityUserId)) return;
+        const shared = selectedUserActivities.some((activity) => activity.type === "group" || activity.type === "quiz");
+        const warning = shared ? "\nPERHATIAN: sesi Group Activity/Fun Quiz yang dipilih dihapus untuk SEMUA peserta, termasuk jawaban, hasil, dan skor mereka." : "";
+        if (!window.confirm(`Hapus permanen ${selectedUserActivities.length} aktivitas yang dipilih beserta jawaban dan skor terkait? Aktivitas lain dan akun user tetap ada.${warning}`)) return;
+        setBusy(true);
+        setMessage("");
+        try {
+            const data = await apiPost(`/admin/users/${encodeURIComponent(userActivityUserId)}/activities/delete-selected`, {activities: selectedUserActivities});
+            if (data.message) setMessage(data.message);
+            if (data.data) await loadUserActivity(userActivityUserId, {quiet: true});
+        } catch (error) {
+            setMessage("Koneksi terputus. Muat ulang daftar untuk memastikan status penghapusan.");
+        } finally {
+            setBusy(false);
+        }
     };
 
     const deleteSelectedUserActivity = async () => {
@@ -1592,14 +1622,19 @@ const AdminPage = () => {
             return;
         }
         const label = userActivityData.user.name || userActivityData.user.email || "user ini";
-        if (!window.confirm(`Hapus semua aktivitas ${label}? User account tetap ada, tetapi session, log, progress, quiz, individual, group activity, dan XP history akan dihapus.`)) return;
+        if (!window.confirm(`Hapus semua aktivitas ${label}? User account tetap ada, tetapi session, log, progress, quiz, individual, group activity, dan XP history akan dihapus. Sesi group dan quiz terkait juga dihapus untuk SEMUA peserta, termasuk skor mereka.`)) return;
 
         setBusy(true);
         setMessage("");
-        const data = await apiDelete(`/admin/users/${encodeURIComponent(userActivityUserId)}/activities`);
-        if (data.message) setMessage(data.message);
-        await loadUserActivity(userActivityUserId, {quiet: true});
-        setBusy(false);
+        try {
+            const data = await apiDelete(`/admin/users/${encodeURIComponent(userActivityUserId)}/activities`);
+            if (data.message) setMessage(data.message);
+            if (data.data) await loadUserActivity(userActivityUserId, {quiet: true});
+        } catch (error) {
+            setMessage("Koneksi terputus. Muat ulang daftar untuk memastikan status penghapusan.");
+        } finally {
+            setBusy(false);
+        }
     };
 
     useEffect(() => {
@@ -1611,15 +1646,19 @@ const AdminPage = () => {
 
         let active = true;
         setBusy(true);
-        apiGet(`/admin/users/${encodeURIComponent(userActivityUserId)}/activities`)
+        apiGet(`/admin/users/${encodeURIComponent(userActivityUserId)}/activities?page=${userActivityPage}`)
             .then((data) => {
                 if (!active) return;
                 if (data.user) {
                     setUserActivityData(data);
+                    setUserActivityPage(data.pagination?.page || 1);
                 } else {
                     setUserActivityData(null);
                     if (data.message) setMessage(data.message);
                 }
+            })
+            .catch(() => {
+                if (active) setMessage("Gagal memuat aktivitas. Periksa koneksi dan coba lagi.");
             })
             .finally(() => {
                 if (active) setBusy(false);
@@ -1628,7 +1667,7 @@ const AdminPage = () => {
         return () => {
             active = false;
         };
-    }, [admin, activeConfig, userActivityUserId]);
+    }, [admin, activeConfig, userActivityUserId, userActivityPage]);
 
     const updateQuestionBankCoverageCourse = async (courseId) => {
         setQuestionBankCoverageCourseId(courseId);
@@ -3106,6 +3145,14 @@ const AdminPage = () => {
     };
 
     const renderUserActivities = () => {
+        const canDelete = String(admin?.role || "").toLowerCase() === "admin";
+        const activities = userActivityData?.recent || [];
+        const isSelected = (activity) => selectedUserActivities.some((selected) => selected.type === activity.activity_type_key && selected.id === activity.activity_id);
+        const pageSelected = activities.length > 0 && activities.every(isSelected);
+        const togglePage = (checked) => setSelectedUserActivities((current) => checked
+            ? [...current, ...activities.filter((activity) => !current.some((selected) => selected.type === activity.activity_type_key && selected.id === activity.activity_id))
+                .map((activity) => ({type: activity.activity_type_key, id: activity.activity_id}))]
+            : current.filter((selected) => !activities.some((activity) => selected.type === activity.activity_type_key && selected.id === activity.activity_id)));
         const userOptions = [...(references.useradmin_users || [])]
             .sort((a, b) => `${a.role_name || ""}${a.name || ""}`.localeCompare(`${b.role_name || ""}${b.name || ""}`));
         const counts = userActivityData?.counts || {};
@@ -3143,6 +3190,7 @@ const AdminPage = () => {
                     <label>
                         User
                         <select
+                            disabled={busy}
                             value={userActivityUserId}
                             onChange={(event) => updateUserActivityUser(event.target.value)}
                         >
@@ -3168,7 +3216,7 @@ const AdminPage = () => {
                                 <button
                                     className="is-danger"
                                     type="button"
-                                    disabled={busy || totalRecords === 0}
+                                    disabled={busy || totalRecords === 0 || !canDelete}
                                     onClick={deleteSelectedUserActivity}
                                 >
                                     Delete All Activity
@@ -3187,14 +3235,22 @@ const AdminPage = () => {
                         <section className="admin-data-section">
                             <div className="admin-page-header admin-page-header--compact">
                                 <div>
-                                    <h2>Recent Activity</h2>
-                                    <p>Showing the latest records across virtual logs, individual activities, group activities, and quiz sessions.</p>
+                                    <h2>Activity History</h2>
+                                    <p>{userActivityData.pagination?.total || 0} activities</p>
                                 </div>
+                                {canDelete && <div className="admin-bank-copy-toolbar">
+                                <span>{selectedUserActivities.length}/100 selected</span>
+                                <button type="button" disabled={busy || !selectedUserActivities.length} onClick={() => setSelectedUserActivities([])}>Clear Selection</button>
+                                <button type="button" className="is-danger" disabled={busy || !selectedUserActivities.length || selectedUserActivities.length > 100} onClick={deleteSelectedActivityRows}>
+                                    Delete Selected ({selectedUserActivities.length})
+                                </button></div>}
                             </div>
+                            {canDelete && <p className="admin-inline-message">Deleting a Group Activity or Fun Quiz removes the shared session, answers, results, and scores for all participants.</p>}
                             <div className="admin-table-wrap">
                                 <table className="admin-data-table">
                                     <thead>
                                     <tr>
+                                        {canDelete && <th><input type="checkbox" aria-label="Select all activities on this page" disabled={busy || !activities.length} checked={pageSelected} onChange={(event) => togglePage(event.target.checked)}/></th>}
                                         <th>Source</th>
                                         <th>Activity</th>
                                         <th>Status</th>
@@ -3202,8 +3258,13 @@ const AdminPage = () => {
                                     </tr>
                                     </thead>
                                     <tbody>
-                                    {(userActivityData.recent || []).map((activity, index) => (
-                                        <tr key={`${activity.source}-${activity.activity_at}-${index}`}>
+                                    {activities.map((activity) => (
+                                        <tr key={`${activity.activity_type_key}-${activity.activity_id}`}>
+                                            {canDelete && <td><input type="checkbox" aria-label={`Select ${activity.source} ${activity.activity_id}`} disabled={busy} checked={isSelected(activity)} onChange={(event) => {
+                                                setSelectedUserActivities((current) => event.target.checked
+                                                    ? [...current, {type: activity.activity_type_key, id: activity.activity_id}]
+                                                    : current.filter((selected) => selected.type !== activity.activity_type_key || selected.id !== activity.activity_id));
+                                            }}/></td>}
                                             <td>{activity.source}</td>
                                             <td>{activity.title}</td>
                                             <td>{activity.status || "-"}</td>
@@ -3212,11 +3273,16 @@ const AdminPage = () => {
                                     ))}
                                     {(!userActivityData.recent || userActivityData.recent.length === 0) && (
                                         <tr>
-                                            <td colSpan={4}>No recent activity found.</td>
+                                            <td colSpan={canDelete ? 5 : 4}>No activity found.</td>
                                         </tr>
                                     )}
                                     </tbody>
                                 </table>
+                            </div>
+                            <div className="admin-bank-copy-pagination">
+                                <button type="button" disabled={busy || userActivityPage <= 1} onClick={() => setUserActivityPage((page) => page - 1)}>Previous</button>
+                                <span>Page {userActivityData.pagination?.page || 1} of {userActivityData.pagination?.total_pages || 1}</span>
+                                <button type="button" disabled={busy || userActivityPage >= (userActivityData.pagination?.total_pages || 1)} onClick={() => setUserActivityPage((page) => page + 1)}>Next</button>
                             </div>
                         </section>
                     </>

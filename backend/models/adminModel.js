@@ -1233,7 +1233,7 @@ export async function resetIndividualAssessmentAttempts(payload) {
     };
 }
 
-export async function getUserActivitySummary(userId) {
+export async function getUserActivitySummary(userId, options = {}) {
     await ensureAdminTables();
     await Promise.all([
         ensureIndividualActivityTables(),
@@ -1315,11 +1315,17 @@ export async function getUserActivitySummary(userId) {
         countRowsIfTableExists("gamification_user_scores", `SELECT COUNT(*)::int AS count FROM gamification_user_scores WHERE user_id = $1`, [parsedUserId]),
     ]);
 
+    const pageSize = 15;
+    const totalActivities = individualSessions + tableSessions + quizSessions + userLogs;
+    const totalPages = Math.max(1, Math.ceil(totalActivities / pageSize));
+    const page = Math.min(totalPages, Math.max(1, Number.parseInt(options.page, 10) || 1));
     const recentRows = [
         ...(await getRowsIfTableExists(
             "individual_activity_sessions",
             `SELECT
                  'Individual' AS source,
+                 'individual' AS activity_type_key,
+                 session_id AS activity_id,
                  CONCAT(
                      CASE
                          WHEN activity_type = 'pre_test' THEN 'Pre-test'
@@ -1333,14 +1339,16 @@ export async function getUserActivitySummary(userId) {
                  started_at AS activity_at
              FROM individual_activity_sessions
              WHERE user_id = $1
-             ORDER BY started_at DESC
-             LIMIT 8`,
-            [parsedUserId]
+             ORDER BY started_at DESC NULLS LAST, session_id DESC
+             LIMIT $2`,
+            [parsedUserId, page * pageSize]
         )),
         ...(await getRowsIfTableExists(
             "table_group_sessions",
             `SELECT DISTINCT
                  'Group Activity' AS source,
+                 'group' AS activity_type_key,
+                 s.session_id AS activity_id,
                  COALESCE(s.case_title, tc.case_title, 'Group case study') AS title,
                  CASE WHEN s.submitted_at IS NOT NULL THEN 'submitted' ELSE 'in_progress' END AS status,
                  COALESCE(s.submitted_at, s.created_at) AS activity_at
@@ -1352,14 +1360,16 @@ export async function getUserActivitySummary(userId) {
                 OR s.submitted_by = $1
                 OR m.user_id IS NOT NULL
                 OR a.user_id IS NOT NULL
-             ORDER BY activity_at DESC
-             LIMIT 8`,
-            [parsedUserId]
+             ORDER BY activity_at DESC NULLS LAST, activity_id DESC
+             LIMIT $2`,
+            [parsedUserId, page * pageSize]
         )),
         ...(await getRowsIfTableExists(
             "quiz_sessions",
             `SELECT DISTINCT
                  'Fun Quiz' AS source,
+                 'quiz' AS activity_type_key,
+                 qs.quiz_session_id AS activity_id,
                  CONCAT('Quiz table ', qs.table_id) AS title,
                  qs.status,
                  COALESCE(qs.saved_at, qs.ended_at, qs.updated_at, qs.created_at) AS activity_at
@@ -1370,24 +1380,28 @@ export async function getUserActivitySummary(userId) {
                 OR qs.saved_by = $1
                 OR qm.user_id IS NOT NULL
                 OR qa.user_id IS NOT NULL
-             ORDER BY activity_at DESC
-             LIMIT 8`,
-            [parsedUserId]
+             ORDER BY activity_at DESC NULLS LAST, activity_id DESC
+             LIMIT $2`,
+            [parsedUserId, page * pageSize]
         )),
         ...(await getRowsIfTableExists(
             "user_logs",
             `SELECT
                  'Virtual Space Log' AS source,
+                 'log' AS activity_type_key,
+                 log_id AS activity_id,
                  action_type AS title,
                  'logged' AS status,
                  created_at AS activity_at
              FROM user_logs
              WHERE user_id = $1
-             ORDER BY created_at DESC
-             LIMIT 8`,
-            [parsedUserId]
+             ORDER BY created_at DESC NULLS LAST, log_id DESC
+             LIMIT $2`,
+            [parsedUserId, page * pageSize]
         )),
-    ].sort((a, b) => new Date(b.activity_at || 0) - new Date(a.activity_at || 0)).slice(0, 12);
+    ].sort((a, b) => new Date(b.activity_at || 0) - new Date(a.activity_at || 0)
+        || b.activity_id - a.activity_id || a.activity_type_key.localeCompare(b.activity_type_key))
+        .slice((page - 1) * pageSize, page * pageSize);
 
     return {
         user,
@@ -1406,6 +1420,7 @@ export async function getUserActivitySummary(userId) {
             gamification_scores: gamificationScores,
         },
         recent: recentRows,
+        pagination: {page, page_size: pageSize, total: totalActivities, total_pages: totalPages},
     };
 }
 

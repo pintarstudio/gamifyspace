@@ -12,6 +12,7 @@ import {
     deleteQuestionInstructionPresetData,
     deleteTopicMaterialData,
     deleteUserActivityData,
+    deleteSelectedUserActivityData,
     generateQuestionBankDrafts,
     generateTopicMaterialDigest,
     getAdminReferenceData,
@@ -43,6 +44,7 @@ router.patch("/course-groups/students", bulkAssignCourseGroupStudents);
 router.post("/topics/:topicId/reset-assessments", resetTopicAssessmentAttempts);
 router.get("/users/:userId/activities", getUserActivityData);
 router.delete("/users/:userId/activities", deleteUserActivityData);
+router.post("/users/:userId/activities/delete-selected", deleteSelectedUserActivityData);
 router.post("/resources/:resource", createAdminResourceData);
 router.patch("/resources/:resource/:id", updateAdminResourceData);
 router.delete("/resources/:resource/:id", deleteAdminResourceData);

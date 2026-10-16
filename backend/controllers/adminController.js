@@ -1,4 +1,5 @@
 import {copyQuestionBankItems} from "../models/questionBankCopyModel.js";
+import {deleteSelectedUserActivities} from "../models/userActivityDeleteModel.js";
 import {
     bulkAssignStudentsToCourseGroup,
     createAdminResource,
@@ -440,12 +441,27 @@ export async function getUserActivityData(req, res) {
         const admin = await getCurrentAdmin(req);
         if (!admin) return res.status(401).json({message: "Admin belum login"});
 
-        const data = await getUserActivitySummary(req.params.userId);
+        const data = await getUserActivitySummary(req.params.userId, {page: req.query.page});
         if (!data) return res.status(404).json({message: "User tidak ditemukan"});
         res.json(data);
     } catch (error) {
         console.error("Admin user activity summary error:", error);
         res.status(500).json({message: "Gagal mengambil aktivitas user"});
+    }
+}
+
+export async function deleteSelectedUserActivityData(req, res) {
+    try {
+        const admin = await getCurrentAdmin(req);
+        if (!admin) return res.status(401).json({message: "Admin belum login"});
+        if (String(admin.role || "").toLowerCase() !== "admin") return res.status(403).json({message: "Hanya admin yang dapat menghapus aktivitas user"});
+        const data = await deleteSelectedUserActivities(req.params.userId, req.body.activities);
+        if (!data) return res.status(404).json({message: "User tidak ditemukan"});
+        res.json({message: `${data.count} aktivitas berhasil dihapus beserta record dan skor terkait.`, data});
+    } catch (error) {
+        if (error.status === 400) return res.status(400).json({message: error.message});
+        console.error("Admin selected activity delete error:", error);
+        res.status(500).json({message: "Gagal menghapus aktivitas. Tidak ada perubahan yang disimpan."});
     }
 }
 
