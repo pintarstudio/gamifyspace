@@ -207,6 +207,7 @@ async function userCanAccessRoom(user, room) {
     if (room.room_type === "broadcast") return true;
     if (assertInstructor(user)) return true;
     if (!assertStudent(user)) return false;
+    if (!user.course_group_id || String(room.course_group_id) !== String(user.course_group_id)) return false;
     const member = await pool.query(
         `SELECT 1
          FROM chat_room_members
@@ -253,25 +254,6 @@ export async function listAvailableStudents(user) {
            AND role_id = $3
            AND user_id <> $4
            AND deleted_at IS NULL
-           AND NOT EXISTS (
-               SELECT 1
-               FROM chat_room_members crm
-               JOIN chat_rooms cr ON cr.chat_room_id = crm.chat_room_id
-               WHERE crm.user_id = users.user_id
-                 AND cr.course_id = users.course_id
-                 AND cr.room_type = 'group'
-                 AND cr.deleted_at IS NULL
-           )
-           AND NOT EXISTS (
-               SELECT 1
-               FROM chat_room_invites cri
-               JOIN chat_rooms cr ON cr.chat_room_id = cri.chat_room_id
-               WHERE cri.invited_user_id = users.user_id
-                 AND cri.status = 'pending'
-                 AND cr.course_id = users.course_id
-                 AND cr.room_type = 'group'
-                 AND cr.deleted_at IS NULL
-           )
          ORDER BY name ASC`,
         [user.course_id, user.course_group_id, STUDENT_ROLE_ID, user.user_id]
     );
@@ -370,11 +352,12 @@ export async function listRoomsForUser(user) {
          LEFT JOIN chat_messages cm ON cm.chat_room_id = cr.chat_room_id AND cm.deleted_at IS NULL
          WHERE mine.user_id = $2
            AND cr.course_id = $1
+           AND cr.course_group_id = $3
            AND cr.room_type = 'group'
            AND cr.deleted_at IS NULL
          GROUP BY cr.chat_room_id, cg.group_name, creator.name, mine.last_read_at
          ORDER BY last_activity_at DESC, cr.created_at DESC`,
-        [user.course_id, user.user_id]
+        [user.course_id, user.user_id, user.course_group_id]
     );
     return result.rows;
 }
@@ -387,25 +370,8 @@ export async function createStudentGroupRoom(user, payload) {
         throw error;
     }
 
-    const existingMembership = await pool.query(
-        `SELECT cr.chat_room_id
-         FROM chat_room_members crm
-         JOIN chat_rooms cr ON cr.chat_room_id = crm.chat_room_id
-         WHERE crm.user_id = $1
-           AND cr.course_id = $2
-           AND cr.room_type = 'group'
-           AND cr.deleted_at IS NULL
-         LIMIT 1`,
-        [user.user_id, user.course_id]
-    );
-    if (existingMembership.rows[0]) {
-        const error = new Error("Exit your current group chat before creating a new one.");
-        error.status = 409;
-        throw error;
-    }
-
     const rawMemberIds = Array.isArray(payload?.member_ids) ? payload.member_ids : [];
-    const memberIds = [...new Set(rawMemberIds.map((id) => Number.parseInt(id, 10)).filter(Number.isFinite))];
+    const memberIds = [...new Set(rawMemberIds.map((id) => Number.parseInt(id, 10)).filter((id) => Number.isFinite(id) && id !== Number(user.user_id)))];
     if (memberIds.length < 1) {
         const error = new Error("Choose at least one classmate.");
         error.status = 400;
@@ -426,24 +392,6 @@ export async function createStudentGroupRoom(user, payload) {
     if (members.rows.length !== memberIds.length) {
         const error = new Error("Students must be in your own group.");
         error.status = 403;
-        throw error;
-    }
-
-    const busyMembers = await pool.query(
-        `SELECT u.name
-         FROM chat_room_members crm
-         JOIN chat_rooms cr ON cr.chat_room_id = crm.chat_room_id
-         JOIN users u ON u.user_id = crm.user_id
-         WHERE crm.user_id = ANY($1::int[])
-           AND cr.course_id = $2
-           AND cr.room_type = 'group'
-           AND cr.deleted_at IS NULL
-         ORDER BY u.name ASC`,
-        [memberIds, user.course_id]
-    );
-    if (busyMembers.rows.length > 0) {
-        const error = new Error(`${busyMembers.rows[0].name} is already in a group chat.`);
-        error.status = 409;
         throw error;
     }
 
@@ -630,14 +578,14 @@ export async function inviteStudentToGroupRoom(user, roomId, invitedUserId) {
          FROM chat_room_members crm
          JOIN chat_rooms cr ON cr.chat_room_id = crm.chat_room_id
          WHERE crm.user_id = $1
-           AND cr.course_id = $2
+           AND cr.chat_room_id = $2
            AND cr.room_type = 'group'
            AND cr.deleted_at IS NULL
          LIMIT 1`,
-        [student.user_id, user.course_id]
+        [student.user_id, room.chat_room_id]
     );
     if (existingMembership.rows[0]) {
-        const error = new Error(`${student.name} is already in a group chat.`);
+        const error = new Error(`${student.name} is already in this group chat.`);
         error.status = 409;
         throw error;
     }
@@ -717,22 +665,6 @@ export async function respondToGroupInvite(user, inviteId, action) {
         }
 
         if (normalizedAction === "accepted") {
-            const existingMembership = await client.query(
-                `SELECT 1
-                 FROM chat_room_members crm
-                 JOIN chat_rooms cr ON cr.chat_room_id = crm.chat_room_id
-                 WHERE crm.user_id = $1
-                   AND cr.course_id = $2
-                   AND cr.room_type = 'group'
-                   AND cr.deleted_at IS NULL
-                 LIMIT 1`,
-                [user.user_id, user.course_id]
-            );
-            if (existingMembership.rows[0]) {
-                const error = new Error("Exit your current group chat before accepting an invite.");
-                error.status = 409;
-                throw error;
-            }
             await client.query(
                 `INSERT INTO chat_room_members (chat_room_id, user_id, last_read_at)
                  VALUES ($1, $2, NOW())

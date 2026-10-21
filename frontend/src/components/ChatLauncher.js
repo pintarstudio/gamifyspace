@@ -94,7 +94,8 @@ export default function ChatLauncher({currentUser}) {
     const broadcastRoomId = bootstrap.broadcast?.room?.chat_room_id;
     const selectedRoom = bootstrap.rooms.find((room) => String(room.chat_room_id) === String(selectedRoomId));
     const unreadTotal = Number(bootstrap.unread_total || 0);
-    const hasGroupRoom = bootstrap.rooms.length > 0;
+    const invitableStudents = bootstrap.available_students.filter((student) => !(roomData?.members || [])
+        .some((member) => String(member.user_id) === String(student.user_id)));
     const pendingInvites = bootstrap.pending_invites || [];
 
     const updateText = (value, setter) => {
@@ -670,7 +671,7 @@ export default function ChatLauncher({currentUser}) {
         <section className="chat-panel-body chat-panel-body--split">
             <div className="chat-room-list">
                 {renderPendingInvites()}
-                {!isInstructor && !hasGroupRoom && (
+                {!isInstructor && (
                     <button className="chat-new-room" type="button" onClick={() => setCreatingRoom(true)}>
                         New group chat
                     </button>
@@ -714,7 +715,7 @@ export default function ChatLauncher({currentUser}) {
                             </div>
                             {!isInstructor && (
                                 <div className="chat-room-actions">
-                                    {canSendGroupMessage && bootstrap.available_students.length > 0 && (
+                                    {canSendGroupMessage && invitableStudents.length > 0 && (
                                         <button
                                             className="chat-invite-room"
                                             type="button"
@@ -745,7 +746,7 @@ export default function ChatLauncher({currentUser}) {
                                     aria-label="Choose classmate to invite"
                                 >
                                     <option value="">Choose classmate</option>
-                                    {bootstrap.available_students.map((student) => (
+                                    {invitableStudents.map((student) => (
                                         <option key={student.user_id} value={student.user_id}>
                                             {student.name}
                                         </option>
