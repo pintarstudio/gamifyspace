@@ -196,13 +196,7 @@ If you change ports or access the frontend from another hostname, update its API
 
 ### Administrator
 
-On a compatible database where the default admin account has not already been created, initialization creates:
-
-| Username | Initial Password |
-| --- | --- |
-| `admin` | `gamifyitadmin` |
-
-An existing account may have a different password. Change the default password before making an installation publicly accessible. The **Change Password** menu signs you out after a successful change.
+Sign in with the administrator credentials provided by your project maintainer. The **Change Password** menu signs you out after a successful change.
 
 Suggested setup order:
 
@@ -220,7 +214,7 @@ Suggested setup order:
 
 Use `/instructor` with an enabled login account linked to a user whose role is Instructor. Enter credentials, select an available course, choose an avatar, and sign in to the virtual classroom.
 
-Automatically provisioned instructor accounts initially use `12345678`, unless changed. The username is generally based on the email address before `@`, with a suffix if needed; **User Admin** shows the exact value. A generic account that is not linked to an instructor user cannot complete the instructor login flow.
+Obtain instructor credentials from your administrator. The username is generally based on the email address before `@`, with a suffix if needed; **User Admin** shows the exact value. A generic account that is not linked to an instructor user cannot complete the instructor login flow.
 
 Instructors can also sign in through `/gamifyitadmin` for the dashboard. Admin Config is reserved for administrators.
 
