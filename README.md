@@ -4,7 +4,7 @@ A course-based learning platform that combines individual exercises, group case 
 
 The application is presented to users as **GamifyIt**.
 
-> **Setup status:** The application can run against an existing compatible PostgreSQL database. A clean database schema and starter-data package are not included yet, so a fresh installation cannot currently be completed from this repository alone. The steps below document the setup available today; missing steps are listed at the end.
+> **Fresh installation:** The repository includes a public database schema, 66 non-personal starter records, and an interactive administrator setup command. No existing accounts, password hashes, student records, or activity history are included. Follow [Database Setup](#database-setup) before starting the application.
 
 ## Contents
 
@@ -58,7 +58,7 @@ There is no root-level npm application. Install dependencies and run commands in
 
 - Git.
 - Node.js and npm. A tested Node.js version range has not been documented yet.
-- PostgreSQL and an existing database compatible with this application.
+- PostgreSQL and its `createdb`/`psql` command-line tools. The schema was exported from PostgreSQL 14.23; use a current, patched PostgreSQL client that supports `\restrict` commands.
 - An OpenAI API key if you want AI digest, question-generation, or feedback features.
 
 The frontend uses React, React Router, PixiJS, and Socket.IO Client. The backend uses Express, Socket.IO, PostgreSQL, and PostgreSQL-backed sessions.
@@ -90,7 +90,12 @@ cd ..
 
 ## Configuration
 
-Create the following local configuration files. Both `.env` paths are excluded from Git. Example files have not been packaged yet; the templates below contain placeholders only.
+Copy the example files from the repository root, then replace their placeholders with your own configuration. Both `.env` paths are excluded from Git. Do not overwrite an existing installation's configuration.
+
+```bash
+cp backend/.env.example backend/.env
+cp frontend/.env.example frontend/.env
+```
 
 ### Backend: `backend/.env`
 
@@ -147,20 +152,39 @@ Restart the backend after changing its environment. Restart the frontend develop
 
 ## Database Setup
 
-**This step currently requires an existing compatible database.**
+The files in `database/` are for a **new, empty database**, not upgrades or restores over an existing installation:
 
-Some schema helpers create or update feature tables on startup, but they assume core tables such as `users`, `courses`, `topics`, and `avatars` already exist. An empty PostgreSQL database is therefore not sufficient. The application also stores browser sessions in `user_sessions`.
+| File | Contents |
+| --- | --- |
+| [`database/schema.sql`](database/schema.sql) | All 34 tables, sequences, indexes, constraints, and relationships; no table data, source ownership, or source grants |
+| [`database/seed.sql`](database/seed.sql) | 2 roles, 10 levels, 50 avatar definitions, and 4 settings |
 
-For now:
+Run from the repository root. Replace the host, database username, and database name with the values you chose for `backend/.env`:
 
-1. Obtain a compatible database through an authorized project maintainer.
-2. Restore it into your own PostgreSQL instance using the appropriate PostgreSQL restore tool for its format.
-3. Set the database connection details in `backend/.env`.
-4. Start the backend and check for schema-initialization errors before using the frontend.
+```bash
+createdb -h localhost -U your_database_user gamifyspace
+psql -h localhost -U your_database_user -d gamifyspace -v ON_ERROR_STOP=1 --single-transaction -f database/schema.sql
+psql -h localhost -U your_database_user -d gamifyspace -v ON_ERROR_STOP=1 -f database/seed.sql
+```
 
-Use a database account with the permissions needed for the application's startup schema changes, not just read-only access.
+These PostgreSQL commands do not read `backend/.env`; use matching connection values (and `-p` if using a non-default port). PostgreSQL will request authentication when needed. Do not put passwords in shared command examples.
 
-> A schema-only installation script and non-personal starter data will be added later. Do not use or publish production/student database dumps as a public installation package.
+Use a database account with the permissions needed for schema creation and the application's startup schema changes, not just read-only access.
+
+The starter data contains Student/Instructor roles, levels Rookie through Legend, and the avatar definitions matching the bundled images. Maintenance starts off, both maintenance schedules are empty, and public-link account creation starts disabled. All other tables start empty. Groups A/B/C are created when you add a course.
+
+Next, create your first administrator privately:
+
+```bash
+cd backend
+npm run setup:admin
+```
+
+The command prompts for a username and a password of at least 12 characters. Password entry is hidden and must be confirmed. It hashes the password with your local `ADMIN_PASSWORD_SECRET` and refuses to replace an existing administrator or reuse another account's username. Run it in an interactive terminal after importing both SQL files and configuring `backend/.env`.
+
+Startup no longer creates generic admin or instructor login accounts. Existing installations keep their existing accounts; do not run the SQL installation files against them. Linked instructor accounts continue to be provisioned through user administration.
+
+To verify the installation package independently, run `npm run test:install` from `backend/`. This requires permission to create a temporary database and the `psql` client. It restores and tests a new temporary database, then removes only that database; it does not import data into your configured application database.
 
 ## Run Locally
 
@@ -196,7 +220,7 @@ If you change ports or access the frontend from another hostname, update its API
 
 ### Administrator
 
-Sign in with the administrator credentials provided by your project maintainer. The **Change Password** menu signs you out after a successful change.
+Sign in with the credentials you chose using `npm run setup:admin`, or those provided by your administrator for an existing installation. The **Change Password** menu signs you out after a successful change.
 
 Suggested setup order:
 
@@ -249,14 +273,16 @@ Before exposing a deployment:
 - Change default passwords and restrict the demo login route.
 - Back up the database outside the public source tree and keep `.env` files private.
 
-A provider-specific deployment guide, process-manager setup, and database bootstrap instructions are still to come.
+A provider-specific deployment guide and process-manager setup are still to come. The SQL files provide a new-installation baseline; they are not a versioned migration system for existing databases.
 
 ## Troubleshooting
 
 | Problem | What to Check |
 | --- | --- |
 | Backend cannot connect to PostgreSQL | Database service, hostname, port, database name, credentials, and connection permissions |
-| Startup reports missing tables or relations | A compatible database has not been initialized; startup helpers do not bootstrap all core tables |
+| Startup reports missing tables or relations | Import `database/schema.sql` and `database/seed.sql` into a new database before startup; do not use them to patch an existing installation |
+| No administrator account exists | Run `npm run setup:admin` from `backend/` after configuring the database and password secret |
+| `psql` rejects a `\restrict` command | Upgrade to a current, patched PostgreSQL client; the schema includes the export tool's restore restrictions |
 | Login/session requests fail | `SESSION_SECRET`, database session storage, frontend/API hostname consistency, allowed origins, and cookie settings |
 | Admin/instructor password stops working after a move | Preserve the original `ADMIN_PASSWORD_SECRET` or reset the affected passwords |
 | Instructor has no courses or cannot log in | Instructor role, enabled linked login account, and active course association |
@@ -268,9 +294,10 @@ A provider-specific deployment guide, process-manager setup, and database bootst
 
 ## Documentation Still to Come
 
-- [ ] Clean PostgreSQL schema and installation/upgrade procedure.
-- [ ] Minimal starter data for a new installation, without student or production records.
-- [ ] Dedicated `.env.example` files.
+- [x] Clean PostgreSQL schema and new-installation instructions.
+- [x] Minimal starter data for a new installation, without student or production records.
+- [x] Dedicated `.env.example` files and private administrator setup.
+- [ ] Versioned upgrade/migration procedure for existing installations.
 - [ ] Tested Node.js, npm, and PostgreSQL version matrix.
 - [ ] Screenshots and a fuller student/instructor walkthrough.
 - [ ] Provider-specific deployment and backup/restore instructions.

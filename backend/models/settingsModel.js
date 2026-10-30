@@ -13,7 +13,7 @@ const DEFAULT_SETTINGS = [
         name: "Allow URL Login User Creation",
         description: "Allow public student access links to create a new student account when the email is not registered yet.",
         type: "boolean",
-        booleanValue: true,
+        booleanValue: false,
     },
     {
         key: SETTING_KEYS.MAINTENANCE_MODE,

@@ -139,28 +139,6 @@ async function createAdminTables() {
         WHERE user_id IS NOT NULL
     `);
 
-    await pool.query(
-        `INSERT INTO useradmin (username, password_hash, role, is_disabled)
-         VALUES
-             ('admin', $1, 'admin', FALSE),
-             ('instructor', $2, 'instructor', FALSE)
-         ON CONFLICT (username)
-         DO UPDATE SET
-             role = EXCLUDED.role,
-             is_disabled = EXCLUDED.is_disabled,
-             updated_at = NOW()`,
-        [hashPassword("gamifyitadmin"), hashPassword(DEFAULT_INSTRUCTOR_ADMIN_PASSWORD)]
-    );
-
-    await pool.query(
-        `UPDATE useradmin
-         SET password_hash = $1,
-             updated_at = NOW()
-         WHERE LOWER(username) = 'instructor'
-           AND password_hash = $2`,
-        [hashPassword(DEFAULT_INSTRUCTOR_ADMIN_PASSWORD), hashPassword("gamifyitinstructor")]
-    );
-
     await ensureTopicAdminSchema();
     await ensureCourseInstructorSchema();
     await ensureSettingsTable();
