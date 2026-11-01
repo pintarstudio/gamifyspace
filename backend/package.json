@@ -4,6 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "setup:admin": "node scripts/setup-admin.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

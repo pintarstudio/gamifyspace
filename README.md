@@ -2,11 +2,13 @@
 
 **Legacy version 1.0.0** preserves the original development for GamifyIt: a browser-based learning environment with a 2.5D spatial interface, individual exercises, collaborative case studies, quizzes, gamification, and AI feedback.
 
-This guide applies to **`release/legacy-v1`**, based on application commit `aa0554b` from 31 May 2026. The `v1.0.0` tag preserves that original code. Later README improvements on this branch do not move the tag or change `main`.
+This guide applies to **`release/legacy-v1`**, based on application commit `aa0554b` from 31 May 2026. This branch also includes the clean installation SQL and an administrator setup command. The `v1.0.0` tag preserves the original code and does not contain these later installation additions. Neither the tag nor `main` is changed by this guide.
 
 ## Before you begin
 
-The application source is available here, but **this branch does not include a complete database bootstrap or seed dataset**. You need a compatible, sanitized PostgreSQL backup from the maintainer before you can complete installation. Starting the backend against an empty database is not sufficient: its startup helpers extend an existing schema rather than create the whole system.
+**A clean installation database is included at [`database/install.sql`](database/install.sql).** It supplies the complete schema and built-in reference data. You do not need an existing database backup or any real student data.
+
+The SQL is derived from the development database schema in an isolated preparation process. It contains 33 tables, 50 built-in avatars, 2 roles, 5 legacy levels, and 2 default settings. Courses, groups, topics, questions, cases, materials, accounts, chats, scores, activities, sessions, and logs start empty. No existing password hashes or API keys are included.
 
 Do not use a live production database for a legacy installation. Startup code changes schemas and seeds settings, admin accounts, and level definitions.
 
@@ -15,8 +17,8 @@ Do not use a live production database for a legacy installation. Startup code ch
 | Component | Requirement |
 | --- | --- |
 | Node.js and npm | Node.js 20 or newer; choose a supported Node release for hosting |
-| PostgreSQL | A running server and matching PostgreSQL client tools (`psql`, `createdb`, `pg_restore`) |
-| Database snapshot | A schema and seed dataset compatible with this legacy version |
+| PostgreSQL | PostgreSQL 13 or newer, with client tools (`psql`, `createuser`, `createdb`) |
+| Installation database | Included as `database/install.sql`; restore it into a new database |
 | Git | To clone the release branch |
 | OpenAI API key | Required for AI feedback and question generation, not basic server startup |
 | Telegram bot | Optional, for student-login notifications |
@@ -31,7 +33,7 @@ git clone --branch release/legacy-v1 --single-branch https://github.com/pintarst
 cd gamifyit-legacy
 ```
 
-For an exact copy of the original release instead of the branch's latest documentation:
+For an exact copy of the original source release, without the installation additions described here:
 
 ```bash
 git clone --branch v1.0.0 --single-branch https://github.com/pintarstudio/gamifyspace.git gamifyit-v1
@@ -41,7 +43,7 @@ Run subsequent commands from the `gamifyit-legacy` directory unless a step says 
 
 ## 2. Prepare PostgreSQL
 
-Obtain a **sanitized, legacy-compatible custom-format dump** from the maintainer. It must contain the base schema and reference data, including courses, users, avatars, topics, activity content, application sessions, and the Express session-store table `user_sessions`. Do not publish real student records or production backups.
+Use the included SQL file. It defines all base tables, including the `user_sessions` session store, and intentionally provides no courses or student accounts. The installer adds their own content through the admin pages after setup.
 
 Create a separate database role and database. These commands connect as a PostgreSQL administrator and prompt for passwords:
 
@@ -53,14 +55,13 @@ createdb -h localhost -U postgres --owner=gamifyit_legacy_user gamifyit_legacy
 Restore into the newly created, empty database:
 
 ```bash
-pg_restore \
+psql \
   --host=localhost \
   --username=gamifyit_legacy_user \
   --dbname=gamifyit_legacy \
-  --no-owner \
-  --no-privileges \
-  --exit-on-error \
-  /path/to/legacy-compatible.dump
+  --set=ON_ERROR_STOP=1 \
+  --single-transaction \
+  --file=database/install.sql
 ```
 
 Restoring as the application role makes it the owner of the restored objects. Ownership matters because this version runs `ALTER TABLE` and index-creation statements during initialization; read/write grants alone are not enough.
@@ -71,7 +72,7 @@ Check that the base tables are present:
 psql -h localhost -U gamifyit_legacy_user -d gamifyit_legacy -c '\dt'
 ```
 
-If the maintainer provides plain SQL instead, use `psql --set=ON_ERROR_STOP=1 --file=/path/to/legacy-compatible.sql` with the same host, username, and database. The SQL must not retain ownership statements for unavailable production roles.
+Run the import once, into an empty database. It deliberately does not drop or overwrite existing tables. If you accidentally use an occupied database, the transaction fails without applying a partial installation. Accounts, content, and activity sequences start at ID 1; reference-data sequences continue after their seeded IDs.
 
 ## 3. Configure the backend
 
@@ -99,7 +100,7 @@ LOGIN_NOTIFICATION_TIME_ZONE=Asia/Jakarta
 
 Generate each secret separately, for example with `openssl rand -hex 32`. Keep `.env` private; it is excluded from Git.
 
-`ADMIN_PASSWORD_SECRET` is used to hash admin passwords. Passwords restored from another installation will not verify with a different secret. For a sanitized installation, reset the local admin password using the recovery steps below rather than reuse a production secret.
+`ADMIN_PASSWORD_SECRET` is used to hash admin passwords. Choose your own secret and keep it stable. Changing it later invalidates existing admin password hashes; use the setup command below to reset your local administrator if needed.
 
 The backend also reads `OPENAI_FEEDBACK_MODEL` and `OPENAI_QUESTION_MODEL`. Leaving them unset retains the legacy defaults. If configuring them, choose models compatible with the code's Responses API and structured-output requests. Model selection is also influenced by question-generation settings in the app.
 
@@ -128,7 +129,23 @@ cd ..
 
 Both folders have their own `package.json` and lockfile. There is no root-level install or start command. Keep lockfiles unchanged when reproducing the legacy release.
 
-## 6. Start locally
+## 6. Create your administrator
+
+The installation database contains no accounts. After installing backend dependencies and configuring `backend/.env`, create the `admin` account with your own password **before starting the server**. These commands assume Bash and prompt without echoing the password:
+
+```bash
+cd backend
+read -r -s -p "Administrator password (at least 12 characters): " ADMIN_BOOTSTRAP_PASSWORD
+echo
+export ADMIN_BOOTSTRAP_PASSWORD
+npm run setup:admin
+unset ADMIN_BOOTSTRAP_PASSWORD
+cd ..
+```
+
+The command uses the `ADMIN_PASSWORD_SECRET` from `backend/.env`. It creates or updates only the `admin` account; it does not create courses, students, or sample activities. Run it again to reset the local administrator password. Never point the setup command at someone else's database.
+
+## 7. Start locally
 
 In one terminal:
 
@@ -161,45 +178,26 @@ curl http://localhost:4000/api/avatars
 
 The root response should contain `"status":"ok"`. The avatars endpoint should return an array. A healthy root response alone does not prove the database is ready: startup initialization errors are logged separately.
 
-### First login and reference data
+### First login and your own data
 
-For a newly initialized admin account, this version seeds username **`admin`** with password **`gamifyitadmin`**. A restored account may already have a different password. After login, change it at `/adminpassword` before exposing the installation.
+Log in at `/gamifyitadmin` as **`admin`**, using the password you chose in step 6. You can change it later at `/adminpassword`.
+
+An empty course or student list is expected on a clean installation. To configure the application:
+
+1. Create your courses in Course Admin. Instructor fields can initially be left blank.
+2. Review the automatically created A/B/C groups in Course Group Admin, choosing whether gamification and the spatial interface are enabled. Add other groups if needed.
+3. Create your instructor and student users in Student Admin with the appropriate roles and group assignments. Assign instructors to their courses and configure their linked instructor accounts in User Admin.
+4. Create topics in Topic Admin and configure which activities or tests are visible.
+5. Add your own questions and cases in the question-bank admin pages, or provide your own course material and generate questions using your own OpenAI API key.
+6. Use `/demo` to select a configured course, student, and avatar. Instructor login is at `/instructor`.
+
+Automatic student creation through access links and maintenance mode are both off by default. Adjust these settings deliberately in Settings Admin.
 
 The legacy student demo password is **`adminadmin`**, hard-coded in `backend/controllers/authController.js`. Students also need an existing course and avatar. This is a pilot/demo access mechanism, not individual student-password authentication.
 
 An instructor account must be linked to a user with the Instructor role and an assigned course. A generic seeded instructor account without that linkage cannot access instructor features.
 
-If course or student lists are empty, check the restored seed data. Use the admin pages to manage courses, topics, groups, students, avatars, and question banks. If student login is blocked by maintenance mode, inspect it in Settings.
-
-### Reset an admin password after restoring a database
-
-Run this from `backend/`, after the compatible schema is restored. The commands below assume Bash and prompt without echoing the password:
-
-```bash
-read -r -s -p "New admin password (at least 8 characters): " ADMIN_BOOTSTRAP_PASSWORD
-echo
-export ADMIN_BOOTSTRAP_PASSWORD
-node --input-type=module <<'JS'
-import 'dotenv/config';
-import { pool } from './db/index.js';
-import { ensureAdminTables, hashPassword } from './models/adminModel.js';
-
-try {
-  const password = process.env.ADMIN_BOOTSTRAP_PASSWORD || '';
-  if (password.length < 8) throw new Error('Use at least 8 characters.');
-  await ensureAdminTables();
-  const result = await pool.query(
-    'UPDATE useradmin SET password_hash = $1, updated_at = NOW() WHERE username = $2',
-    [hashPassword(password), 'admin']
-  );
-  if (result.rowCount !== 1) throw new Error('Expected exactly one admin account.');
-  console.log('Local admin password updated.');
-} finally {
-  await pool.end();
-}
-JS
-unset ADMIN_BOOTSTRAP_PASSWORD
-```
+The historical backend still has fallback account seeding: if no `admin` account exists at startup, it creates one with the original default password. It also creates an unlinked generic instructor account. Step 6 prevents the admin fallback by creating your chosen password first. Use properly linked instructor accounts of your own rather than assigning the generic account to a real instructor.
 
 ### Optional local launcher
 
@@ -300,11 +298,12 @@ Reinstall dependencies and rebuild only when relevant files change; restart PM2 
 
 | Symptom | Check |
 | --- | --- |
-| `relation ... does not exist` | Restore a compatible base schema and seed dataset. Startup helpers are not a complete migration system. |
+| `relation ... does not exist` | Import `database/install.sql` into a new database before running setup or starting the server. |
 | `must be owner of table ...` | Restore objects as the application role, or have the database administrator correct their ownership. |
 | Database authentication failure | Match `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, and `DB_PASSWORD`; confirm PostgreSQL permits that connection. |
 | `ADMIN_PASSWORD_SECRET is not configured` | Create `backend/.env`, set the secret, and start Node from `backend/`. |
-| Admin password rejected after restore | The restored hash may use another secret. Reset the local admin password with the procedure above. |
+| Admin password rejected | Check `ADMIN_PASSWORD_SECRET` and rerun step 6 with your chosen password. |
+| Course or student lists are empty | This is expected after installation. Create your own courses, groups, and users through the admin pages. |
 | Page stays at `Memuat sesi...` | Check browser network errors, the backend, and `REACT_APP_API_URL`; restart/rebuild after changing frontend variables. |
 | CORS errors or avatars do not move | Check `allowedOrigins`, Socket.IO URL, WebSocket proxying, and the browser's exact origin. |
 | Nginx returns `502` | Check `pm2 status`, `pm2 logs gamifyit-legacy --lines 60`, backend port, and PostgreSQL connectivity. |
@@ -323,6 +322,9 @@ backend/
   routes/          API routes
   services/        AI feedback, question generation, and notifications
   server.js        Express server and Socket.IO
+  scripts/         Administrator setup
+database/
+  install.sql      Complete schema and built-in reference data only
 frontend/
   public/          Maps, avatars, and other static assets
   src/             React pages, components, and spatial interface
@@ -334,6 +336,6 @@ deploy.sh          Local development launcher
 - Application baseline: `aa0554b4b59ce2e6105669b290e0de9013f0b2d1`.
 - Original release: [`v1.0.0`](https://github.com/pintarstudio/gamifyspace/releases/tag/v1.0.0).
 - Legacy branch: [`release/legacy-v1`](https://github.com/pintarstudio/gamifyspace/tree/release/legacy-v1).
-- Database snapshots, `.env` files, private credentials, and server-specific deployment scripts are not bundled.
+- A clean installation database is included. Existing development/production data, `.env` files, private credentials, and server-specific deployment scripts are not bundled.
 - Dependency audit findings may exist in this archived stack. Review changes in an isolated environment rather than applying automatic breaking upgrades to reproduce the pilot.
 - `main` is a separate development line; these instructions do not describe its current setup.
