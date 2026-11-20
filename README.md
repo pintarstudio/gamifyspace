@@ -1,8 +1,6 @@
-# GamifySpace
+# GamifyIt with 2.5D Space
 
 A course-based learning platform that combines individual exercises, group case studies, quizzes, and gamification. Students can participate through a virtual classroom or a standard activity interface, while instructors monitor participation and progress.
-
-The application is presented to users as **GamifyIt**.
 
 > **Fresh installation:** The repository includes a public database schema, 66 non-personal starter records, and an interactive administrator setup command. No existing accounts, password hashes, student records, or activity history are included. Follow [Database Setup](#database-setup) before starting the application.
 
