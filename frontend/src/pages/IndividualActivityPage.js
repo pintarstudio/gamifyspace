@@ -826,6 +826,11 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
                 </section>
 
                 {isCaseStudy ? (
+                    <>
+                    <section className="individual-panel individual-answer">
+                        <h2>Your Answer</h2>
+                        <MarkdownText>{activeSession.answers?.[0]?.answer_text || "Belum ada jawaban yang tersimpan."}</MarkdownText>
+                    </section>
                     <section className="individual-panel individual-feedback">
                         <div className="individual-section-title">
                             <h2>AI Feedback</h2>
@@ -845,6 +850,7 @@ const IndividualActivityPage = ({embedded = false, onBack, activitySearchParams 
                             <p className="individual-xp-reason">{activeSession.feedback.xp_reason}</p>
                         )}
                     </section>
+                    </>
                 ) : (
                     <section className="individual-panel">
                         <div className="individual-section-title">

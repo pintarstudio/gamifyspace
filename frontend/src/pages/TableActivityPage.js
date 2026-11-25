@@ -948,7 +948,7 @@ const TableActivityPage = ({embedded = false, noVirtual = false, onBack, activit
                                                 <span>{new Date(answer.updated_at).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})}</span>
                                             </div>
                                         </div>
-                                        <p>{answer.answer_text}</p>
+                                        <MarkdownText>{answer.answer_text}</MarkdownText>
                                     </article>
                                 ))}
                             </div>

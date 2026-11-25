@@ -3,6 +3,7 @@ import {useNavigate} from "react-router-dom";
 import {apiGet, apiPost} from "../api/apiClient";
 import ActivityBaselineCard from "../components/ActivityBaselineCard";
 import ActivityHistoryList from "../components/ActivityHistoryList";
+import CaseStudyAnswers from "../components/CaseStudyAnswers";
 import AvatarIcon from "../components/AvatarIcon";
 import ChatLauncher from "../components/ChatLauncher";
 import DashboardTabIcon from "../components/DashboardTabIcon";
@@ -580,6 +581,8 @@ const NoVirtualSpacePage = ({user, setLoggedIn, setUser}) => {
                                     </section>
 
                                     {selectedActivity.question_kind === "case_study" ? (
+                                        <>
+                                        <CaseStudyAnswers individual answers={selectedActivity.answers} members={selectedActivity.members} />
                                         <section className="activity-detail-section">
                                             <h2>AI Feedback</h2>
                                             {selectedActivity.feedback_status === "error" && (
@@ -610,6 +613,7 @@ const NoVirtualSpacePage = ({user, setLoggedIn, setUser}) => {
                                                 <p className="individual-history-xp-reason">{selectedActivity.feedback.xp_reason}</p>
                                             )}
                                         </section>
+                                        </>
                                     ) : (
                                         <section className="activity-detail-section">
                                             <h2>Review</h2>
@@ -784,21 +788,8 @@ const NoVirtualSpacePage = ({user, setLoggedIn, setUser}) => {
                                 </>
                             )}
 
-                            {selectedActivity.answers?.length > 0 && selectedActivity.activity_type !== "quiz" && selectedActivity.activity_type !== "individual" && (
-                                <section className="activity-detail-section">
-                                    <h2>Answers</h2>
-                                    <div className="history-answer-list">
-                                        {selectedActivity.answers.map((answer) => (
-                                            <article key={answer.answer_id || answer.user_id || answer.question_id}>
-                                                <div className="history-answer-author">
-                                                    {showHistoryAvatars && <AvatarIcon path={answer.avatar_public_path} alt={answer.name} />}
-                                                    <strong>{answer.name || "My Answer"}</strong>
-                                                </div>
-                                                <p>{answer.answer_text}</p>
-                                            </article>
-                                        ))}
-                                    </div>
-                                </section>
+                            {selectedActivity.activity_type !== "quiz" && selectedActivity.activity_type !== "individual" && (
+                                <CaseStudyAnswers answers={selectedActivity.answers} members={selectedActivity.members} showAvatars={showHistoryAvatars} />
                             )}
 
                             {selectedActivity.combined_feedback && (
